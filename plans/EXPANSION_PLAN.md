@@ -120,10 +120,13 @@ Each hero follows its **own Pokemon identity**, not the role of what it replaces
 - `Primrose` — for Treecko (growth mechanic, replaces Sunkern which used Primrose)
 - `replica.Healer` — for Togepi (healer, replaces Darumaka which was on r but Happiny on r uses Healer)
 
-### Pixel Art
-- Source PMD sprites from **pmdcollab.org** (credited by original mod)
-- Encode using **tann.fun/things/dice-img**
-- ~70+ sprites needed (hero T1/T2/T3 + monsters + captures + bosses + spells)
+### Pixel Art — AUTOMATED
+- **121 sprites already encoded** and saved to `tools/sprite_encodings.json`
+- Source: PMDCollab portraits (40x40 PNG), downloaded programmatically
+- Encoder: `tools/encode_sprite.js` — ported from tann.fun/things/dice-img official encoder
+- Batch pipeline: `tools/batch_sprites.js` — downloads + encodes all Pokemon in one run
+- Cached PNGs in `tools/sprites/` for re-encoding at different compression levels
+- To add more sprites: add entries to `POKEMON_LIST` in `batch_sprites.js` and re-run
 
 ---
 
@@ -287,10 +290,10 @@ Remove Arceus capture from Line 63 (Lillipup compound line). Keep Caterpie→But
 ### F. Porygon Helper (Line 67)
 Keep — Porygon is NOT being replaced.
 
-### G. Pixel Art
-- Source PMD sprites from **pmdcollab.org**
-- Encode using **tann.fun/things/dice-img**
-- ~70+ sprites needed
+### G. Pixel Art — COMPLETE
+- All 121 sprites already encoded via automated pipeline (`tools/batch_sprites.js`)
+- Encoded strings in `tools/sprite_encodings.json` — lookup by Pokemon name
+- No manual sprite work needed. Re-run pipeline to add/update sprites.
 
 ---
 
@@ -309,8 +312,8 @@ Keep — Porygon is NOT being replaced.
 ### Parallel Execution Map
 
 ```
-PHASE 0 (BLOCKING — Human task):
-  [C0] Pixel Art Sourcing ──────────────────────────────────────────────────────►
+PHASE 0: ✅ COMPLETE
+  [C0] Pixel Art — 121 sprites encoded in tools/sprite_encodings.json
 
 PHASE 1 (Sequential — each chunk depends on prior):
   [C1] Ditto Removal (L99) ─► [C2a-C2e] Hero Replacements (parallel batch) ─► [C3] New Colors e,j ─► [C4] Char Select + Eggs
@@ -335,13 +338,12 @@ C14 (Larvitar redesign) must complete BEFORE C15 (Nidoran inherits Tyranitar's O
 
 ### PHASE 0: Human-Only Prerequisite
 
-#### Chunk C0: Pixel Art Sourcing and Encoding
-- **Owner**: Human (NOT AI-executable)
-- **Task**: Source ~70+ PMD sprites from pmdcollab.org, encode via tann.fun/things/dice-img
-- **Sprites needed**: All 21 new hero lines (T1/T2/T3 forms), new monsters, new captures, new bosses, spell icons
-- **Output**: A sprite reference file mapping each Pokemon name to its encoded `.img.` string
-- **BLOCKS**: All hero/monster/boss/capture chunks that need `.img.` data. Chunks can be written with placeholder `img.PLACEHOLDER_POKEMONNAME` strings and sprites inserted later.
-- **If blocked**: Proceed with all chunks using `img.PLACEHOLDER_POKEMONNAME` placeholders. Do a find-and-replace pass after sprites are encoded.
+#### Chunk C0: Pixel Art Sourcing and Encoding — COMPLETE
+- **Status**: DONE. 121 sprites encoded and saved to `tools/sprite_encodings.json`.
+- **Pipeline**: `tools/batch_sprites.js` downloads PMDCollab portraits and encodes them using `tools/encode_sprite.js` (reverse-engineered from tann.fun official encoder).
+- **Usage**: When building textmod lines, lookup the Pokemon name in `sprite_encodings.json` to get the `.img.` value.
+- **NO LONGER BLOCKS** any other chunks — all sprite data is ready.
+- **If new Pokemon are added later**: Add to `POKEMON_LIST` in `batch_sprites.js` and re-run `node batch_sprites.js moderate`.
 
 ---
 
@@ -570,7 +572,7 @@ After completing C1-C4, perform a FULL hero verification:
   - Ball types MUST stay the same for upgrades (the ball IS the item — changing it changes the item identity)
   - Skarmory replaces Rattata but is a completely different Pokemon — update all dice/HP/sprites
   - Lapras replaces Furret — update all dice/HP/sprites for Water/Ice typing
-  - Each replacement needs new `.img.` sprite data (or placeholder)
+  - Each replacement needs `.img.` sprite data (lookup from `tools/sprite_encodings.json`)
 - **Verification**:
   - Finding a Nest Ball gives Butterfree (not Caterpie)
   - Finding a Fast Ball gives Weavile (not Sneasel)
