@@ -1,0 +1,50 @@
+{
+  "internalName": "aron",
+  "template": "Stalwart",
+  "color": "h",
+  "mnName": "Aron",
+  "tiers": [
+    {
+      "tier": null,
+      "hp": 6,
+      "sd": "63-1:63-1:39-1:0:0:0",
+      "spriteName": "Aron",
+      "name": "Aron",
+      "speech": "Ar!:Ron!:[i]clank"
+    },
+    {
+      "tier": 2,
+      "hp": 9,
+      "sd": "63-3:63-2:39-2:39-2:119-1:0",
+      "spriteName": "Lairon",
+      "name": "Lairon",
+      "speech": "Lair!:Ron!:[i]rumble"
+    },
+    {
+      "tier": 2,
+      "hp": 8,
+      "sd": "63-2:63-2:39-3:39-2:0:0",
+      "spriteName": "Lairon",
+      "name": "Lairon",
+      "speech": "Lair!:Ron!:[i]rumble"
+    },
+    {
+      "tier": 3,
+      "hp": 12,
+      "sd": "63-4:63-3:39-4:39-3:119-2:118-2",
+      "spriteName": "Aggron",
+      "name": "Aggron",
+      "speech": "AGGRON!:[i]IRON TAIL",
+      "abilitydata": "(Statue.sd.15-4:0:0:0:76-3.i.left.k.focus.n.Iron Tail.img.mithril shields.hsv.0:0:0)"
+    },
+    {
+      "tier": 3,
+      "hp": 10,
+      "sd": "63-3:63-3:39-4:39-4:39-3:119-3",
+      "spriteName": "Aggron",
+      "name": "Aggron",
+      "speech": "AGGRON!:[i]IRON TAIL",
+      "abilitydata": "(Statue.sd.15-4:0:0:0:76-3.i.left.k.focus.n.Iron Tail.img.mithril shields.hsv.0:0:0)"
+    }
+  ]
+}

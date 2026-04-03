@@ -1,0 +1,51 @@
+{
+  "internalName": "treecko",
+  "template": "Lost",
+  "color": "l",
+  "mnName": "Treecko",
+  "tiers": [
+    {
+      "tier": null,
+      "hp": 4,
+      "sd": "17-1:175-1:0:0:113-1:0",
+      "spriteName": "Treecko",
+      "name": "Treecko",
+      "speech": "Tree!:Cko!:[i]tail slap"
+    },
+    {
+      "tier": 2,
+      "hp": 7,
+      "sd": "17-2:175-2:113-2:113-2:0:151",
+      "spriteName": "Grovyle",
+      "name": "Grovyle",
+      "speech": "Grov!:[i]slash",
+      "abilitydata": "(Fey.sd.105-1:0-0:0-0:0-0:76-1.i.Ritemx.62e8.img.Sprout.n.Growth)"
+    },
+    {
+      "tier": 2,
+      "hp": 6,
+      "sd": "17-2:175-2:17-1:17-1:0:151",
+      "spriteName": "Grovyle",
+      "name": "Grovyle",
+      "speech": "Grov!:[i]slash",
+      "abilitydata": "(Lost.sd.177-2:0:8-0:177-2.i.k.boost.n.Leafer)"
+    },
+    {
+      "tier": 3,
+      "hp": 9,
+      "sd": "17-3:175-3:175-3:175-3:113-2:151",
+      "spriteName": "Sceptile",
+      "name": "Sceptile",
+      "speech": "Scep!:Tile!:[i]blade",
+      "abilitydata": "(Fey.sd.175-4:175-3:0-0:0-0:17-2.i.left.k.focus.img.light.hsv.40:0:0.n.Leaf Blade)"
+    },
+    {
+      "tier": 3,
+      "hp": 8,
+      "sd": "17-4:175-4:30-2:30-2:17-2:151",
+      "spriteName": "Sceptile",
+      "name": "Sceptile",
+      "speech": "Scep!:Tile!:[i]blade"
+    }
+  ]
+}

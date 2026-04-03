@@ -1,0 +1,54 @@
+{
+  "internalName": "larvitar",
+  "template": "statue",
+  "color": "h",
+  "mnName": "Larvitar",
+  "tiers": [
+    {
+      "tier": 1,
+      "hp": 8,
+      "sd": "39-1:39-1:63-1:63-1:0:0",
+      "spriteName": "Larvitar",
+      "name": "Larvitar",
+      "speech": "Lar!:Tar!:baba!"
+    },
+    {
+      "tier": null,
+      "hp": 12,
+      "sd": "39-2:39-2:63-2:63-2:0:0",
+      "spriteName": "Pupitar",
+      "name": "Pupitar",
+      "speech": "[dot][dot][dot]",
+      "doc": "[plus] Reduce damage taken by 1"
+    },
+    {
+      "tier": null,
+      "hp": 12,
+      "sd": "39-2:39-2:63-3:63-3:30-1:0",
+      "spriteName": "Pupitar",
+      "name": "Pupitar",
+      "speech": "[dot][dot][dot]",
+      "doc": "[plus] Reduce damage taken by 1",
+      "keywordsBefore": ".i.topbot.k.minusflesh#facade.the32:0"
+    },
+    {
+      "tier": 3,
+      "hp": 13,
+      "sd": "39-4:39-3:63-3:63-3:30-2:30-1",
+      "spriteName": "Tyranitar",
+      "name": "Tyranitr",
+      "speech": "Graa!:Tar!",
+      "doc": "[plus] Reduce damage taken by 1",
+      "keywordsBefore": ".i.topbot.k.minusflesh#facade.the32:0"
+    },
+    {
+      "tier": 3,
+      "hp": 9,
+      "sd": "30-4:30-4:39-4:39-4:63-3:0",
+      "spriteName": "Tyranitar",
+      "name": "Tyranitr",
+      "speech": "GRA!:TAR!:[i][sin]rumble",
+      "keywordsBefore": ".i.t.gnoll.i.left2.k.duel#facade.dan6:55:0:10.i.topbot.k.ego#facade.Che19:0"
+    }
+  ]
+}

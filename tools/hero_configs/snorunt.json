@@ -1,0 +1,50 @@
+{
+  "internalName": "snorunt",
+  "template": "Eccentric",
+  "color": "b",
+  "mnName": "Snorunt",
+  "tiers": [
+    {
+      "tier": null,
+      "hp": 4,
+      "sd": "93-2:93-2:56-1:56-1:0:0",
+      "spriteName": "Snorunt",
+      "name": "Snorunt",
+      "speech": "Sno!:Runt!:[i]shiver"
+    },
+    {
+      "tier": 2,
+      "hp": 7,
+      "sd": "93-3:56-2:56-2:76-1:131-1:0",
+      "spriteName": "Snorunt",
+      "name": "Snorunt",
+      "speech": "Sno!:Runt!:[i]chill"
+    },
+    {
+      "tier": 2,
+      "hp": 6,
+      "sd": "93-3:93-2:76-2:76-2:131-1:0",
+      "spriteName": "Snorunt",
+      "name": "Snorunt",
+      "speech": "Sno!:Runt!:[i]chill"
+    },
+    {
+      "tier": 3,
+      "hp": 9,
+      "sd": "34-3:34-3:131-2:131-2:93-3:0",
+      "spriteName": "Glalie",
+      "name": "Glalie",
+      "speech": "Glalie!:[i]SHEER COLD",
+      "abilitydata": "(Fey.sd.34-5:0-0:0-0:0-0:76-5.i.Ritemx.132fb.part.1.i.left.k.weaken.img.light.hsv.-120:0:40.n.Sheer Cold)"
+    },
+    {
+      "tier": 3,
+      "hp": 8,
+      "sd": "131-3:131-3:34-2:34-2:76-3:76-3",
+      "spriteName": "Froslass",
+      "name": "Froslass",
+      "speech": "Froslass!:[i]ghostly chill",
+      "abilitydata": "(Fey.sd.131-3:0-0:0-0:0-0:76-3.i.Ritemx.132fb.part.1.i.left.k.inflictsingleuse.img.light.hsv.-120:0:40.n.Ice Beam)"
+    }
+  ]
+}

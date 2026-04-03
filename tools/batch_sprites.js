@@ -243,6 +243,12 @@ const POKEMON_LIST = {
   'Skarmory': 227, 'Lapras': 131, 'Arcanine': 59,
   // Capture upgrades
   'Butterfree': 12, 'Weavile': 461, 'Whiscash': 340, 'Manectric': 310,
+  // Chunk 4 hero (Snorunt line)
+  'Snorunt': 361, 'Glalie': 362, 'Froslass': 478,
+  // Chunk 5 hero (Aron line)
+  'Aron': 304, 'Lairon': 305, 'Aggron': 306,
+  // Chunk 9 monster rename
+  'Probopass': 476,
 };
 
 async function main() {

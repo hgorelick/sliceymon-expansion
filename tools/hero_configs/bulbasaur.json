@@ -1,0 +1,53 @@
+{
+  "internalName": "bulbasaur",
+  "template": "Statue",
+  "color": "p",
+  "mnName": "Bulbasaur",
+  "tiers": [
+    {
+      "tier": 1,
+      "hp": 5,
+      "sd": "53-1:110-1:0:0:145:0",
+      "spriteName": "Bulbasaur",
+      "name": "Bulbasaur",
+      "speech": "Bulba!:[i]saur",
+      "keywordsBefore": ".i.topbot.k.poison",
+      "doc": "[plus] Start [green]Poisoned[cu] 1"
+    },
+    {
+      "tier": 2,
+      "hp": 8,
+      "sd": "55-1:110-2:119-2:119-2:0:53-2",
+      "spriteName": "Ivysaur",
+      "name": "Ivysaur",
+      "speech": "Ivy!:[i]saur"
+    },
+    {
+      "tier": 2,
+      "hp": 7,
+      "sd": "55-1:110-3:53-2:53-2:119-1:145",
+      "spriteName": "Ivysaur",
+      "name": "Ivysaur",
+      "speech": "Ivy!:[i]saur"
+    },
+    {
+      "tier": 3,
+      "hp": 11,
+      "sd": "55-2:110-4:119-3:119-3:110-2:53-3",
+      "spriteName": "Venusaur",
+      "name": "Venusaur",
+      "speech": "Venu!:[i]SOLAR BEAM",
+      "keywordsBefore": ".i.topbot.k.regen.i.topbot.k.poison",
+      "doc": "[plus] Start [green]Poisoned[cu] two"
+    },
+    {
+      "tier": 3,
+      "hp": 10,
+      "sd": "55-3:110-3:53-3:53-3:119-2:110-3",
+      "spriteName": "Venusaur",
+      "name": "Venusaur",
+      "speech": "Venu!:[i]SOLAR BEAM",
+      "keywordsBefore": ".i.topbot.k.poison"
+    }
+  ]
+}

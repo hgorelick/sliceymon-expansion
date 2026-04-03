@@ -1,0 +1,50 @@
+{
+  "internalName": "torchic",
+  "template": "Lost",
+  "color": "k",
+  "mnName": "Torchic",
+  "tiers": [
+    {
+      "tier": null,
+      "hp": 4,
+      "sd": "17-1:15-1:0:0:56-1:0",
+      "spriteName": "Torchic",
+      "name": "Torchic",
+      "speech": "Tor!:Chic!:[i]peck"
+    },
+    {
+      "tier": 2,
+      "hp": 7,
+      "sd": "17-2:175-1:174-1:174-1:51-1:0",
+      "spriteName": "Combusken",
+      "name": "Combusken",
+      "speech": "Combus!:[i]kick"
+    },
+    {
+      "tier": 2,
+      "hp": 8,
+      "sd": "17-2:17-2:174-1:174-1:15-1:0",
+      "spriteName": "Combusken",
+      "name": "Combusken",
+      "speech": "Combus!:[i]kick"
+    },
+    {
+      "tier": 3,
+      "hp": 9,
+      "sd": "17-3:175-2:174-2:174-2:51-2:0",
+      "spriteName": "Blaziken",
+      "name": "Blaziken",
+      "speech": "Blaze!:Ken!:[i]BLAZE KICK",
+      "abilitydata": "(Lost.sd.174-3:175-2:0:0:76-2.n.Blaze Kick.img.scorch.hue.10)"
+    },
+    {
+      "tier": 3,
+      "hp": 10,
+      "sd": "17-3:17-2:174-2:174-2:114-2:0",
+      "spriteName": "Blaziken",
+      "name": "Blaziken",
+      "speech": "Blaze!:Ken!:[i]BLAZE KICK",
+      "abilitydata": "(Lost.sd.174-3:175-2:0:0:76-2.n.Blaze Kick.img.scorch.hue.10)"
+    }
+  ]
+}

@@ -35,6 +35,7 @@ const REPLACEMENTS = {
   89: 'line_89_cleffa.txt',       // Tinkatink → Cleffa (u, P2)
   93: 'line_93_pikachu.txt',      // Joltik → Pikachu (x, P2)
   97: 'line_97_beldum.txt',       // Tentomon → Beldum (z, P2)
+  79: 'line_79_bulbasaur.txt',    // Trubbish → Bulbasaur (p, P2)
   99: 'line_99_bagon.txt',        // Ditto → Bagon (w, P1)
 };
 

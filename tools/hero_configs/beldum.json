@@ -1,0 +1,54 @@
+{
+  "internalName": "beldum",
+  "template": "Lost",
+  "color": "z",
+  "mnName": "Beldum",
+  "tiers": [
+    {
+      "tier": null,
+      "hp": 5,
+      "sd": "39-1:63-1:0:0:63-1:0",
+      "spriteName": "Beldum",
+      "name": "Beldum",
+      "speech": "Bel!:[i]hum"
+    },
+    {
+      "tier": 2,
+      "hp": 8,
+      "sd": "39-2:63-3:118-1:118-1:63-2:0",
+      "spriteName": "Metang",
+      "name": "Metang",
+      "speech": "Metang!:[i]clang",
+      "keywords": ".i.topbot"
+    },
+    {
+      "tier": 2,
+      "hp": 7,
+      "sd": "39-2:39-2:63-2:63-2:118-1:0",
+      "spriteName": "Metang",
+      "name": "Metang",
+      "speech": "Metang!:[i]clang",
+      "keywords": ".i.topbot"
+    },
+    {
+      "tier": 3,
+      "hp": 11,
+      "sd": "39-4:39-3:63-3:63-3:118-2:82-1",
+      "spriteName": "Metagross",
+      "name": "Metagross",
+      "speech": "Meta!:Gross!:[i]rumble",
+      "keywords": ".i.topbot",
+      "abilitydata": "(Lost.sd.39-5:39-4:0:0:76-3.n.Meteor Mash.img.mithril shields.hsv.-120:30:70)"
+    },
+    {
+      "tier": 3,
+      "hp": 10,
+      "sd": "39-3:39-3:63-4:63-4:118-3:0",
+      "spriteName": "Metagross",
+      "name": "Metagross",
+      "speech": "Meta!:Gross!:[i]rumble",
+      "keywords": ".i.topbot",
+      "abilitydata": "(Lost.sd.39-5:39-4:0:0:76-3.n.Meteor Mash.img.mithril shields.hsv.-120:30:70)"
+    }
+  ]
+}
