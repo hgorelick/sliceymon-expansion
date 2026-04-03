@@ -202,6 +202,40 @@ When designing a Pokemon as a Slice & Dice hero, follow this process:
 - **T3** (final evo): 0-1 blanks, 3-6 pip values, 5-6 meaningful faces + spell if appropriate. Full power fantasy. HP 8-13.
 - **Branching T3** (e.g., Poliwrath vs Politoed): Each branch must fill a DIFFERENT role. Don't make two versions of the same hero.
 
+### Pokemon Competitive Identity Reference (Sliceymon+ Roster)
+
+When designing a Pokemon for S&D, its competitive identity in the mainline games determines its template, face types, and keywords. Here are the key identities for all Sliceymon+ heroes:
+
+| Pokemon | Competitive Identity | S&D Template | Key Mechanic Translation |
+|---------|---------------------|-------------|--------------------------|
+| Charizard | Special attacker, fire mage | Statue | Damage to All (34), Mana Pain (82), Fire Blast spell |
+| Venusaur | Bulky support, Chlorophyll sun sweeper, Leech Seed | Guardian | Poison Plague (55), Heal Regen (110), Shield Repel (119) |
+| Meganium | Pure support/cleric, Aromatherapy, screens | Healer | Heal All (107), Heal Vitality (105), Heal Cleanse (71) |
+| Typhlosion | Glass cannon, Eruption (power = HP) | Lost | Mana Pain (82), Damage to All (34), Eruption spell |
+| Feraligatr | Dragon Dance + Sheer Force physical sweeper | Fighter | Engage (17), Cruel (30), Heavy (39) — relentless multi-hit |
+| Blaziken | Speed Boost auto-accelerating sweeper, banned to Ubers | Thief | Defy (174), Critical (175), Engage (17) — escalating threat |
+| Sceptile | Fastest starter, hit-and-run assassin, Unburden | Primrose | Critical (175), Growth (113), Engage (17) — speed + growth |
+| Swampert | Bulky fortress, only Grass weakness, Stealth Rock setter | Guardian | Shield Rescue (64), Redirect (118), Heavy (39) — protect team |
+| Machamp | No Guard + Dynamic Punch (guaranteed confusion), slow wallbreaker | Fighter | Engage (17), Heavy (39), SelfShield (51) — unstoppable brawler |
+| Lucario | True mixed attacker, Aura Sphere never misses, Extreme Speed priority | Lost | Ranged (46), Heavy (39), Engage (17) — versatile warrior |
+| Poliwrath | Belly Drum do-or-die brawler, Water/Fighting | Fighter | Heavy (39), Engage (17), SelfShield (51) — setup sweeper |
+| Togekiss | Serene Grace 60% flinch, paraflinch angel, Nasty Plot | Dancer | Heal Rescue (106), Heal Cleave (109), Shield ManaGain (61) — graceful support |
+| Clefable | Ultimate generalist, Magic Guard OR Unaware, unpredictable | Fencer | Copycat (27), Heal Regen (110), Shield (56) — adaptive jack-of-all-trades |
+| Raichu | Lightning Rod support speedster, Fake Out, Volt Switch | Thief | Ranged (46), Mana (76), Engage (17) — fast pivot support |
+| Metagross | Iron juggernaut, 135 Atk + 130 Def, Bullet Punch priority | Alloy | Heavy (39), Steel Shield (63), Redirect (118) — armored striker |
+| Salamence | Dragon Dance sweeper, Intimidate + Moxie snowball | Statue | Heavy (39), Cleave (36), Damage to All (34) — ruthless dragon |
+| Dragonite | Multiscale (survives any hit at full HP), Extreme Speed | Lost | Damage (15), Cleave (36), Shield (56) — tanky dragon |
+| Nidoqueen | Defensive general, Sheer Force special tank, hazard setter | Statue | Heavy (39), Shield Repel (119), Shield (56) — poison fortress |
+| Nidoking | Offensive artillery, widest coverage movepool in the game | Lost | Engage (17), Ranged (46), Heavy (39) — nothing is safe |
+| Tyranitar | Battlefield king, Sand Stream, pursuit trapper, pseudo-legendary | Statue | Heavy (39), Steel Shield (63), Cruel (30) — warps the game |
+| Wailord | Enormous HP (170), terrible defenses, Water Spout | Stalwart | Shield to All (72), Shield (56), Heavy (39) — HP sponge |
+| Beedrill | Glass cannon assassin, Mega Adaptability + U-turn | Lost | Poison (53), Engage (17), Critical (175) — hit and run |
+| Snorunt→Glalie | Brute force, Refrigerate + Explosion | Eccentric→Fighter | Damage to All (34), Weaken (131), Mana SU (93) — ice nuke |
+| Snorunt→Froslass | Speed 110, Destiny Bond, Ghost trickster | Eccentric→Thief | Weaken (131), Mana SU (93), Dodge (123) — debuff caster |
+| Aggron | 180 Defense physical wall, Head Smash + Rock Head, pure Steel mega | Stalwart | Steel Shield (63), Heavy (39), Redirect (118) — iron fortress |
+
+**Design principle**: The template provides the mechanical foundation. The `.sd.` faces provide the Pokemon's unique identity. A Machamp on Fighter template with Engage+Heavy faces FEELS like Machamp — the template gives it the brawler base, and the faces give it the four-armed fury.
+
 ### Step 5: Verify Against the Roster
 Before finalizing any hero:
 1. **No duplicate Pokemon**: Check that this Pokemon isn't already a hero, monster, OR capturable in the mod
