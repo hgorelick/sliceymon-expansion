@@ -174,8 +174,9 @@
 
 ---
 
-## 3. Bulbasaur -> Ivysaur -> Venusaur (color p P2, replaces Trubbish)
+## 3. Bulbasaur -> Ivysaur -> Venusaur (color p P2, replaces Trubbish) ✅ GENERATED
 
+**Generated**: `generated/line_79_bulbasaur.txt` — replaces Trubbish at line 79
 **Template**: replica.Statue
 **Speech**: "Bulba!" / "Ivy!" / "Venusaur!"
 **Doc**: "Start Poisoned"
@@ -230,9 +231,10 @@
   5. Heal Regen 2 — Synthesis backup heal
   6. Damage Poison 3 — Sludge Bomb
 
-**Spell**: Solar Beam — abilitydata: (Statue.sd.42-5:15-3:0:0:15-3.i.left.k.focus.img.beam.hsv.40:0:0.n.Solar Beam)
-- Spell faces: Damage Charged 5, Damage 3, Blank, Blank, Damage 3 (5 faces)
+**Spell**: Solar Beam — abilitydata: (Statue.sd.42-5:15-3:0:0:76-3.i.left.k.focus.img.beam.hsv.40:0:0.n.Solar Beam)
+- Spell faces: Damage Charged 5, Damage 3, Blank, Blank, Mana 3 (5 faces)
 - Charged keyword means it hits harder with mana investment. Solar Beam fantasy = big charged finisher.
+- **Implementation note**: Original design had 15-3 (Damage) in last position — fixed to 76-3 (Mana) since all spells require a mana cost face. Generated in `line_79_bulbasaur.txt`.
 
 **Budget check**: 0 blanks, HP 11. Strong sustain tank with 2 Repel shields (4.2 damage equivalent at 3 pips each) + 2 Regen heals + Plague + Poison damage. Compare Garbodor T3a (HP 13, sd=55-0:91-2:62-4:62-4:0) — Garbodor has higher HP and some faces from Statue defaults; Venusaur has more active faces with better pips but lower HP. Solar Beam spell provides burst damage option rare for a tank.
 

@@ -290,10 +290,16 @@ Remove Arceus capture from Line 63 (Lillipup compound line). Keep Caterpie→But
 ### F. Porygon Helper (Line 67)
 Keep — Porygon is NOT being replaced.
 
-### G. Pixel Art — COMPLETE
-- All 121 sprites already encoded via automated pipeline (`tools/batch_sprites.js`)
+### G. Pixel Art — COMPLETE (hero/monster portraits)
+- All 121 hero/monster/boss/capture portrait sprites already encoded via `tools/batch_sprites.js`
 - Encoded strings in `tools/sprite_encodings.json` — lookup by Pokemon name
-- No manual sprite work needed. Re-run pipeline to add/update sprites.
+
+### H. Custom Spell & Dice Side Icons — TODO
+- The original mod uses custom encoded pixel art for some spell icons (small ~8x8 sprites encoded as `.img.` in `.abilitydata.`)
+- Currently our new spells reference named game icons (e.g., `.img.spark`, `.img.burn`, `.img.slice`) with `.hsv.` hue shifts — these work but are generic
+- **Phase 6 (Polish)**: Create custom pixel art icons for each new Pokemon spell (Fire Blast, Eruption, Blaze Kick, Leaf Blade, Aromatherapy, Thunderbolt, Aura Sphere, etc.)
+- Use `tools/encode_sprite.js` to encode small custom PNGs for spell icons
+- The original mod's custom spell icons are ~8x8 pixel encoded sprites (short strings, 50-150 chars)
 
 ---
 
