@@ -30,6 +30,18 @@ Do NOT simplify, weaken, or replace a design, algorithm, or safety mechanism for
 
 **"Too complicated", "too much overhead", and "good enough" are invalid justifications.**
 
+### No Deferred Correctness
+
+Do NOT introduce parallel representations, compatibility shims, or "alongside existing" fields to avoid refactoring. If the correct abstraction replaces an existing one, **replace it** — update every callsite, fix every test, handle the full blast radius. Deferring the right design to a "future chunk" creates permanent tech debt disguised as incrementalism.
+
+Specific anti-patterns to avoid:
+- Adding `new_field` alongside `old_field` "for backward compatibility" when `old_field` should just become `new_field`
+- Keeping two types that represent the same concept (one "legacy", one "correct")
+- Scoping emitters/builders out of a schema change — if the schema changes, the full pipeline must follow
+- Labeling necessary work as "future" or "out of scope" because it touches many files
+
+**"Blast radius", "too many files to touch", and "effort" are invalid justifications for deferring correctness.** Never use effort or complexity as a reason to exclude something from scope — if it belongs, include it. When unsure whether something is in scope, ask the user rather than unilaterally scoping it out.
+
 If a hero design encodes a real game balance invariant (damage curve, tier progression, keyword budget), that invariant MUST be preserved or strengthened.
 
 ### High-Risk Areas (Stricter Scrutiny)
