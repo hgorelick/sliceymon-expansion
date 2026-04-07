@@ -2,5 +2,10 @@
 *.swp
 *.swo
 *~
+*.bak
+*.bak.*
 node_modules/
 tools/node_modules/
+compiler/target/
+test_output/
+HANDOFF.md
