@@ -382,9 +382,9 @@ pub enum ChainEntry {
     /// Suffix modifiers are shared across all ref types.
     EntityRef {
         kind: RefKind,
-        /// Hex hash stored as String. Validation (hex-only chars, length bounds) is
-        /// a validator concern (Chunk 10), not a parse-time concern -- the parser
-        /// accepts any non-delimiter characters after the `r<type>.` prefix as the hash.
+        /// Hex hash stored as String. The parser accepts any non-delimiter characters
+        /// after the `r<type>.` prefix as the hash. Hex format validation (hex-only
+        /// chars, length bounds) is a cross-reference concern (Chunk 10, check_references).
         hash: String,
         part: Option<u8>,
         multiplier: Option<u8>,
@@ -413,9 +413,8 @@ pub enum RefKind {
     Monster,    // rmon
 }
 // NOTE: EntityRef.hash is stored as String, not validated as hex at parse time.
-// Hex format validation is a Chunk 10 validator concern (rule V050), not a
-// parse-time concern — the parser's job is structural extraction, the validator's
-// job is semantic checking.
+// Hex format validation is a cross-reference concern (Chunk 10, check_references).
+// The parser's job is structural extraction; cross-reference checks verify semantics.
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum SidePosition {
@@ -471,7 +470,8 @@ impl RichText {
     pub fn has_tags(&self) -> bool { self.0.contains('[') }
 }
 // ARCHITECTURE NOTE: Richtext VALIDATION lives in validator.rs as
-// `validate_richtext(rt: &RichText) -> Vec<Finding>`, NOT as a method on RichText.
+// Richtext parsing (bracket balance, tag validation) happens at parse time in
+// `richtext_parser.rs`. Entity reference resolution is a cross-reference concern (Chunk 10).
 // This avoids a circular module dependency: ir/mod.rs cannot import from validator.rs
 // (which imports ir types). The RichText newtype provides structural methods
 // (new, as_str, has_tags) but validation logic that produces Finding values stays in
@@ -697,42 +697,80 @@ pub enum HiddenModifierType {
 }
 ```
 
-### New Validation Rules
+### Validation Architecture: Pipeline as Proof
+
+The compiler pipeline IS the validation system. There is no separate standalone validator that re-parses text — that approach duplicates the extractor's work and can't scale to the full textmod API. Instead, correctness is enforced at each stage:
 
 ```
-// Phase validation
-V001: Phase type recognized (unrecognized phase code is a parse error)
-V002: BooleanPhase value name references a defined Value
-V003: LinkedPhase contains at least 2 phases
-V004: SeqPhase option count matches phase count
-V005: HeroChangePhase position within party size (0-4)
-V006: ChallengePhase has valid JSON structure
-V007: ChoicePhase budget/count is positive
-V008: Phase delimiters correct per type (@1 for Linked, @2 for Boolean, @3 for SCPhase, @6/@7 for Boolean2)
+Stage 1: EXTRACTOR (validation on input)
+  - Parsing IS validation. If extract() succeeds, the text is structurally valid.
+  - Unrecognized phase codes, malformed chain entries, invalid tog items → CompilerError
+  - No Unparsed/Raw fallbacks — every parsed element is fully typed
+  - All structural rules (V001, V003-V008, V010-V015, V020-V021, V030-V032, V040-V042)
+    are enforced at parse time, not by a post-hoc validator
 
-// Modifier chain validation
-V010: Tog items reference valid side positions
-V011: Togres variants follow valid boolean composition order
-V012: Hat references a known entity template
-V013: Memory appears after tog modification (not standalone)
-V014: Facade uses valid EntityCode:Parameter format
-V015: Keyword names from known keyword list
+Stage 2: IR TYPES (validation by construction)
+  - Enums with no Unparsed/Raw variants — invalid states are unrepresentable
+  - DiceFaces, LevelScope, Phase, ChainEntry, FightDefinition are all typed
+  - Rust's exhaustive match arms catch missing cases at compile time
 
-// Choosable/reward validation
-V020: Reward tag type matches content format
-V021: Random tag has valid tier~amount~tag format
-V022: Value name is consistent across set/check sites
-V023: Replace tag references a valid modifier name
+Stage 3: BUILDER (validation on output)
+  - Balanced parens by construction (open/close in same function scope)
+  - ASCII-only output guaranteed by typed emission
+  - Tier separators at depth 0 by structural emission, not post-hoc checking
 
-// Composition validation
-V030: AbilityData side usage matches spell/tactic rules
-V031: TriggerHPData HP value in valid range
-V032: Level scope range is valid (start <= end, interval > 0)
+Stage 4: CROSS-REFERENCE INTEGRITY (the only distinct validation pass)
+  - Runs on ModIR after extraction or after CRUD operations
+  - Checks referential integrity across the full IR:
+    V002: BooleanPhase value name references a defined Value
+    V012: Hat references a known entity template
+    V016: Hero pool references resolve to existing heroes
+    V019: Color uniqueness across heroes
+    V020: Cross-category name uniqueness (hero/replica/monster/boss)
+    V022: Value name consistency across set/check sites
+    V023: Replace tag references an existing modifier
+    V042: Entity references in richtext resolve to known entities
+  - Returns ValidationReport with Finding structs (field_path, suggestion)
+  - Single-item variants: validate_hero_in_context(), validate_phase_in_context(), etc.
+```
 
-// Richtext validation
-V040: Richtext bracket balance (color tags opened/closed)
-V041: Known color tag names only
-V042: Entity references in [EntityName] resolve to known entities
+**What gets deleted**: The current `validate(textmod: &str)` function and all text-based validation phases (phase_global, phase_per_modifier, phase_hero, phase_content_blocks, etc.). These re-parse text that the extractor already parsed. After the integration, `extract()` replaces `validate()` as the structural validation entry point.
+
+**What remains**: `ValidationReport`, `Finding`, `Severity` types. Cross-reference integrity checks as `pub fn check_references(ir: &ModIR) -> ValidationReport`. Single-item context validation as `pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport`.
+
+### Correctness Proof System
+
+Round-trip testing on 4 mods is necessary but not sufficient. The compiler needs a multi-layered correctness proof:
+
+```
+Layer 1: TYPE SYSTEM (compile-time)
+  - No Unparsed/Raw/Unknown variants in any enum
+  - Exhaustive match arms catch missing cases
+  - Rust ownership prevents use-after-move
+
+Layer 2: ROUND-TRIP IDENTITY (integration tests)
+  - extract(build(extract(mod))) == extract(mod) for all 4 test mods
+  - Assertions cover ALL IR types including phases, chains, fights, level scopes
+  - Field-level comparison, not just count-level
+
+Layer 3: PROPERTY-BASED TESTING (proptest crate)
+  - Generate random valid IR → build → extract → compare (builder/extractor agreement)
+  - Generate random valid phases → emit → parse → compare
+  - Generate random valid chain entries → emit → parse → compare
+  - Paren balance always maintained in builder output
+  - ASCII-only in builder output
+  - No typed variant degrades through round-trip
+
+Layer 4: DIFFERENTIAL TESTING (regression prevention)
+  - Snapshot old extractor output for each test mod
+  - After changes, compare new output against snapshot
+  - Any delta must be intentional and documented
+
+Layer 5: BUILD INVARIANTS (enforced on every build() call)
+  - Balanced parentheses (verified structurally, not by counting)
+  - ASCII-only output
+  - No empty modifier segments
+  - Tier separators at depth 0
 ```
 
 ---
@@ -741,7 +779,7 @@ V042: Entity references in [EntityName] resolve to known entities
 
 ### Overview
 
-Integrate Thunder's Undocumented Textmod Guide v3.2 into the compiler's IR, extractors, builders, and validators to model the full textmod API. This transforms the compiler from a hero/monster/boss tool into a complete mod-building backend that understands phases, composition, variables, and the full game-flow system.
+Integrate Thunder's Undocumented Textmod Guide v3.2 into the compiler's IR, extractors, and builders to model the full textmod API. This transforms the compiler from a hero/monster/boss tool into a complete mod-building backend that understands phases, composition, variables, and the full game-flow system. Validation is inline — the compiler pipeline IS the validation system, with cross-reference integrity as the only distinct validation pass. Correctness is proven via property-based testing, round-trip identity, and differential testing.
 
 ### Checkpoint Configuration
 
@@ -749,6 +787,7 @@ Integrate Thunder's Undocumented Textmod Guide v3.2 into the compiler's IR, extr
 - Checkpoint frequency: After critical chunks and every 2 non-critical chunks
 - Critical checkpoints: After chunks 2, 3, 4, 8 (new IR types, structural migration, chain migration, fight+boss migration)
 - Non-critical checkpoint pairs: after chunks {5,6}, {9,10}
+- **Chunk 10 note**: This is a validator rewrite (not additive). The text-based validator is deleted and replaced with IR cross-reference checks. Review carefully.
 - **Invariant**: After EVERY chunk, `cargo test` must pass with 0 failures. A chunk that leaves tests broken is incomplete.
 
 ### Parallel Execution Map
@@ -771,7 +810,7 @@ Parallel Group A (after Chunk 3):
     Replaces ChainSegment struct with enum, removes SegmentKind, AND parses
     #-delimited content into typed ChainEntry variants — atomically in one chunk.
     No raw_content field, no empty sub_entries, no interim state.
-  Chunk 5: Level scoping + richtext validation
+  Chunk 5: Level scoping + richtext parsing
 
 Sequential (after Chunk 5):
   Chunk 6: Phase system parser                               (needs Chunk 5 for LevelScope)
@@ -789,10 +828,10 @@ Parallel Group B (after Chunk 6):
 
 Parallel Group C (after Group B):
   Chunk 9:  Builders/emitters for all new types              (needs Chunks 6-8)
-  Chunk 10: Validator rules for all new systems              (needs Chunks 6-8)
+  Chunk 10: Cross-reference integrity + validator cleanup    (needs Chunks 6-8)
 
 Integration (sequential, after all):
-  Chunk 11: Round-trip tests, cross-reference validation, schema update
+  Chunk 11: Correctness proof system + schema update
 
 Minimum wall-clock rounds: 8 (vs 11 sequential)
   Round 1: Chunk 1
@@ -823,7 +862,7 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 | `builder/mod.rs` | 3 (StructuralType emission loops -- without these, new structural types are silently dropped), 4 (chain_emitter module), 8 (fight_emitter module), 9 (phase_emitter module, assembly order) | Module declarations + filter arms |
 | `builder/structural_emitter.rs` | 3 (body-based emission for new variants -- MUST emit from body, see emitter constraint), 9 (field-based emission when typed fields proven) | Chunk 3: `body.clone()` emission; Chunk 9: structured emission. |
 | `builder/boss_emitter.rs` | 8 (fight emitter extraction) | Single modification round |
-| `validator.rs` | 5 (validate_richtext function), 10 (new rules), 11 (cross-reference rules) | Richtext validation in Chunk 5; rules added in Chunk 10; cross-refs completed in Chunk 11 |
+| `validator.rs` | 10 (rewrite: delete text-based validator, implement cross-reference integrity) | Current text-based validator deleted; replaced with IR cross-reference checks only |
 | `lib.rs` | 1 (constants module), 9 (public exports) | Module declarations + API surface |
 | `tests/builder_tests.rs` | 8 (BossFightUnit/BossFightVariant -> FightUnit/FightDefinition) | Constructs boss types directly -- must be updated with type renames |
 | `tests/expansion_tests.rs` | 8 (event_body -> event_phases) | References event_body field on Boss |
@@ -1118,8 +1157,8 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 
 **Files** (3 files):
 - `compiler/src/extractor/level_scope_parser.rs` (NEW)
-- `compiler/src/extractor/mod.rs` (MODIFY -- add `pub mod level_scope_parser;`)
-- `compiler/src/validator.rs` (MODIFY -- add `validate_richtext(rt: &RichText) -> Vec<Finding>` function)
+- `compiler/src/extractor/richtext_parser.rs` (NEW -- parse richtext strings into RichText, rejecting malformed input)
+- `compiler/src/extractor/mod.rs` (MODIFY -- add `pub mod level_scope_parser;` and `pub mod richtext_parser;`)
 
 **Dependencies**: Chunks 2, 3 (LevelScope type from Chunk 2; waits for Chunk 3 to stabilize ir/mod.rs compilation state)
 **Parallel with**: Chunk 4
@@ -1127,7 +1166,7 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 **Constraints**:
 - Both must be pure functions (no side effects, WASM-safe)
 - Level scope parser returns `(Option<LevelScope>, &str)` -- the scope and the remaining unparsed string
-- Richtext validation lives in `validator.rs` (not `ir/mod.rs`) to avoid a circular module dependency: `ir` cannot import `Finding` from `validator` because `validator` imports from `ir`
+- Richtext parsing is an extractor concern: malformed richtext (unbalanced brackets) → CompilerError at parse time. Unknown color tags → CompilerError::Warning (non-fatal). Entity reference resolution is a cross-reference concern (Chunk 10, V042).
 
 **Requirements**:
 - Level scope parser:
@@ -1138,11 +1177,13 @@ Files touched by multiple chunks. Implementers must coordinate on these:
   - Parse `lvl.` prefix combinations
   - Return `None` for no scope prefix
   - Emit function: `emit_level_scope(scope: &LevelScope) -> String`
-- Richtext validation (implement as free function in `validator.rs`):
-  - Validate bracket balance for color tags
+- Richtext parser (inline validation at parse time):
+  - Parse `[tag]content[cu]` into RichText struct with typed segments
+  - Reject unbalanced brackets → CompilerError at parse time
   - Warn on unknown color tag names (reference constants)
-  - Validate `[EntityName]` references (structural check only -- entity resolution is a later validator concern)
-  - Function signature: `pub fn validate_richtext(rt: &RichText) -> Vec<Finding>` in `validator.rs`
+  - Accept `[EntityName]` references structurally (entity resolution is a Chunk 10 cross-reference concern, V042)
+  - Function signature: `pub fn parse_richtext(input: &str) -> Result<RichText, CompilerError>` in `richtext_parser.rs`
+  - Emit function: `pub fn emit_richtext(rt: &RichText) -> String`
 
 **TDD -- Specific Test Cases**:
 - `test_parse_single_floor` -- `"5.ph.4"` -> `LevelScope { start: 5, end: None, .. }`, remaining `"ph.4"`
@@ -1151,19 +1192,21 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 - `test_parse_every_n_offset` -- `"e3.1.ph.4"` -> `LevelScope { interval: Some(3), offset: Some(1), .. }`
 - `test_parse_no_scope` -- `"ph.4"` -> `None`, remaining `"ph.4"`
 - `test_level_scope_roundtrip` -- `parse(emit(scope)) == scope` for all variants
-- `test_richtext_balanced_tags` -- `"[orange]hello[cu]"` -> no findings
-- `test_richtext_unbalanced_tag` -- `"[orange]hello"` -> warning about unclosed tag
-- `test_richtext_unknown_tag` -- `"[purple]hello[cu]"` -> warning about unknown tag
-- `test_richtext_entity_reference` -- `"[EntityName]"` -> no error (structural check only)
-- `test_richtext_nested_tags` -- `"[orange][yellow]hi[cu][cu]"` -> no findings
+- `test_richtext_balanced_tags` -- `"[orange]hello[cu]"` -> parses successfully
+- `test_richtext_unbalanced_tag` -- `"[orange]hello"` -> CompilerError (unbalanced bracket)
+- `test_richtext_unknown_tag` -- `"[purple]hello[cu]"` -> CompilerError::Warning (unknown tag)
+- `test_richtext_entity_reference` -- `"[EntityName]"` -> parses as entity reference segment
+- `test_richtext_nested_tags` -- `"[orange][yellow]hi[cu][cu]"` -> parses successfully
+- `test_richtext_roundtrip` -- `parse(emit(rt)) == rt` for all valid richtext variants
 
-**If Blocked**: If richtext validation edge cases are unclear, implement bracket balance checking first and add tag-name validation as a second pass within this chunk.
+**If Blocked**: If richtext edge cases are unclear, implement bracket balance checking first and add tag-name validation as a second pass within this chunk.
 
 **Verification**:
 - [ ] `cargo test` -- all tests pass
 - [ ] Level scope round-trips: `parse(emit(scope)) == scope`
-- [ ] Richtext validator catches unbalanced `[tags`
-- [ ] Richtext validator accepts valid formatting from Thunder's guide examples
+- [ ] Richtext parser rejects unbalanced brackets at parse time
+- [ ] Richtext parser accepts valid formatting from Thunder's guide examples
+- [ ] Richtext round-trips: `parse(emit(rt)) == rt`
 - [ ] Unit tests for all level scope patterns
 - [ ] Unit tests for richtext edge cases (nested tags, `[cu]` closing)
 
@@ -1498,155 +1541,243 @@ Full blast radius: ir/mod.rs, boss_parser, boss_emitter, ir/merge.rs, ir/ops.rs,
 
 ---
 
-### Chunk 10: Validator Rules for All New Systems [PARALLEL GROUP C]
+### Chunk 10: Cross-Reference Integrity + Validator Cleanup [PARALLEL GROUP C]
 
-**Scope**: Add validation rules for phases, modifier chains, reward tags, and all new IR types.
+**Scope**: Delete the current text-based validator (which re-parses what the extractor already parsed) and replace it with IR cross-reference integrity checks. Structural validation is now handled inline by the extractor (parse-time) and builder (construction-time). The only remaining validation concern is referential integrity across the full IR.
 
 **Read First**:
-- `compiler/src/validator.rs` -- existing validation rules, Finding struct, Severity levels
-- `compiler/src/constants.rs` -- reference data for validation
-- `compiler/src/ir/mod.rs` -- all new types to validate
+- `compiler/src/validator.rs` -- current text-based validator (to be gutted)
+- `compiler/src/ir/mod.rs` -- all IR types (cross-reference targets)
+- `compiler/src/constants.rs` -- reference data for known entity lists
+- `compiler/src/lib.rs` -- current validation exports to update
 
-**Files** (1 file):
-- `compiler/src/validator.rs` (MODIFY -- add new validation rules)
+**Files** (2 files):
+- `compiler/src/validator.rs` (REWRITE -- delete text-based phases, keep Finding/ValidationReport types, implement cross-reference checks)
+- `compiler/src/lib.rs` (MODIFY -- update validation exports)
 
 **Reference files** (read but not modified):
-- `compiler/src/constants.rs` -- reference data for validation lookups
+- `compiler/src/constants.rs` -- known templates, keywords, face IDs for reference checks
+- `compiler/src/ir/ops.rs` -- CRUD operations that need pre/post validation
 
 **Dependencies**: Chunks 6, 7, 8 (all types and parsers)
 **Parallel with**: Chunk 9
 
 **Constraints**:
 - All findings must use structured `Finding` with `rule_id`, `field_path`, and `suggestion` fields populated
-- Warnings for unknown-but-valid-looking content (don't block on undocumented features)
-- Errors only for structurally invalid content
-- No `unwrap()` -- validators must never panic
+- No `unwrap()` -- cross-reference checks must never panic
+- No text re-parsing -- all checks operate on the typed IR, never on raw strings
+- IR types never import from validator (no circular dependency)
+- Cross-reference checks are pure functions on `&ModIR` -- WASM-safe
+
+**Design**:
+The validator module becomes thin -- it holds `Finding`, `Severity`, `ValidationReport` types and cross-reference checking functions. Everything else moves to the pipeline:
+
+```rust
+// What the validator module contains after this chunk:
+
+// Types (kept from current validator)
+pub struct Finding { rule_id, severity, message, field_path, suggestion }
+pub enum Severity { Error, Warning, Info }
+pub struct ValidationReport { errors, warnings, info }
+
+// Full-IR cross-reference checks
+pub fn check_references(ir: &ModIR) -> ValidationReport
+  // V002: BooleanPhase value refs resolve to defined Values
+  // V012: Hat entity refs resolve to known templates
+  // V016: Hero pool refs resolve to existing heroes
+  // V019: Hero color uniqueness
+  // V020: Cross-category name uniqueness (hero/replica/monster/boss)
+  // V022: Value name consistency across set/check sites
+  // V023: Replace tag refs resolve to existing modifiers
+  // V042: Richtext entity refs resolve to known entities
+
+// Single-item context checks (thin wrappers)
+pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport
+pub fn check_boss_in_context(boss: &Boss, ir: &ModIR) -> ValidationReport
+pub fn check_phase_in_context(phase: &Phase, ir: &ModIR) -> ValidationReport
+```
+
+**What gets deleted**:
+- `validate(textmod: &str)` -- replaced by `extract()` itself
+- `validate_ir(ir: &ModIR)` -- structural checks now happen at parse time
+- `phase_global()`, `phase_per_modifier()`, `phase_hero()`, `phase_content_blocks()`, `phase_cross_modifier()` -- all text-based phases
+- `check_paren_balance()`, `check_monster_floor_range()`, `check_boss_level()`, `check_abilitydata_faces()` -- structural checks now enforced by parsers
+- All rule IDs E001-E015, W001-W007 -- these become CompilerError variants in the extractor
+- `validate_cross_references()` -- replaced by `check_references()` with expanded scope
+
+**What's preserved/evolved**:
+- `Finding`, `Severity`, `ValidationReport` types (still useful for cross-ref results)
+- `validate_cross_references()` logic → expanded into `check_references()` with new rule IDs
+- `validate_hero_in_context()` → `check_hero_in_context()` (same concept, IR-only)
 
 **Requirements**:
-- Phase validation (V001-V008):
-  - V001: (handled at parse time -- unrecognized phase codes are CompilerError, not validation findings)
-  - V002: BooleanPhase value references a Value that's been set somewhere in the mod
-  - V003: LinkedPhase has 2+ sub-phases
-  - V004: SeqPhase option count matches phase structure
-  - V005: HeroChangePhase position 0-4
-  - V006: ChallengePhase JSON structure valid
-  - V007: ChoicePhase budget/count positive
-  - V008: Phase delimiters match expected per type
-- Modifier chain validation (V010-V015):
-  - V010: Tog items use valid side positions
-  - V011: Togres variants have valid boolean composition (e.g., togresa must follow togres)
-  - V012: Hat references known entity templates
-  - V013: Memory placement is valid (after tog modification)
-  - V014: Facade format valid
-  - V015: Keyword names from known list (warn on unknown, don't error -- game may have undocumented keywords)
-- Reward validation (V020-V023):
-  - V020: Tag type matches content format
-  - V021: Random tag tier/amount/tag format valid
-  - V022: Value names consistent across set/check sites
-  - V023: Replace tag references existing modifier
-- Composition validation (V030-V032):
-  - V030: AbilityData side usage matches spell vs tactic rules (derive ability_type here)
-  - V031: TriggerHPData HP in valid range
-  - V032: Level scope range valid
-- Richtext validation (V040-V042):
-  - V040: Bracket balance
-  - V041: Known color tags
-  - V042: Entity reference format valid
-- Single-item validation export in lib.rs:
-  - `pub fn validate_phase(phase: &Phase) -> ValidationReport`
+- Cross-reference integrity rules:
+  - V002: BooleanPhase value name references a Value defined somewhere in the mod
+  - V012: Hat references resolve to known entity templates (from constants.rs)
+  - V016: Hero pool references resolve to heroes in the IR
+  - V019: Hero color uniqueness (warning, not error -- user may intend override)
+  - V020: Cross-category name uniqueness (no Pokemon in both hero and replica pools)
+  - V022: Value names consistent across set/check sites (set somewhere → checked somewhere)
+  - V023: Replace tag references an existing modifier by name
+  - V042: Entity references in richtext/doc resolve to known entities
+- Single-item context validation:
+  - `check_hero_in_context()`: color conflicts, name conflicts, pool membership
+  - `check_boss_in_context()`: fight unit entity refs, event phase value refs
+  - `check_phase_in_context()`: value refs, entity refs within the phase
+- Public API update in lib.rs:
+  - Delete `pub fn validate(textmod: &str)` export
+  - Add `pub fn check_references(ir: &ModIR) -> ValidationReport`
+  - Update `check_hero_in_context`, `check_boss_in_context`, `check_phase_in_context`
 
 **TDD -- Specific Test Cases**:
-- (V001 is a parse-time error, not a validation rule -- no validator test needed)
-- `test_v003_linked_phase_too_few` -- LinkedPhase with 1 sub-phase produces V003 error
-- `test_v005_hero_change_out_of_range` -- HeroChangePhase position 5 produces V005 error
-- `test_v007_choice_negative_budget` -- ChoicePhase with budget -1 produces V007 error
-- `test_v010_tog_invalid_position` -- tog item with invalid position produces V010 error
-- `test_v015_unknown_keyword_warns` -- unknown keyword produces V015 warning (not error)
-- `test_v021_random_tag_malformed` -- `"r~bad~"` produces V021 error
-- `test_v030_ability_type_derived` -- AbilityData with Side 5 data derives AbilityType::Spell
-- `test_v032_level_scope_invalid_range` -- LevelScope with start > end produces V032 error
-- `test_v040_richtext_unbalanced` -- unbalanced bracket produces V040 error
-- `test_v041_unknown_color_tag` -- `"[purple]"` produces V041 warning
-- `test_validation_on_all_test_mods` -- validation runs without panicking on all 4 test mods
+- `test_v002_boolean_phase_missing_value` -- BooleanPhase references undefined value → V002 warning
+- `test_v002_boolean_phase_valid_value` -- BooleanPhase references defined value → no finding
+- `test_v012_hat_unknown_template` -- hat references nonexistent template → V012 warning
+- `test_v016_hero_pool_missing_ref` -- hero pool references nonexistent hero → V016 error
+- `test_v019_duplicate_hero_color` -- two heroes with same color → V019 warning
+- `test_v020_cross_category_duplicate` -- same name in hero and replica pools → V020 error
+- `test_v022_value_set_never_checked` -- value set but never referenced → V022 info
+- `test_v022_value_checked_never_set` -- value checked but never set → V022 warning
+- `test_v023_replace_tag_missing_target` -- replace tag references nonexistent modifier → V023 error
+- `test_v042_richtext_unknown_entity` -- richtext references nonexistent entity → V042 warning
+- `test_check_hero_in_context_color_conflict` -- hero added with conflicting color → finding
+- `test_check_references_on_all_test_mods` -- check_references runs without panic on all 4 test mods
 - `test_all_findings_have_field_path` -- every Finding produced has non-None field_path
+- `test_empty_ir_no_findings` -- empty ModIR produces no findings
 
-**If Blocked**: Implement structural validation rules (V001, V003-V008, V010-V015, V030-V032, V040-V042) first. Cross-reference rules (V002, V022, V023) can be added in Chunk 11 if they require full-mod context.
+**If Blocked**: Implement V016, V019, V020 first (these are the most critical for CRUD operations). Value/entity cross-references (V002, V022, V023, V042) can follow.
 
 **Verification**:
 - [ ] `cargo test` -- all tests pass
-- [ ] Each validation rule has at least one test case
-- [ ] Warnings for unknown-but-valid-looking content (don't block on undocumented features)
-- [ ] Errors only for structurally invalid content
+- [ ] Old text-based `validate()` function is deleted (grep confirms no callers)
+- [ ] Each cross-reference rule has at least one positive and one negative test
 - [ ] All findings include field_path and suggestion
-- [ ] Validation runs without panicking on any test mod content
-- [ ] Performance: validation completes in <100ms for full mod
+- [ ] check_references runs without panic on all 4 test mods
+- [ ] No `unwrap()` in validator module
+- [ ] No raw text parsing in validator module (no string splitting, no regex, no depth tracking)
+- [ ] Performance: cross-reference check completes in <50ms for full mod
 
 ---
 
-### Chunk 11: Round-Trip Tests, Cross-References, Schema Update [INTEGRATION]
+### Chunk 11: Correctness Proof System + Schema Update [INTEGRATION]
 
-**Scope**: Verify everything works together. Round-trip all test mods with new types. Add cross-reference validation. Regenerate JSON Schema. This is the integration and polish chunk.
+**Scope**: Build a multi-layered correctness proof system that demonstrates the compiler works — not just on 4 test mods, but via property-based testing, differential testing, and build invariants. Also regenerate JSON Schema and verify all public exports.
 
 **Read First**:
 - `compiler/tests/roundtrip_tests.rs` -- existing round-trip test structure
-- `compiler/src/validator.rs` -- existing validation rules (add cross-reference rules)
 - `compiler/src/lib.rs` -- verify all exports are in place
+- `compiler/Cargo.toml` -- for adding proptest dependency
 
-**Files** (4 files):
-- `compiler/tests/roundtrip_tests.rs` (MODIFY -- expanded assertions for new types)
+**Files** (5 files):
+- `compiler/Cargo.toml` (MODIFY -- add proptest dev-dependency)
+- `compiler/tests/roundtrip_tests.rs` (MODIFY -- expanded assertions for all new IR types)
+- `compiler/tests/correctness_tests.rs` (NEW -- property-based tests, differential tests, build invariants)
 - `compiler/tests/integration_tests.rs` (NEW -- cross-system tests covering phases + chains + rewards + fights)
-- `compiler/src/validator.rs` (MODIFY -- add cross-reference validation rules V002, V022, V023)
 - `compiler/src/lib.rs` (MODIFY -- verify and document all public exports)
 
 **Dependencies**: ALL previous chunks
 
 **Constraints**:
-- This chunk must NOT introduce new types or structural changes -- it is verification and polish only
-- Cross-reference validation rules (V002, V022, V023) deferred from Chunk 10 are completed here
+- This chunk must NOT introduce new types or structural changes -- it is verification and proof only
+- Property-based tests must run in < 10 seconds (limit iteration count if needed)
+- Snapshot files for differential testing go in `compiler/tests/snapshots/`
+
+**Design — Correctness Proof Layers**:
+
+```
+Layer 1: ROUND-TRIP IDENTITY (expanded from existing tests)
+  extract(build(extract(mod))) == extract(mod) for all 4 test mods
+  - Assertions cover ALL IR types: phases, chain entries, fights, level scopes, rewards
+  - Field-level comparison, not just count-level
+  - 100% of extracted phases are typed (no Unparsed variant in the type system)
+  - 100% of extracted chain entries are typed (no Raw variant in the type system)
+
+Layer 2: PROPERTY-BASED TESTING (proptest crate)
+  Generate random valid IR fragments → emit → parse → compare
+  - prop_phase_roundtrip: random Phase → emit → parse → equal
+  - prop_chain_entry_roundtrip: random ChainEntry → emit → parse → equal
+  - prop_fight_roundtrip: random FightDefinition → emit → parse → equal
+  - prop_dice_faces_roundtrip: random DiceFaces → emit → parse → equal
+  - prop_level_scope_roundtrip: random LevelScope → emit → parse → equal
+  - prop_build_parens_balanced: random ModIR → build → paren depth never negative, ends at 0
+  - prop_build_ascii_only: random ModIR → build → all chars in 0x20-0x7E + newline
+  - prop_hero_roundtrip: random Hero → emit → parse → field equality
+
+Layer 3: DIFFERENTIAL TESTING (regression prevention)
+  For each test mod, snapshot the extracted IR as JSON:
+  - compiler/tests/snapshots/sliceymon_ir.json
+  - compiler/tests/snapshots/pansaer_ir.json
+  - compiler/tests/snapshots/punpuns_ir.json
+  - compiler/tests/snapshots/community_ir.json
+  Tests compare current extraction against snapshot. Intentional changes
+  update the snapshot; unintentional changes fail the test.
+
+Layer 4: BUILD INVARIANTS (verified on every build output)
+  After every build() call in tests, assert:
+  - Balanced parentheses (depth tracking)
+  - ASCII-only (no non-ASCII chars)
+  - No empty modifier segments (no consecutive commas)
+  - Tier separators at depth 0 (+ never inside parens)
+
+Layer 5: CROSS-REFERENCE CORRECTNESS (integration with Chunk 10)
+  After extraction, check_references() produces 0 errors on all test mods.
+  Hand-crafted invalid IRs produce expected findings.
+```
 
 **Requirements**:
 - Round-trip tests (expanded in `roundtrip_tests.rs`):
-  - All 4 test mods in `working-mods/`: `sliceymon.txt`, `pansaer.txt`, `punpuns.txt`, `community.txt` (loaded via existing `load_mod()` helper)
-  - `extract(build(extract(mod)))` IR identity for all types including new phase/chain/reward types
-  - New types don't break existing round-trip (regression prevention)
-  - Assert that ALL extracted phases are typed (no Unparsed variant exists)
-  - Assert that ALL extracted chain entries are typed (no Raw variant exists)
+  - All 4 test mods: `sliceymon.txt`, `pansaer.txt`, `punpuns.txt`, `community.txt`
+  - `extract(build(extract(mod)))` IR identity for all types including phases, chains, rewards, fights
+  - Assert 100% typed extraction (no Unparsed/Raw variants in the type system)
+  - New types don't break existing round-trip (regression)
+- Property-based tests (in `correctness_tests.rs`):
+  - Implement `Arbitrary` for key IR types: Phase, ChainEntry, FightDefinition, DiceFaces, LevelScope, Hero
+  - At least 6 property tests covering emit/parse round-trip for each major type
+  - Build invariant properties (parens, ASCII) on randomly generated ModIR
+- Differential tests (in `correctness_tests.rs`):
+  - Snapshot each test mod's IR as JSON
+  - Test compares current extraction against snapshot
+  - Update snapshots intentionally via `SNAPSHOT_UPDATE=1 cargo test` (or similar env flag)
 - Integration tests (in `integration_tests.rs`):
   - Recursive nesting: LinkedPhase containing BooleanPhase containing SeqPhase
   - Complex tog item chains from Thunder's guide examples
   - Full mod build from hand-authored JSON IR (validates Path B)
-  - Cross-reference: BooleanPhase value names match Value tag names
-  - Cross-reference: fight unit enemy references resolve to known templates
-- Cross-reference validation (in `validator.rs`):
-  - V002: BooleanPhase value names match Value tag set sites
-  - V022: Value names consistent across set/check sites
-  - V023: Replace tag references existing modifier
+  - Cross-reference correctness: check_references() returns 0 errors on all test mods
 - JSON Schema:
   - Regenerate schema with all new types via `cargo run -- schema`
   - Verify schema validates sample IR JSON for new types
 
 **TDD -- Specific Test Cases**:
-- `test_roundtrip_sliceymon_with_new_types` -- sliceymon.txt round-trips; extracted IR has typed phases/chains
-- `test_roundtrip_pansaer_with_new_types` -- pansaer.txt round-trips
-- `test_roundtrip_punpuns_with_new_types` -- punpuns.txt round-trips
-- `test_roundtrip_community_with_new_types` -- community.txt round-trips
+- `test_roundtrip_sliceymon_all_types` -- sliceymon round-trips with phase/chain/fight assertions
+- `test_roundtrip_pansaer_all_types` -- pansaer round-trips
+- `test_roundtrip_punpuns_all_types` -- punpuns round-trips
+- `test_roundtrip_community_all_types` -- community round-trips
+- `prop_phase_roundtrip` -- random Phase emits and parses back identically
+- `prop_chain_entry_roundtrip` -- random ChainEntry emits and parses back identically
+- `prop_fight_roundtrip` -- random FightDefinition emits and parses back identically
+- `prop_dice_faces_roundtrip` -- random DiceFaces emits and parses back identically
+- `prop_build_parens_balanced` -- random ModIR builds with balanced parens (never negative depth)
+- `prop_build_ascii_only` -- random ModIR builds with ASCII-only output
+- `test_differential_sliceymon` -- current extraction matches snapshot
+- `test_differential_pansaer` -- current extraction matches snapshot
 - `test_hand_authored_ir_builds` -- JSON IR with phases, fights, typed chains builds to valid textmod
 - `test_recursive_phase_nesting` -- Linked containing Boolean containing Seq round-trips
-- `test_cross_ref_boolean_value` -- BooleanPhase references value that doesn't exist -> V002 warning
-- `test_cross_ref_value_consistency` -- value set in one place, checked in another -> no warning; set only -> warning
-- `test_all_entries_typed` -- 100% of extracted chain entries are typed (no Raw/Unparsed variants exist in the enum)
+- `test_cross_refs_clean_on_all_mods` -- check_references() returns 0 errors on all 4 test mods
 - `test_schema_includes_new_types` -- generated schema contains Phase, ChainEntry, FightDefinition
 
-**If Blocked**: If a specific test mod fails round-trip due to an edge case in a new parser, add the failing content as a focused regression test and file a bug for the responsible chunk's parser. Do not block integration testing on a single edge case.
+**If Blocked**: Property-based testing for complex types (Phase, ChainEntry) may be hard to generate. Start with simpler types (DiceFaces, LevelScope, FightDefinition) and add complex type generators incrementally. Do not skip property testing entirely — at minimum, cover DiceFaces and build invariants.
 
 **Verification**:
 - [ ] `cargo test` -- all tests pass (0 failures)
 - [ ] `cargo clippy` -- no warnings
-- [ ] Round-trip identity holds for all 4 test mods
+- [ ] Round-trip identity holds for all 4 test mods with expanded type assertions
+- [ ] Property-based tests pass with default iteration count (256+)
+- [ ] Differential snapshots match current extraction (or are intentionally updated)
+- [ ] Build invariants (parens, ASCII) hold on all property-test-generated output
+- [ ] check_references() returns 0 errors on all 4 test mods
 - [ ] JSON Schema generates successfully and validates sample IR
 - [ ] All public exports documented in lib.rs
-- [ ] No performance regression (full mod round-trip under 500ms)
-- [ ] 100% of chain entries are typed (no Raw/Unparsed variants in the type system)
+- [ ] Full test suite completes in < 30 seconds
 - [ ] No `unwrap()` in library code
 - [ ] No `std::fs` in library code (WASM-safe)
 
@@ -1656,22 +1787,37 @@ Full blast radius: ir/mod.rs, boss_parser, boss_emitter, ir/merge.rs, ir/ops.rs,
 
 Run these checks against the actual codebase:
 
+**Correctness Proof**:
 - [ ] `cargo test` -- all tests pass (0 failures)
 - [ ] `cargo clippy` -- clean (0 warnings)
-- [ ] Round-trip fidelity for all 4 test mods in `working-mods/`: `sliceymon.txt`, `pansaer.txt`, `punpuns.txt`, `community.txt`
-- [ ] JSON Schema covers all new types (Phase, ChainEntry, FightDefinition, RewardTag, LevelScope, etc.)
-- [ ] Every constant/enum in `constants.rs` traces to Thunder's guide v3.2
-- [ ] No `unwrap()` in library code (grep `compiler/src/` excluding `tests/` and `main.rs`)
-- [ ] No `std::fs` in library code (grep to confirm WASM-safe)
-- [ ] All new `pub fn` exports documented in lib.rs with doc comments
-- [ ] Single-item build/validate works: `parse_phase`, `emit_phase`, `validate_phase`, `parse_reward_tag`, `emit_reward_tag`
-- [ ] Cross-reference validation catches orphaned Value/phase/reward references
-- [ ] No remaining references to removed types: `BossFightUnit`, `BossFightVariant`, `SegmentKind` (grep to confirm)
+- [ ] Round-trip fidelity for all 4 test mods in `working-mods/`
+- [ ] Property-based tests pass (proptest, 256+ iterations per property)
+- [ ] Differential snapshots match current extraction for all 4 test mods
+- [ ] Build invariants hold: balanced parens, ASCII-only, no empty segments, depth-0 tier separators
+- [ ] `check_references()` returns 0 errors on all 4 test mods
+
+**Pipeline Integrity**:
+- [ ] No standalone text-based `validate(textmod: &str)` function exists
+- [ ] All structural validation happens at parse time (in extractors), not post-hoc
+- [ ] `extract()` is the validation entry point — if it succeeds, the text is valid
+- [ ] Cross-reference checks operate on `&ModIR` only, never on raw text
+- [ ] Single-item operations work: `parse_phase`, `emit_phase`, `check_phase_in_context`
+
+**Type Safety**:
 - [ ] No `Raw` or `Unparsed` variants in `ChainSegment`, `ChainEntry`, or `PhaseContent` enums
 - [ ] No `Unknown` variant in `PhaseType` enum
-- [ ] 100% of extracted chain entries and phases are typed -- parse errors surface as `CompilerError`
-- [ ] Phase recursion depth bounded at `MAX_PHASE_DEPTH` (10) -- tested with deeply nested input (returns error)
-- [ ] No `raw_content` field on any `ChainSegment` variant -- all entries are typed
+- [ ] No `raw_content` field on any `ChainSegment` variant
+- [ ] 100% of extracted chain entries and phases are typed — parse errors surface as `CompilerError`
+- [ ] No remaining references to removed types: `BossFightUnit`, `BossFightVariant`, `SegmentKind`
+
+**Code Quality**:
+- [ ] Every constant/enum in `constants.rs` traces to Thunder's guide v3.2
+- [ ] No `unwrap()` in library code (grep `compiler/src/` excluding `tests/` and `main.rs`)
+- [ ] No `std::fs` in library code (WASM-safe)
+- [ ] All new `pub fn` exports documented in lib.rs with doc comments
+- [ ] JSON Schema covers all new types (Phase, ChainEntry, FightDefinition, RewardTag, LevelScope, etc.)
+- [ ] Phase recursion depth bounded at `MAX_PHASE_DEPTH` (10) — tested with deeply nested input
+- [ ] Full test suite completes in < 30 seconds
 - [ ] HANDOFF.md updated with final state
 
 ---
@@ -1691,7 +1837,10 @@ Run these checks against the actual codebase:
 | Undiscovered entity ref prefixes (`r<type>.`) | Gatekeeping test `test_ref_kind_covers_all_prefixes` in Chunk 4 runs against all 4 test mods. Any unknown prefix surfaces immediately as a CompilerError, requiring a new RefKind variant. |
 | Migration chunks exceed 5-file guideline | Chunks 3 (9 files), 8 (12 files) are type migrations where Rust's exhaustive match arms require all files to move in lockstep. Partial migration won't compile. Documented with justification in each chunk. |
 | Migration chunks touch many files | Explicitly listed in chunk file lists with blast radius notes. Chunks 3 (9 files) and 8 (12 files) exceed the 5-file limit -- justified in each chunk's scope note. "If Blocked" sections provide fallback strategies. |
-| Circular module dependency (ir <-> validator) | Richtext validation is a free function in `validator.rs`, not a method on `RichText`. IR types never import from validator. |
+| Circular module dependency (ir <-> validator) | Cross-reference checks are free functions in `validator.rs`, not methods on IR types. IR types never import from validator. |
+| Text-based validator removal breaks callers | Chunk 10 deletes `validate(textmod: &str)` and updates all callers to use `extract()` + `check_references()`. grep confirms no remaining callers. |
+| Property-based test generation for complex types | Start with simple types (DiceFaces, LevelScope). Complex types (Phase, ChainEntry) may need custom `Arbitrary` impls. Do not skip — at minimum cover build invariants. |
+| Differential snapshot maintenance burden | Snapshots update via env flag (`SNAPSHOT_UPDATE=1`). CI runs without the flag — stale snapshots fail loudly. |
 
 ---
 
