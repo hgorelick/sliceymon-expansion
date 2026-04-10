@@ -8,4 +8,5 @@ node_modules/
 tools/node_modules/
 compiler/target/
 test_output/
+mod-testing/
 HANDOFF.md
