@@ -13,8 +13,8 @@ fn ir_types_serialize_roundtrip() {
             blocks: vec![HeroBlock {
                 template: "Eccentric".to_string(),
                 tier: Some(1),
-                hp: 4,
-                sd: "34-1:30-1:0:0:30-1:0".to_string(),
+                hp: Some(4),
+                sd: DiceFaces::parse("34-1:30-1:0:0:30-1:0"),
                 color: None,
                 sprite_name: "Gible".to_string(),
                 speech: "Gib!~Gible!".to_string(),
@@ -27,16 +27,16 @@ fn ir_types_serialize_roundtrip() {
                 facades: vec![],
                 items_inside: None,
                 items_outside: None,
+                img_data: None,
+                bare: false,
             }],
             removed: false,
-            raw: None,
+            source: Source::Base,
         }],
-        captures: vec![],
-        legendaries: vec![],
+        replica_items: vec![],
         monsters: vec![],
         bosses: vec![],
         structural: vec![],
-        original_modifiers: None,
     };
 
     let json = serde_json::to_string_pretty(&ir).unwrap();
@@ -50,8 +50,8 @@ fn hero_block_required_fields() {
     let tier = HeroBlock {
         template: "Thief".to_string(),
         tier: Some(2),
-        hp: 6,
-        sd: "93-2:93-2:56-1:56-1:0:0".to_string(),
+        hp: Some(6),
+        sd: DiceFaces::parse("93-2:93-2:56-1:56-1:0:0"),
         color: None,
         sprite_name: "Snorunt".to_string(),
         speech: "Snor!~Runt!".to_string(),
@@ -64,13 +64,15 @@ fn hero_block_required_fields() {
         facades: vec![],
         items_inside: None,
         items_outside: None,
+        img_data: None,
+        bare: false,
     };
 
     let json = serde_json::to_string(&tier).unwrap();
     // All required fields must be present
     assert!(json.contains("\"template\":\"Thief\""));
     assert!(json.contains("\"hp\":6"));
-    assert!(json.contains("\"sd\":\"93-2:93-2:56-1:56-1:0:0\""));
+    assert!(json.contains("\"sd\":{\"faces\":"), "sd should serialize as DiceFaces struct");
     assert!(json.contains("\"sprite_name\":\"Snorunt\""));
     assert!(json.contains("\"speech\":\"Snor!~Runt!\""));
     assert!(json.contains("\"name\":\"Snorunt\""));
@@ -126,15 +128,10 @@ fn empty_mod_ir_serializes() {
     let deserialized: ModIR = serde_json::from_str(&json).unwrap();
     assert_eq!(ir, deserialized);
     assert!(ir.heroes.is_empty());
-    assert!(ir.captures.is_empty());
-    assert!(ir.legendaries.is_empty());
+    assert!(ir.replica_items.is_empty());
     assert!(ir.monsters.is_empty());
     assert!(ir.bosses.is_empty());
     assert!(ir.structural.is_empty());
-    assert!(ir.original_modifiers.is_none());
-    // None fields with skip_serializing_if should be omitted from JSON
-    assert!(
-        !json.contains("original_modifiers"),
-        "None original_modifiers should be omitted from JSON"
-    );
+    // ModIR no longer has original_modifiers field
+    assert!(!json.contains("original_modifiers"));
 }

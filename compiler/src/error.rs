@@ -58,6 +58,25 @@ pub enum CompilerError {
         message: String,
     },
 
+    /// Duplicate name across categories (hero, replica item, monster, boss)
+    DuplicateName {
+        name: String,
+        existing_category: String,
+        new_category: String,
+    },
+
+    /// Duplicate hero color
+    DuplicateColor {
+        color: char,
+        existing_hero: String,
+    },
+
+    /// Item not found for remove/update
+    NotFound {
+        type_name: String,
+        key: String,
+    },
+
     /// IO error (CLI only)
     IoError(String),
 }
@@ -139,6 +158,23 @@ impl fmt::Display for CompilerError {
             }
             CompilerError::ValidationError { message } => {
                 write!(f, "ValidationError: {}", message)
+            }
+            CompilerError::DuplicateName { name, existing_category, new_category } => {
+                write!(
+                    f,
+                    "DuplicateName: '{}' already exists as {} (cannot add as {})",
+                    name, existing_category, new_category
+                )
+            }
+            CompilerError::DuplicateColor { color, existing_hero } => {
+                write!(
+                    f,
+                    "DuplicateColor: color '{}' already used by hero '{}'",
+                    color, existing_hero
+                )
+            }
+            CompilerError::NotFound { type_name, key } => {
+                write!(f, "NotFound: {} '{}' does not exist", type_name, key)
             }
             CompilerError::IoError(msg) => {
                 write!(f, "IoError: {}", msg)

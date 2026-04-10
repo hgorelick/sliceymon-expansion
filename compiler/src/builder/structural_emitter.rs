@@ -1,39 +1,57 @@
 use crate::ir::{StructuralContent, StructuralModifier};
 
-/// Emit a structural modifier.
+/// Emit a structural modifier from its typed content.
 ///
-/// Dispatches on content variant for reconstruction.
-/// Falls back to raw for Raw content or if reconstruction fails.
+/// Each StructuralContent variant stores a `body` field containing the full modifier
+/// text. The emitter dispatches on the variant and returns the body.
 pub fn emit(s: &StructuralModifier) -> String {
     match &s.content {
-        StructuralContent::Raw => s.raw.clone(),
-        // For all parsed variants, fall back to raw.
-        // Reconstruction from structured fields is available but raw is always
-        // authoritative for structural modifiers (they always have raw: String).
-        _ => s.raw.clone(),
+        StructuralContent::HeroPoolBase { body, .. } => body.clone(),
+        StructuralContent::ItemPool { body, .. } => body.clone(),
+        StructuralContent::BossModifier { body, .. } => body.clone(),
+        StructuralContent::PartyConfig { body, .. } => body.clone(),
+        StructuralContent::EventModifier { body, .. } => body.clone(),
+        StructuralContent::Dialog { body, .. } => body.clone(),
+        StructuralContent::ArtCredits { body } => body.clone(),
+        StructuralContent::Selector { body, .. } => body.clone(),
+        StructuralContent::GenSelect { body, .. } => body.clone(),
+        StructuralContent::Difficulty { body, .. } => body.clone(),
+        StructuralContent::LevelUpAction { body } => body.clone(),
+        StructuralContent::PoolReplacement { body, .. } => body.clone(),
+        StructuralContent::EndScreen { body } => body.clone(),
+        StructuralContent::Unknown { body } => body.clone(),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{StructuralContent, StructuralModifier, StructuralType};
+    use crate::ir::{Source, StructuralContent, StructuralModifier, StructuralType};
 
     #[test]
-    fn structural_emitter_raw_fallback() {
-        let s = StructuralModifier::new_raw(StructuralType::Dialog, "raw-dialog-content".into());
-        assert_eq!(emit(&s), "raw-dialog-content");
-    }
-
-    #[test]
-    fn structural_emitter_dispatches_on_content() {
+    fn structural_emitter_dialog() {
         let s = StructuralModifier {
             modifier_type: StructuralType::Dialog,
             name: Some("Credits".into()),
-            content: StructuralContent::Dialog { phase: "4".into() },
-            raw: "the-raw-content".into(),
+            content: StructuralContent::Dialog {
+                body: "1.ph.4 Hello.mn.Intro".into(),
+                phase: "4".into(),
+            },
+            derived: false,
+            source: Source::Base,
         };
-        // Currently falls back to raw; reconstruction can be added later
-        assert_eq!(emit(&s), "the-raw-content");
+        assert_eq!(emit(&s), "1.ph.4 Hello.mn.Intro");
+    }
+
+    #[test]
+    fn structural_emitter_unknown() {
+        let s = StructuralModifier {
+            modifier_type: StructuralType::Unknown,
+            name: None,
+            content: StructuralContent::Unknown { body: "some unknown content".into() },
+            derived: false,
+            source: Source::Base,
+        };
+        assert_eq!(emit(&s), "some unknown content");
     }
 }

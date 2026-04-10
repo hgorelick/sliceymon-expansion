@@ -1,4 +1,5 @@
-use textmod_compiler::validator::{validate, ValidationReport, Finding};
+use textmod_compiler::validator::{validate, validate_ir, ValidationReport, Finding, Severity};
+use textmod_compiler::ir::{ModIR, Hero, HeroBlock, HeroFormat, DiceFaces, ReplicaItem, AbilityData, Source};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -267,11 +268,8 @@ fn validate_report_is_ok() {
     let with_warning = ValidationReport {
         warnings: vec![Finding {
             rule_id: "W001".to_string(),
-            modifier_index: None,
-            modifier_name: None,
-            position: None,
-            context: None,
             message: "test warning".to_string(),
+            ..Default::default()
         }],
         ..Default::default()
     };
@@ -284,19 +282,20 @@ fn validate_report_display() {
     let report = ValidationReport {
         errors: vec![Finding {
             rule_id: "E001".to_string(),
+            severity: Severity::Error,
             modifier_index: Some(0),
             modifier_name: Some("TestHero".to_string()),
             position: Some(42),
             context: Some("...around here...".to_string()),
             message: "Unbalanced parens".to_string(),
+            ..Default::default()
         }],
         warnings: vec![Finding {
             rule_id: "W003".to_string(),
+            severity: Severity::Warning,
             modifier_index: Some(1),
-            modifier_name: None,
-            position: None,
-            context: None,
             message: "Unknown type".to_string(),
+            ..Default::default()
         }],
         ..Default::default()
     };
@@ -351,4 +350,310 @@ fn validate_paren_error_has_context() {
         e001.unwrap().context.is_some(),
         "E001 should have context field populated"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for IR-based semantic validation tests
+// ---------------------------------------------------------------------------
+
+fn make_test_hero(name: &str, color: char) -> Hero {
+    Hero {
+        internal_name: name.to_lowercase(),
+        mn_name: name.to_string(),
+        color,
+        format: HeroFormat::Sliceymon,
+        blocks: vec![make_test_block("Lost", 1, 5, "0:0:0:0:0:0")],
+        removed: false,
+        source: Source::Base,
+    }
+}
+
+fn make_test_block(template: &str, tier: u8, hp: u16, sd: &str) -> HeroBlock {
+    HeroBlock {
+        template: template.into(),
+        tier: Some(tier),
+        hp: Some(hp),
+        sd: DiceFaces::parse(sd),
+        color: None,
+        sprite_name: "test".into(),
+        speech: "!".into(),
+        name: "Test".into(),
+        doc: None,
+        abilitydata: None,
+        triggerhpdata: None,
+        hue: None,
+        modifier_chain: None,
+        facades: vec![],
+        items_inside: None,
+        items_outside: None,
+        img_data: Some("test".into()),
+        bare: false,
+    }
+}
+
+fn make_test_replica(name: &str) -> ReplicaItem {
+    ReplicaItem {
+        name: name.into(),
+        container_name: "Ball".into(),
+        template: "Hat".into(),
+        hp: None,
+        sd: DiceFaces::parse("0:0:0:0:0:0"),
+        sprite_name: name.into(),
+        color: None,
+        tier: None,
+        doc: None,
+        speech: None,
+        abilitydata: None,
+        item_modifiers: None,
+        sticker: None,
+        toggle_flags: None,
+        img_data: None,
+        source: Source::Base,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Semantic validation tests (E017-E021, W008-W011)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn validate_face_id_for_template() {
+    let mut ir = ModIR::empty();
+    // Face 42 (Damage Charged) on Fey -> E017
+    let mut hero = make_test_hero("TestFey", 'a');
+    hero.blocks = vec![make_test_block("Fey", 1, 5, "42-1:0:0:0:0:0")];
+    ir.heroes.push(hero);
+
+    let report = validate_ir(&ir);
+    assert!(report.errors.iter().any(|f| f.rule_id == "E017"),
+        "Expected E017 for face 42 on Fey, got: {:?}", report.errors);
+
+    // Face 15 (Damage) on Fey -> no E017
+    let mut ir2 = ModIR::empty();
+    let mut hero2 = make_test_hero("TestFey2", 'b');
+    hero2.blocks = vec![make_test_block("Fey", 1, 5, "15-1:0:0:0:0:0")];
+    ir2.heroes.push(hero2);
+
+    let report2 = validate_ir(&ir2);
+    assert!(!report2.errors.iter().any(|f| f.rule_id == "E017"),
+        "Face 15 should be valid for Fey");
+}
+
+#[test]
+fn validate_template_exists() {
+    let mut ir = ModIR::empty();
+    let mut hero = make_test_hero("TestBad", 'a');
+    hero.blocks = vec![make_test_block("NonExistent", 1, 5, "0:0:0:0:0:0")];
+    ir.heroes.push(hero);
+
+    let report = validate_ir(&ir);
+    assert!(report.errors.iter().any(|f| f.rule_id == "E018"),
+        "Expected E018 for NonExistent template");
+
+    // Known template -> no error
+    let mut ir2 = ModIR::empty();
+    let mut hero2 = make_test_hero("TestGood", 'b');
+    hero2.blocks = vec![make_test_block("Lost", 1, 5, "0:0:0:0:0:0")];
+    ir2.heroes.push(hero2);
+
+    let report2 = validate_ir(&ir2);
+    assert!(!report2.errors.iter().any(|f| f.rule_id == "E018"),
+        "Lost should be a known template");
+}
+
+#[test]
+fn validate_color_uniqueness() {
+    let mut ir = ModIR::empty();
+    ir.heroes.push(make_test_hero("Alpha", 'a'));
+    ir.heroes.push(make_test_hero("Beta", 'a')); // duplicate color
+
+    let report = validate_ir(&ir);
+    assert!(report.warnings.iter().any(|f| f.rule_id == "E019"),
+        "Expected E019 warning for duplicate color 'a'");
+}
+
+#[test]
+fn validate_pokemon_uniqueness_across_categories() {
+    let mut ir = ModIR::empty();
+    ir.heroes.push(make_test_hero("Charmander", 'a'));
+    ir.replica_items.push(make_test_replica("Charmander")); // same name
+
+    let report = validate_ir(&ir);
+    assert!(report.errors.iter().any(|f| f.rule_id == "E020"),
+        "Expected E020 for Charmander in both heroes and replica items");
+}
+
+#[test]
+fn validate_hp_range_per_tier() {
+    let mut ir = ModIR::empty();
+    let mut hero = make_test_hero("BigHP", 'a');
+    hero.blocks = vec![make_test_block("Lost", 1, 50, "0:0:0:0:0:0")]; // T1 HP 50
+    ir.heroes.push(hero);
+
+    let report = validate_ir(&ir);
+    assert!(report.warnings.iter().any(|f| f.rule_id == "W008"),
+        "Expected W008 for T1 HP 50");
+}
+
+#[test]
+fn validate_sd_face_count() {
+    let mut ir = ModIR::empty();
+    let mut hero = make_test_hero("BadDice", 'a');
+    hero.blocks = vec![make_test_block("Lost", 1, 5, "0:0:0:0:0:0:0")]; // 7 faces
+    ir.heroes.push(hero);
+
+    let report = validate_ir(&ir);
+    assert!(report.warnings.iter().any(|f| f.rule_id == "W009"),
+        "Expected W009 for 7 dice faces");
+}
+
+#[test]
+fn validate_spell_face_ids() {
+    let mut ir = ModIR::empty();
+    let mut hero = make_test_hero("SpellHero", 'a');
+    let mut block = make_test_block("Lost", 1, 5, "0:0:0:0:0:0");
+    block.abilitydata = Some(AbilityData {
+        template: "Fey".into(),
+        sd: DiceFaces::parse("42-1:0:0:0:0:0"), // face 42 invalid for Fey
+        img_data: Some("spark".into()),
+        name: "TestSpell".into(),
+        modifier_chain: None,
+        hsv: None,
+    });
+    hero.blocks = vec![block];
+    ir.heroes.push(hero);
+
+    let report = validate_ir(&ir);
+    assert!(report.errors.iter().any(|f| f.rule_id == "E021"),
+        "Expected E021 for spell face 42 on Fey template");
+}
+
+#[test]
+fn validate_replica_item_template() {
+    let mut ir = ModIR::empty();
+    let mut item = make_test_replica("Oddish");
+    item.template = "FakeTemplate".into();
+    ir.replica_items.push(item);
+
+    let report = validate_ir(&ir);
+    assert!(report.warnings.iter().any(|f| f.rule_id == "W010"),
+        "Expected W010 for unknown replica item template");
+}
+
+#[test]
+fn validate_replica_item_with_ability_hp() {
+    let mut ir = ModIR::empty();
+    let mut item = make_test_replica("PowerItem");
+    item.hp = Some(30);
+    item.abilitydata = Some(AbilityData {
+        template: "Fey".into(),
+        sd: DiceFaces::parse("0:0:0:0:0:0"),
+        img_data: Some("spark".into()),
+        name: "ItemSpell".into(),
+        modifier_chain: None,
+        hsv: None,
+    });
+    ir.replica_items.push(item);
+
+    let report = validate_ir(&ir);
+    assert!(report.warnings.iter().any(|f| f.rule_id == "W011"),
+        "Expected W011 for replica item with ability and HP 30");
+}
+
+#[test]
+fn validate_ir_sliceymon_zero_semantic_errors() {
+    let text = load_mod("sliceymon");
+    let ir = textmod_compiler::extract(&text).unwrap();
+    let report = validate_ir(&ir);
+    assert!(
+        report.errors.is_empty(),
+        "sliceymon should have 0 semantic errors, got {}:\n{:?}",
+        report.errors.len(),
+        report.errors.iter().map(|f| format!("[{}] {}", f.rule_id, f.message)).collect::<Vec<_>>()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Structured error tests (Chunk 11: field_path, suggestion, severity)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn finding_has_field_path() {
+    let mut ir = ModIR::empty();
+    let mut hero = make_test_hero("FieldPathTest", 'a');
+    hero.blocks = vec![make_test_block("Fey", 1, 50, "0:0:0:0:0:0")]; // T1 HP 50 -> W008
+    ir.heroes.push(hero);
+
+    let report = validate_ir(&ir);
+    let w008 = report.warnings.iter().find(|f| f.rule_id == "W008");
+    assert!(w008.is_some(), "Expected W008");
+    let field_path = w008.unwrap().field_path.as_ref();
+    assert!(field_path.is_some(), "W008 should have field_path");
+    assert_eq!(field_path.unwrap(), "heroes[0].blocks[0].hp");
+}
+
+#[test]
+fn finding_has_suggestion() {
+    let mut ir = ModIR::empty();
+    let mut hero = make_test_hero("SugTest", 'a');
+    hero.blocks = vec![make_test_block("Fey", 1, 5, "42-1:0:0:0:0:0")]; // E017
+    ir.heroes.push(hero);
+
+    let report = validate_ir(&ir);
+    let e017 = report.errors.iter().find(|f| f.rule_id == "E017");
+    assert!(e017.is_some(), "Expected E017");
+    let suggestion = e017.unwrap().suggestion.as_ref();
+    assert!(suggestion.is_some(), "E017 should have suggestion");
+    assert!(suggestion.unwrap().contains("42"), "Suggestion should mention face ID 42");
+}
+
+#[test]
+fn finding_serializes_to_json() {
+    let finding = Finding {
+        rule_id: "E017".to_string(),
+        severity: Severity::Error,
+        message: "test error".to_string(),
+        field_path: Some("heroes[0].blocks[2].sd".to_string()),
+        suggestion: Some("Use face 15 instead".to_string()),
+        ..Default::default()
+    };
+    let json = serde_json::to_string(&finding).unwrap();
+    assert!(json.contains("\"rule_id\":\"E017\""));
+    assert!(json.contains("\"severity\":\"Error\""));
+    assert!(json.contains("\"field_path\""));
+    assert!(json.contains("\"suggestion\""));
+}
+
+#[test]
+fn finding_has_severity_enum() {
+    let mut ir = ModIR::empty();
+    let mut hero = make_test_hero("SevTest", 'a');
+    hero.blocks = vec![make_test_block("Fey", 1, 50, "42-1:0:0:0:0:0")]; // E017 + W008
+    ir.heroes.push(hero);
+
+    let report = validate_ir(&ir);
+
+    let e017 = report.errors.iter().find(|f| f.rule_id == "E017").unwrap();
+    assert_eq!(e017.severity, Severity::Error);
+
+    let w008 = report.warnings.iter().find(|f| f.rule_id == "W008").unwrap();
+    assert_eq!(w008.severity, Severity::Warning);
+}
+
+#[test]
+fn validation_report_groups_by_severity() {
+    let mut ir = ModIR::empty();
+    let mut hero = make_test_hero("GroupTest", 'a');
+    hero.blocks = vec![make_test_block("Fey", 1, 50, "42-1:0:0:0:0:0")]; // E017 error + W008 warning
+    ir.heroes.push(hero);
+
+    let report = validate_ir(&ir);
+    // Errors vec contains only Error severity
+    for f in &report.errors {
+        assert_eq!(f.severity, Severity::Error, "errors vec should only contain Error severity");
+    }
+    // Warnings vec contains only Warning severity
+    for f in &report.warnings {
+        assert_eq!(f.severity, Severity::Warning, "warnings vec should only contain Warning severity");
+    }
 }

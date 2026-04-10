@@ -1,7 +1,7 @@
 pub mod splitter;
 pub mod classifier;
 pub mod hero_parser;
-pub mod capture_parser;
+pub mod replica_item_parser;
 pub mod monster_parser;
 pub mod boss_parser;
 pub mod structural_parser;
@@ -18,7 +18,8 @@ fn make_structural(stype: StructuralType, raw: String) -> StructuralModifier {
         modifier_type: stype,
         name,
         content,
-        raw,
+        derived: false,
+        source: Source::Base,
     }
 }
 
@@ -27,8 +28,7 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
     let modifier_strings = splitter::split_modifiers(textmod)?;
 
     let mut heroes = Vec::new();
-    let mut captures = Vec::new();
-    let mut legendaries = Vec::new();
+    let mut replica_items = Vec::new();
     let mut monsters = Vec::new();
     let mut bosses = Vec::new();
     let mut structural = Vec::new();
@@ -47,11 +47,14 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
             ModifierType::Boss => {
                 bosses.push(boss_parser::parse_boss(modifier, i));
             }
-            ModifierType::Capture => {
-                captures.push(capture_parser::parse_capture(modifier, i));
+            ModifierType::BossEncounter => {
+                bosses.push(boss_parser::parse_encounter(modifier, i));
             }
-            ModifierType::Legendary => {
-                legendaries.push(capture_parser::parse_legendary(modifier, i));
+            ModifierType::ReplicaItem => {
+                replica_items.push(replica_item_parser::parse_simple(modifier, i));
+            }
+            ModifierType::ReplicaItemWithAbility => {
+                replica_items.push(replica_item_parser::parse_with_ability(modifier, i));
             }
             ModifierType::HeroPoolBase => {
                 structural.push(make_structural(StructuralType::HeroPoolBase, modifier.clone()));
@@ -93,18 +96,16 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
                 structural.push(make_structural(StructuralType::EndScreen, modifier.clone()));
             }
             ModifierType::Unknown => {
-                structural.push(StructuralModifier::new_raw(StructuralType::Unknown, modifier.clone()));
+                structural.push(make_structural(StructuralType::Unknown, modifier.clone()));
             }
         }
     }
 
     Ok(ModIR {
         heroes,
-        captures,
-        legendaries,
+        replica_items,
         monsters,
         bosses,
         structural,
-        original_modifiers: Some(modifier_strings),
     })
 }

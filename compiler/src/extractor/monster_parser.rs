@@ -1,4 +1,4 @@
-use crate::ir::Monster;
+use crate::ir::{Monster, Source};
 use crate::util;
 
 pub fn parse_monster(modifier: &str, _modifier_index: usize) -> Monster {
@@ -9,23 +9,26 @@ pub fn parse_monster(modifier: &str, _modifier_index: usize) -> Monster {
     let floor_range = extract_floor_range(modifier).unwrap_or_default();
     let color = util::extract_color(modifier);
     let doc = util::extract_simple_prop(modifier, ".doc.");
-    let modifier_chain = util::extract_modifier_chain(modifier);
+    let modifier_chain = util::extract_modifier_chain(modifier)
+        .map(|s| crate::ir::ModifierChain::parse(&s));
 
     // sprite_name: use name as key for sprite lookup
     let sprite_name = if name.is_empty() { None } else { Some(name.clone()) };
+    let img_data = util::extract_img_data(modifier);
 
     Monster {
         name,
         base_template,
         floor_range,
         hp: util::extract_hp(modifier, false),
-        sd: util::extract_sd(modifier, false),
+        sd: util::extract_sd(modifier, false).map(|s| crate::ir::DiceFaces::parse(&s)),
         sprite_name,
         color,
         doc,
         modifier_chain,
         balance: extract_balance(modifier),
-        raw: Some(modifier.to_string()),
+        img_data,
+        source: Source::Base,
     }
 }
 
@@ -59,7 +62,9 @@ fn extract_balance(modifier: &str) -> Option<String> {
     let pos = modifier.find(marker)?;
     let start = pos + marker.len();
     let remaining = &modifier[start..];
-    let end = remaining.find('.').or_else(|| remaining.find(')')).unwrap_or(remaining.len());
+    let dot_end = remaining.find('.').unwrap_or(remaining.len());
+    let paren_end = remaining.find(')').unwrap_or(remaining.len());
+    let end = dot_end.min(paren_end);
     let val = &remaining[..end];
     if val.is_empty() { None } else { Some(val.to_string()) }
 }

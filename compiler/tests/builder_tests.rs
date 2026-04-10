@@ -25,8 +25,8 @@ fn simple_hero() -> Hero {
             HeroBlock {
                 template: "Lost".to_string(),
                 tier: None,
-                hp: 5,
-                sd: "170-3:158-1:158-1:158-1:43:0".to_string(),
+                hp: Some(5),
+                sd: DiceFaces::parse("170-3:158-1:158-1:158-1:43:0"),
                 color: None,
                 sprite_name: "Gible".to_string(),
                 speech: "Gib!~Gible!".to_string(),
@@ -35,16 +35,18 @@ fn simple_hero() -> Hero {
                 abilitydata: None,
                 triggerhpdata: None,
                 hue: None,
-                modifier_chain: Some(".i.left.k.scared#facade.bas170:55".to_string()),
+                modifier_chain: Some(ModifierChain::parse(".i.left.k.scared#facade.bas170:55")),
                 facades: vec!["bas170:55".to_string()],
                 items_inside: None,
                 items_outside: None,
+                img_data: None,
+                bare: false,
             },
             HeroBlock {
                 template: "Lost".to_string(),
                 tier: Some(2),
-                hp: 7,
-                sd: "170-3:158-2:158-2:43-1:0:0".to_string(),
+                hp: Some(7),
+                sd: DiceFaces::parse("170-3:158-2:158-2:43-1:0:0"),
                 color: None,
                 sprite_name: "Gabite".to_string(),
                 speech: "Gab!~Gabite!".to_string(),
@@ -57,12 +59,14 @@ fn simple_hero() -> Hero {
                 facades: vec![],
                 items_inside: None,
                 items_outside: None,
+                img_data: None,
+                bare: false,
             },
             HeroBlock {
                 template: "Lost".to_string(),
                 tier: Some(3),
-                hp: 9,
-                sd: "170-4:158-3:158-3:43-2:0:0".to_string(),
+                hp: Some(9),
+                sd: DiceFaces::parse("170-4:158-3:158-3:43-2:0:0"),
                 color: None,
                 sprite_name: "Garchomp".to_string(),
                 speech: "GARCHOMP!".to_string(),
@@ -75,10 +79,12 @@ fn simple_hero() -> Hero {
                 facades: vec![],
                 items_inside: None,
                 items_outside: None,
+                img_data: None,
+                bare: false,
             },
         ],
         removed: false,
-        raw: None,
+        source: Source::Base,
     }
 }
 
@@ -125,7 +131,7 @@ fn emit_hero_sprite_resolved() {
 // --- Test 5: Missing sprite gives SpriteNotFound error ---
 #[test]
 fn emit_hero_sprite_not_found_error() {
-    let hero = simple_hero();
+    let hero = simple_hero(); // blocks have no img_data
     let empty_sprites = HashMap::new();
     let result = hero_emitter::emit(&hero, &empty_sprites);
     assert!(result.is_err());
@@ -142,21 +148,33 @@ fn emit_hero_sprite_not_found_error() {
     }
 }
 
-// --- Test 6: Raw passthrough ---
+// --- Test 6: img_data fallback when no sprite map entry ---
 #[test]
-fn emit_hero_raw_passthrough() {
-    let hero = Hero {
-        internal_name: "test".to_string(),
-        mn_name: "Test".to_string(),
-        color: 'a',
-        format: HeroFormat::Sliceymon,
-        blocks: vec![],
-        removed: false,
-        raw: Some("raw-hero-modifier-content".to_string()),
-    };
-    let sprites = HashMap::new();
+fn emit_hero_img_data_fallback() {
+    let mut hero = simple_hero();
+    // Set img_data on all blocks
+    for block in &mut hero.blocks {
+        block.img_data = Some(format!("{}_FROM_IMGDATA", block.sprite_name));
+    }
+    // Empty sprite map — should fall back to img_data
+    let empty_sprites = HashMap::new();
+    let output = hero_emitter::emit(&hero, &empty_sprites).unwrap();
+    assert!(output.contains(".img.Gible_FROM_IMGDATA"), "Should use img_data fallback");
+    assert!(output.contains(".img.Gabite_FROM_IMGDATA"), "Should use img_data fallback");
+}
+
+// --- Test 6b: sprite map overrides img_data ---
+#[test]
+fn emit_hero_sprite_map_overrides_img_data() {
+    let mut hero = simple_hero();
+    for block in &mut hero.blocks {
+        block.img_data = Some("OLD_DATA".to_string());
+    }
+    let sprites = test_sprites();
     let output = hero_emitter::emit(&hero, &sprites).unwrap();
-    assert_eq!(output, "raw-hero-modifier-content");
+    // Sprite map should win over img_data
+    assert!(output.contains(".img.GIBLE_SPRITE_DATA"), "Sprite map should override img_data");
+    assert!(!output.contains("OLD_DATA"), "img_data should not appear when sprite map has entry");
 }
 
 // --- Test 7: .part.1&hidden suffix and .mn. suffix ---
@@ -208,15 +226,13 @@ fn emit_hero_ascii_only() {
 fn build_minimal_textmod() {
     let ir = ModIR {
         heroes: vec![simple_hero()],
-        captures: vec![],
-        legendaries: vec![],
+        replica_items: vec![],
         monsters: vec![],
         bosses: vec![],
-        structural: vec![StructuralModifier::new_raw(
+        structural: vec![StructuralModifier::new(
             StructuralType::PartyConfig,
             "=party.Roulette.img.ABC123".to_string(),
         )],
-        original_modifiers: None,
     };
     let sprites = test_sprites();
     let output = textmod_compiler::build(&ir, &sprites).unwrap();
@@ -232,8 +248,7 @@ fn build_minimal_textmod() {
 fn build_assembly_order() {
     let ir = ModIR {
         heroes: vec![simple_hero()],
-        captures: vec![],
-        legendaries: vec![],
+        replica_items: vec![],
         monsters: vec![Monster {
             name: "Wooper".to_string(),
             base_template: "Slimelet".to_string(),
@@ -245,32 +260,43 @@ fn build_assembly_order() {
             doc: None,
             modifier_chain: None,
             balance: None,
-            raw: Some("monster-raw-content".to_string()),
+            img_data: None,
+            source: Source::Base,
         }],
         bosses: vec![Boss {
             name: "Quagsire".to_string(),
             level: Some(4),
-            template: None,
-            hp: None,
-            sd: None,
-            sprite_name: None,
+            format: BossFormat::Standard,
+            encounter_id: None,
+            variants: vec![BossFightVariant {
+                name: String::new(),
+                trigger: None,
+                fight_units: vec![BossFightUnit {
+                    template: "Sniper".into(),
+                    name: "Wooper".into(),
+                    hp: Some(3),
+                    sd: None,
+                    sprite_data: None,
+                    template_override: None,
+                    doc: None,
+                    modifier_chain: None,
+                }],
+            }],
             doc: None,
             modifier_chain: None,
-            fight_units: vec![],
-            variant: None,
-            raw: Some("boss-raw-content".to_string()),
+            source: Source::Base,
+            event_body: None,
         }],
         structural: vec![
-            StructuralModifier::new_raw(
+            StructuralModifier::new(
                 StructuralType::PartyConfig,
                 "=party.content".to_string(),
             ),
-            StructuralModifier::new_raw(
+            StructuralModifier::new(
                 StructuralType::Dialog,
                 "dialog-content".to_string(),
             ),
         ],
-        original_modifiers: None,
     };
     let sprites = test_sprites();
     let output = textmod_compiler::build(&ir, &sprites).unwrap();
@@ -279,8 +305,8 @@ fn build_assembly_order() {
     let party_pos = output.find("=party.content").unwrap();
     let dialog_pos = output.find("dialog-content").unwrap();
     let hero_pos = output.find("heropool.").unwrap();
-    let monster_pos = output.find("monster-raw-content").unwrap();
-    let boss_pos = output.find("boss-raw-content").unwrap();
+    let monster_pos = output.find("monsterpool.").unwrap();
+    let boss_pos = output.find(".fight.").unwrap();
 
     assert!(party_pos < dialog_pos, "Party should come before dialog");
     assert!(dialog_pos < hero_pos, "Dialog should come before hero");

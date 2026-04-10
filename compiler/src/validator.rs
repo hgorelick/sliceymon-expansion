@@ -44,15 +44,41 @@ const W004: &str = "W004";
 const W005: &str = "W005";
 const W006: &str = "W006";
 const W007: &str = "W007";
+const W008: &str = "W008";
+const W009: &str = "W009";
+const W010: &str = "W010";
+const W011: &str = "W011";
+
+const E017: &str = "E017";
+const E018: &str = "E018";
+const E019: &str = "E019";
+const E020: &str = "E020";
+const E021: &str = "E021";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
+/// Severity level for a validation finding.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub enum Severity {
+    #[default]
+    Error,
+    Warning,
+    Info,
+}
+
 /// A single validation finding (error, warning, or info).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Finding {
     pub rule_id: String,
+    #[serde(default)]
+    pub severity: Severity,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modifier_index: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,7 +87,6 @@ pub struct Finding {
     pub position: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
-    pub message: String,
 }
 
 /// Full validation report — errors, warnings, and informational notes.
@@ -148,11 +173,13 @@ fn check_paren_balance(modifier: &str, idx: usize, mn: &Option<String>) -> Optio
                 if depth < 0 {
                     return Some(Finding {
                         rule_id: E001.to_string(),
+                        severity: Severity::Error,
                         modifier_index: Some(idx),
                         modifier_name: mn.clone(),
                         position: Some(i),
                         context: Some(snippet(modifier, i)),
                         message: format!("Unmatched closing paren at position {} (depth {})", i, depth),
+                        ..Default::default()
                     });
                 }
             }
@@ -163,11 +190,13 @@ fn check_paren_balance(modifier: &str, idx: usize, mn: &Option<String>) -> Optio
         let pos = modifier.len().saturating_sub(1);
         return Some(Finding {
             rule_id: E001.to_string(),
+            severity: Severity::Error,
             modifier_index: Some(idx),
             modifier_name: mn.clone(),
             position: Some(pos),
             context: Some(snippet(modifier, pos)),
             message: format!("Unbalanced parens: depth {} at end", depth),
+            ..Default::default()
         });
     }
     None
@@ -265,11 +294,13 @@ fn phase_global(text: &str, report: &mut ValidationReport) {
             if !ch.is_ascii() {
                 report.errors.push(Finding {
                     rule_id: E002.to_string(),
+                    severity: Severity::Error,
                     modifier_index: None,
                     modifier_name: None,
                     position: Some(i),
                     context: Some(snippet(text, i)),
                     message: msg.clone(),
+                    ..Default::default()
                 });
                 break;
             }
@@ -297,11 +328,13 @@ fn phase_per_modifier(
         if mn.is_none() {
             report.warnings.push(Finding {
                 rule_id: W005.to_string(),
+                severity: Severity::Warning,
                 modifier_index: Some(idx),
                 modifier_name: None,
                 position: None,
                 context: None,
                 message: "Modifier lacks depth-0 .mn.".to_string(),
+                ..Default::default()
             });
         }
 
@@ -315,11 +348,13 @@ fn phase_per_modifier(
             if next_delim == after {
                 report.warnings.push(Finding {
                     rule_id: W004.to_string(),
+                    severity: Severity::Warning,
                     modifier_index: Some(idx),
                     modifier_name: mn.clone(),
                     position: None,
                     context: None,
                     message: ".img. data is empty".to_string(),
+                    ..Default::default()
                 });
             }
         }
@@ -348,12 +383,14 @@ fn phase_hero(
     if !prefix_ok {
         report.errors.push(Finding {
             rule_id: E004.to_string(),
+            severity: Severity::Error,
             modifier_index: Some(idx),
             modifier_name: mn.clone(),
             position: None,
             context: None,
             message: "Hero prefix doesn't match: expected hidden&temporary&ph.b[name];N;!mheropool."
                 .to_string(),
+            ..Default::default()
         });
     }
 
@@ -364,12 +401,14 @@ fn phase_hero(
     if !has_part1_hidden || !has_mn_suffix {
         report.errors.push(Finding {
             rule_id: E005.to_string(),
+            severity: Severity::Error,
             modifier_index: Some(idx),
             modifier_name: mn.clone(),
             position: None,
             context: None,
             message: "Hero suffix doesn't match: expected .part.1&hidden.mn.NAME@2!m(skip&hidden&temporary)"
                 .to_string(),
+            ..Default::default()
         });
     }
 
@@ -386,6 +425,7 @@ fn phase_hero(
     if tier_parts.len() < 3 {
         report.errors.push(Finding {
             rule_id: E006.to_string(),
+            severity: Severity::Error,
             modifier_index: Some(idx),
             modifier_name: mn.clone(),
             position: None,
@@ -394,6 +434,7 @@ fn phase_hero(
                 "Hero has {} tier parts, expected >= 3 (T1 + at least 2 evolution paths)",
                 tier_parts.len()
             ),
+            ..Default::default()
         });
     }
 
@@ -408,11 +449,13 @@ fn phase_hero(
             if find_matching_close_paren(trimmed, 0).is_none() {
                 report.errors.push(Finding {
                     rule_id: E007.to_string(),
+                    severity: Severity::Error,
                     modifier_index: Some(idx),
                     modifier_name: mn.clone(),
                     position: None,
                     context: None,
                     message: format!("Tier {} has unmatched opening paren", tier_idx),
+                    ..Default::default()
                 });
             }
         }
@@ -424,6 +467,7 @@ fn phase_hero(
             if faces.len() < 4 || faces.len() > 6 {
                 report.warnings.push(Finding {
                     rule_id: W001.to_string(),
+                    severity: Severity::Warning,
                     modifier_index: Some(idx),
                     modifier_name: mn.clone(),
                     position: None,
@@ -433,6 +477,7 @@ fn phase_hero(
                         tier_idx,
                         faces.len()
                     ),
+                    ..Default::default()
                 });
             }
 
@@ -443,6 +488,7 @@ fn phase_hero(
                         if face_id > 187 {
                             report.errors.push(Finding {
                                 rule_id: E009.to_string(),
+                                severity: Severity::Error,
                                 modifier_index: Some(idx),
                                 modifier_name: mn.clone(),
                                 position: None,
@@ -451,6 +497,7 @@ fn phase_hero(
                                     "Face ID {} out of range 0-187 in tier {}",
                                     face_id, tier_idx
                                 ),
+                                ..Default::default()
                             });
                         }
                         // W002: pip value > 25
@@ -458,6 +505,7 @@ fn phase_hero(
                             if p.unsigned_abs() > 25 {
                                 report.warnings.push(Finding {
                                     rule_id: W002.to_string(),
+                                    severity: Severity::Warning,
                                     modifier_index: Some(idx),
                                     modifier_name: mn.clone(),
                                     position: None,
@@ -466,6 +514,7 @@ fn phase_hero(
                                         "Pip value {} exceeds 25 in tier {}",
                                         p, tier_idx
                                     ),
+                                    ..Default::default()
                                 });
                             }
                         }
@@ -474,11 +523,13 @@ fn phase_hero(
                         // E008: bad face format
                         report.errors.push(Finding {
                             rule_id: E008.to_string(),
+                            severity: Severity::Error,
                             modifier_index: Some(idx),
                             modifier_name: mn.clone(),
                             position: None,
                             context: Some(face_str.clone()),
                             message: format!("Bad face format in tier {}: {}", tier_idx, msg),
+                            ..Default::default()
                         });
                     }
                 }
@@ -498,11 +549,13 @@ fn phase_hero(
                 // .hp. present but no digits follow
                 report.errors.push(Finding {
                     rule_id: E010.to_string(),
+                    severity: Severity::Error,
                     modifier_index: Some(idx),
                     modifier_name: mn.clone(),
                     position: None,
                     context: None,
                     message: format!("Tier {} .hp. value is not numeric", tier_idx),
+                    ..Default::default()
                 });
             } else {
                 let hp_str = &trimmed[hp_start..hp_end];
@@ -510,6 +563,7 @@ fn phase_hero(
                     if hp_val == 0 || hp_val > 999 {
                         report.errors.push(Finding {
                             rule_id: E010.to_string(),
+                            severity: Severity::Error,
                             modifier_index: Some(idx),
                             modifier_name: mn.clone(),
                             position: None,
@@ -518,16 +572,19 @@ fn phase_hero(
                                 "Tier {} .hp. value {} out of range 1-999",
                                 tier_idx, hp_val
                             ),
+                            ..Default::default()
                         });
                     }
                 } else {
                     report.errors.push(Finding {
                         rule_id: E010.to_string(),
+                        severity: Severity::Error,
                         modifier_index: Some(idx),
                         modifier_name: mn.clone(),
                         position: None,
                         context: None,
                         message: format!("Tier {} .hp. value '{}' is not a valid number", tier_idx, hp_str),
+                        ..Default::default()
                     });
                 }
             }
@@ -537,11 +594,13 @@ fn phase_hero(
         if trimmed.contains(".col.") && extract_color(trimmed).is_none() {
             report.errors.push(Finding {
                 rule_id: E011.to_string(),
+                severity: Severity::Error,
                 modifier_index: Some(idx),
                 modifier_name: mn.clone(),
                 position: None,
                 context: None,
                 message: format!("Tier {} .col. value is not a single lowercase letter", tier_idx),
+                ..Default::default()
             });
         }
 
@@ -549,11 +608,13 @@ fn phase_hero(
         if trimmed.contains(".tier.") && extract_tier(trimmed).is_none() {
             report.errors.push(Finding {
                 rule_id: E012.to_string(),
+                severity: Severity::Error,
                 modifier_index: Some(idx),
                 modifier_name: mn.clone(),
                 position: None,
                 context: None,
                 message: format!("Tier {} .tier. value is not a single digit 0-9", tier_idx),
+                ..Default::default()
             });
         }
     }
@@ -571,11 +632,13 @@ fn phase_cross_modifier(
             if !seen_names.insert(name.clone()) {
                 report.errors.push(Finding {
                     rule_id: E003.to_string(),
+                    severity: Severity::Error,
                     modifier_index: Some(*idx),
                     modifier_name: mn.clone(),
                     position: None,
                     context: None,
                     message: format!("Duplicate .mn. name: {}", name),
+                    ..Default::default()
                 });
             }
         }
@@ -587,11 +650,13 @@ fn phase_cross_modifier(
         if mod_type == ModifierType::Unknown {
             report.warnings.push(Finding {
                 rule_id: W003.to_string(),
+                severity: Severity::Warning,
                 modifier_index: Some(*idx),
                 modifier_name: mn.clone(),
                 position: None,
                 context: None,
                 message: "Modifier classifies as Unknown type".to_string(),
+                ..Default::default()
             });
         }
     }
@@ -615,11 +680,13 @@ fn phase_content_blocks(
         if faces.len() < 4 || faces.len() > 6 {
             report.warnings.push(Finding {
                 rule_id: W001.to_string(),
+                severity: Severity::Warning,
                 modifier_index: Some(idx),
                 modifier_name: mn.clone(),
                 position: None,
                 context: None,
                 message: format!(".sd. has {} faces (expected 4-6)", faces.len()),
+                ..Default::default()
             });
         }
 
@@ -629,22 +696,26 @@ fn phase_content_blocks(
                     if face_id > 187 {
                         report.errors.push(Finding {
                             rule_id: E009.to_string(),
+                            severity: Severity::Error,
                             modifier_index: Some(idx),
                             modifier_name: mn.clone(),
                             position: None,
                             context: Some(face_str.clone()),
                             message: format!("Face ID {} out of range 0-187", face_id),
+                            ..Default::default()
                         });
                     }
                     if let Some(p) = pips {
                         if p.unsigned_abs() > 25 {
                             report.warnings.push(Finding {
                                 rule_id: W002.to_string(),
+                                severity: Severity::Warning,
                                 modifier_index: Some(idx),
                                 modifier_name: mn.clone(),
                                 position: None,
                                 context: Some(face_str.clone()),
                                 message: format!("Pip value {} exceeds 25", p),
+                                ..Default::default()
                             });
                         }
                     }
@@ -652,11 +723,13 @@ fn phase_content_blocks(
                 Err(msg) => {
                     report.errors.push(Finding {
                         rule_id: E008.to_string(),
+                        severity: Severity::Error,
                         modifier_index: Some(idx),
                         modifier_name: mn.clone(),
                         position: None,
                         context: Some(face_str.clone()),
                         message: format!("Bad face format: {}", msg),
+                        ..Default::default()
                     });
                 }
             }
@@ -676,11 +749,13 @@ fn phase_content_blocks(
                 if hp_val == 0 || hp_val > 999 {
                     report.errors.push(Finding {
                         rule_id: E010.to_string(),
+                        severity: Severity::Error,
                         modifier_index: Some(idx),
                         modifier_name: mn.clone(),
                         position: None,
                         context: None,
                         message: format!(".hp. value {} out of range 1-999", hp_val),
+                        ..Default::default()
                     });
                 }
             }
@@ -705,11 +780,13 @@ fn check_monster_floor_range(modifier: &str, idx: usize, mn: &Option<String>, re
         if n > m {
             report.errors.push(Finding {
                 rule_id: E013.to_string(),
+                severity: Severity::Error,
                 modifier_index: Some(idx),
                 modifier_name: mn.clone(),
                 position: None,
                 context: Some(format!("{}-{}", n, m)),
                 message: format!("Monster floor range {}-{} invalid: start > end", n, m),
+                ..Default::default()
             });
         }
     }
@@ -730,11 +807,13 @@ fn check_boss_level(modifier: &str, idx: usize, mn: &Option<String>, report: &mu
                 if level == 0 || level > 20 {
                     report.errors.push(Finding {
                         rule_id: E014.to_string(),
+                        severity: Severity::Error,
                         modifier_index: Some(idx),
                         modifier_name: mn.clone(),
                         position: None,
                         context: Some(format!("ch.om{}", level)),
                         message: format!("Boss level {} out of range 1-20", level),
+                        ..Default::default()
                     });
                 }
             }
@@ -764,6 +843,7 @@ fn check_abilitydata_faces(modifier: &str, idx: usize, mn: &Option<String>, repo
                                 if face_id > 187 {
                                     report.errors.push(Finding {
                                         rule_id: E015.to_string(),
+                                        severity: Severity::Error,
                                         modifier_index: Some(idx),
                                         modifier_name: mn.clone(),
                                         position: None,
@@ -772,12 +852,14 @@ fn check_abilitydata_faces(modifier: &str, idx: usize, mn: &Option<String>, repo
                                             "Face ID {} out of range 0-187 inside abilitydata",
                                             face_id
                                         ),
+                                        ..Default::default()
                                     });
                                 }
                             }
                             Err(msg) => {
                                 report.errors.push(Finding {
                                     rule_id: E015.to_string(),
+                                    severity: Severity::Error,
                                     modifier_index: Some(idx),
                                     modifier_name: mn.clone(),
                                     position: None,
@@ -786,6 +868,7 @@ fn check_abilitydata_faces(modifier: &str, idx: usize, mn: &Option<String>, repo
                                         "Bad face format inside abilitydata: {}",
                                         msg
                                     ),
+                                    ..Default::default()
                                 });
                             }
                         }
@@ -835,32 +918,36 @@ pub fn validate(textmod: &str) -> Result<ValidationReport, CompilerError> {
                 phase_content_blocks(modifier, *idx, mn, &mut report);
                 check_abilitydata_faces(modifier, *idx, mn, &mut report);
             }
-            ModifierType::Capture => {
+            ModifierType::ReplicaItem => {
                 phase_content_blocks(modifier, *idx, mn, &mut report);
-                // W006: capture missing sprite
+                // W006: replica item missing sprite
                 if !modifier.contains(".img.") && !modifier.contains(".n.") {
                     report.warnings.push(Finding {
                         rule_id: W006.to_string(),
+                        severity: Severity::Warning,
                         modifier_index: Some(*idx),
                         modifier_name: mn.clone(),
                         position: None,
                         context: None,
-                        message: "Capture missing sprite data (.img. or .n.)".to_string(),
+                        message: "Replica item missing sprite data (.img. or .n.)".to_string(),
+                        ..Default::default()
                     });
                 }
             }
-            ModifierType::Legendary => {
+            ModifierType::ReplicaItemWithAbility => {
                 phase_content_blocks(modifier, *idx, mn, &mut report);
                 check_abilitydata_faces(modifier, *idx, mn, &mut report);
-                // W007: legendary missing abilitydata
+                // W007: replica item with ability missing abilitydata
                 if !modifier.contains(".abilitydata.") {
                     report.warnings.push(Finding {
                         rule_id: W007.to_string(),
+                        severity: Severity::Warning,
                         modifier_index: Some(*idx),
                         modifier_name: mn.clone(),
                         position: None,
                         context: None,
-                        message: "Legendary missing .abilitydata.".to_string(),
+                        message: "Replica item with ability missing .abilitydata.".to_string(),
+                        ..Default::default()
                     });
                 }
             }
@@ -884,11 +971,13 @@ pub fn validate(textmod: &str) -> Result<ValidationReport, CompilerError> {
     // Info: summary
     report.info.push(Finding {
         rule_id: "I000".to_string(),
+        severity: Severity::Info,
         modifier_index: None,
         modifier_name: None,
         position: None,
         context: None,
         message: format!("{} modifiers analyzed", modifiers.len()),
+        ..Default::default()
     });
 
     Ok(report)
@@ -917,11 +1006,12 @@ pub fn validate_cross_references(ir: &crate::ir::ModIR) -> ValidationReport {
 
     for (s_idx, s) in ir.structural.iter().enumerate() {
         match &s.content {
-            StructuralContent::HeroPoolBase { hero_refs } => {
+            StructuralContent::HeroPoolBase { hero_refs, .. } => {
                 for href in hero_refs {
                     if !hero_names.contains(&href.to_lowercase()) {
                         report.errors.push(Finding {
                             rule_id: E016.to_string(),
+                            severity: Severity::Error,
                             modifier_index: Some(s_idx),
                             modifier_name: s.name.clone(),
                             position: None,
@@ -930,15 +1020,17 @@ pub fn validate_cross_references(ir: &crate::ir::ModIR) -> ValidationReport {
                                 "HeroPoolBase references hero '{}' which does not exist in heroes",
                                 href
                             ),
+                            ..Default::default()
                         });
                     }
                 }
             }
-            StructuralContent::PoolReplacement { hero_names: pool_names } => {
+            StructuralContent::PoolReplacement { hero_names: pool_names, .. } => {
                 for pname in pool_names {
                     if !hero_names.contains(&pname.to_lowercase()) {
                         report.errors.push(Finding {
                             rule_id: E016.to_string(),
+                            severity: Severity::Error,
                             modifier_index: Some(s_idx),
                             modifier_name: s.name.clone(),
                             position: None,
@@ -947,6 +1039,7 @@ pub fn validate_cross_references(ir: &crate::ir::ModIR) -> ValidationReport {
                                 "PoolReplacement references hero '{}' which does not exist in heroes",
                                 pname
                             ),
+                            ..Default::default()
                         });
                     }
                 }
@@ -956,6 +1049,7 @@ pub fn validate_cross_references(ir: &crate::ir::ModIR) -> ValidationReport {
                     if !hero_names.contains(&member.to_lowercase()) {
                         report.errors.push(Finding {
                             rule_id: E016.to_string(),
+                            severity: Severity::Error,
                             modifier_index: Some(s_idx),
                             modifier_name: s.name.clone(),
                             position: None,
@@ -964,11 +1058,337 @@ pub fn validate_cross_references(ir: &crate::ir::ModIR) -> ValidationReport {
                                 "PartyConfig references member '{}' which does not exist in heroes",
                                 member
                             ),
+                            ..Default::default()
                         });
                     }
                 }
             }
             _ => {}
+        }
+    }
+
+    report
+}
+
+// ---------------------------------------------------------------------------
+// Semantic validation (IR-based) — E017-E021, W008-W011
+// ---------------------------------------------------------------------------
+
+/// Known game templates — hero classes, item containers, monster bases.
+/// Case-insensitive check (templates in IR may be lowercase).
+fn is_known_template(name: &str) -> bool {
+    // Normalize to lowercase for comparison
+    let lower = name.to_lowercase();
+    matches!(lower.as_str(),
+        // Hero classes (from working mods + base game)
+        "ace" | "alien" | "alloy" | "assassin" | "barbarian" | "bard" | "bash" |
+        "brawler" | "brigand" | "buckle" | "captain" | "clumsy" | "collector" |
+        "dabble" | "dabbler" | "dabblest" | "dancer" | "defender" | "eccentric" |
+        "fencer" | "fey" | "fighter" | "gambler" | "gladiator" | "guardian" |
+        "healer" | "herbalist" | "hoarder" | "housecat" | "keeper" | "knight" |
+        "leader" | "lost" | "ludus" | "mage" | "mimic" | "monk" | "ninja" |
+        "pilgrim" | "primrose" | "prodigy" | "ranger" | "reflection" | "rogue" |
+        "roulette" | "ruffian" | "scoundrel" | "scrapper" | "sharpshot" |
+        "sinew" | "soldier" | "sorcerer" | "spade" | "sphere" | "stalwart" |
+        "statue" | "tank" | "thief" | "trapper" | "valkyrie" | "vampire" |
+        "sparky" | "tainted" |
+        "venom" | "veteran" | "wallop" | "wanderer" | "whirl" |
+        // Monster templates
+        "slimelet" | "slime" | "skeleton" | "zombie" | "wolf" | "ghost" |
+        "spider" | "rat" | "bat" | "snake" | "goblin" | "bandit" | "witch" |
+        "ogre" | "dragon" | "wyrm" | "imp" | "demon" |
+        // Item/replica templates
+        "hat" | "ball" | "dagger" | "ring" | "amulet" | "sword" |
+        "bow" | "staff" | "wand" | "potion" | "scroll" | "armor" | "boots" |
+        "gloves" | "cloak" | "helmet" | "lantern" | "charm" | "tome"
+    )
+}
+
+/// Rejected face IDs per template — blocklist approach.
+/// Returns None for templates without a defined table (those skip E017/E021).
+/// Uses blocklist instead of allowlist to avoid false positives on real mods
+/// while still catching clearly inappropriate face assignments.
+fn rejected_faces_for_template(template: &str) -> Option<&'static [u16]> {
+    let lower = template.to_lowercase();
+    match lower.as_str() {
+        "fey" => Some(&[
+            // Physically-themed faces inappropriate for magical Fey spells
+            42, // Damage Charged (Brawler mechanic)
+            39, // Damage Heavy (Tank mechanic)
+            41, // Damage Steel (armor/physical)
+            43, // Stun Bully (physical bully)
+        ]),
+        _ => None,
+    }
+}
+
+/// Expected HP range per tier: (min, max).
+fn hp_range_for_tier(tier: u8) -> (u16, u16) {
+    match tier {
+        1 => (1, 12),
+        2 => (2, 15),
+        3 => (2, 30),
+        _ => (1, 999),
+    }
+}
+
+/// Validate a ModIR for semantic correctness.
+///
+/// Checks: E017 (face ID per template), E018 (template existence),
+/// E019 (color uniqueness), E020 (cross-category names),
+/// E021 (spell face IDs), W008-W011 (HP/face count/item warnings).
+pub fn validate_ir(ir: &crate::ir::ModIR) -> ValidationReport {
+    use crate::ir::DiceFace;
+    use std::collections::HashMap;
+
+    let mut report = ValidationReport::default();
+
+    // E019: Hero color uniqueness (warning — some mods intentionally share colors)
+    {
+        let mut seen_colors: HashMap<char, String> = HashMap::new();
+        for hero in &ir.heroes {
+            if let Some(existing) = seen_colors.get(&hero.color) {
+                report.warnings.push(Finding {
+                    rule_id: E019.to_string(),
+                    severity: Severity::Warning,
+                    modifier_index: None,
+                    modifier_name: Some(hero.mn_name.clone()),
+                    position: None,
+                    context: Some(format!("color '{}' also used by '{}'", hero.color, existing)),
+                    message: format!(
+                        "Hero '{}' uses color '{}' which is already used by '{}'",
+                        hero.mn_name, hero.color, existing
+                    ),
+                    ..Default::default()
+                });
+            } else {
+                seen_colors.insert(hero.color, hero.mn_name.clone());
+            }
+        }
+    }
+
+    // E020: Cross-category name uniqueness
+    {
+        let mut names: HashMap<String, &str> = HashMap::new();
+        for hero in &ir.heroes {
+            let lower = hero.mn_name.to_lowercase();
+            if let Some(category) = names.get(&lower) {
+                report.errors.push(Finding {
+                    rule_id: E020.to_string(),
+                    severity: Severity::Error,
+                    modifier_index: None,
+                    modifier_name: Some(hero.mn_name.clone()),
+                    position: None,
+                    context: None,
+                    message: format!("Name '{}' conflicts: exists as {} and hero", hero.mn_name, category),
+                    ..Default::default()
+                });
+            } else {
+                names.insert(lower, "hero");
+            }
+        }
+        for item in &ir.replica_items {
+            let lower = item.name.to_lowercase();
+            if let Some(category) = names.get(&lower) {
+                report.errors.push(Finding {
+                    rule_id: E020.to_string(),
+                    severity: Severity::Error,
+                    modifier_index: None,
+                    modifier_name: Some(item.name.clone()),
+                    position: None,
+                    context: None,
+                    message: format!("Name '{}' conflicts: exists as {} and replica item", item.name, category),
+                    ..Default::default()
+                });
+            } else {
+                names.insert(lower, "replica item");
+            }
+        }
+        for monster in &ir.monsters {
+            let lower = monster.name.to_lowercase();
+            if let Some(category) = names.get(&lower) {
+                report.errors.push(Finding {
+                    rule_id: E020.to_string(),
+                    severity: Severity::Error,
+                    modifier_index: None,
+                    modifier_name: Some(monster.name.clone()),
+                    position: None,
+                    context: None,
+                    message: format!("Name '{}' conflicts: exists as {} and monster", monster.name, category),
+                    ..Default::default()
+                });
+            } else {
+                names.insert(lower, "monster");
+            }
+        }
+        for boss in &ir.bosses {
+            let lower = boss.name.to_lowercase();
+            if let Some(category) = names.get(&lower) {
+                report.errors.push(Finding {
+                    rule_id: E020.to_string(),
+                    severity: Severity::Error,
+                    modifier_index: None,
+                    modifier_name: Some(boss.name.clone()),
+                    position: None,
+                    context: None,
+                    message: format!("Name '{}' conflicts: exists as {} and boss", boss.name, category),
+                    ..Default::default()
+                });
+            } else {
+                names.insert(lower, "boss");
+            }
+        }
+    }
+
+    // Per-hero-block validation
+    for (hero_idx, hero) in ir.heroes.iter().enumerate() {
+        for (block_idx, block) in hero.blocks.iter().enumerate() {
+            let ctx_name = format!("{}[{}]", hero.mn_name, block_idx);
+
+            // E018: Template existence
+            if !block.template.is_empty() && !is_known_template(&block.template) {
+                report.errors.push(Finding {
+                    rule_id: E018.to_string(),
+                    severity: Severity::Error,
+                    modifier_index: None,
+                    modifier_name: Some(ctx_name.clone()),
+                    position: None,
+                    context: Some(block.template.clone()),
+                    field_path: Some(format!("heroes[{}].blocks[{}].template", hero_idx, block_idx)),
+                    suggestion: Some("Check template name against known game templates (Lost, Statue, Thief, Fey, ...)".into()),
+                    message: format!(
+                        "Unknown template '{}' in hero '{}' block {}",
+                        block.template, hero.mn_name, block_idx
+                    ),
+                });
+            }
+
+            // E017: Face ID per template (blocklist — flags clearly inappropriate faces)
+            if let Some(rejected) = rejected_faces_for_template(&block.template) {
+                for face in &block.sd.faces {
+                    if let DiceFace::Active { face_id, .. } = face {
+                        if rejected.contains(face_id) {
+                            report.errors.push(Finding {
+                                rule_id: E017.to_string(),
+                                severity: Severity::Error,
+                                modifier_index: None,
+                                modifier_name: Some(ctx_name.clone()),
+                                position: None,
+                                context: Some(format!("face_id={}", face_id)),
+                                field_path: Some(format!("heroes[{}].blocks[{}].sd", hero_idx, block_idx)),
+                                suggestion: Some(format!("Face ID {} is a physical mechanic inappropriate for template '{}'", face_id, block.template)),
+                                message: format!(
+                                    "Face ID {} inappropriate for template '{}' in hero '{}' block {}",
+                                    face_id, block.template, hero.mn_name, block_idx
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // E021: Spell face IDs (blocklist for spell template)
+            if let Some(ref ability) = block.abilitydata {
+                if let Some(rejected) = rejected_faces_for_template(&ability.template) {
+                    for face in &ability.sd.faces {
+                        if let DiceFace::Active { face_id, .. } = face {
+                            if rejected.contains(face_id) {
+                                report.errors.push(Finding {
+                                    rule_id: E021.to_string(),
+                                    severity: Severity::Error,
+                                    modifier_index: None,
+                                    modifier_name: Some(ctx_name.clone()),
+                                    position: None,
+                                    context: Some(format!("spell face_id={}", face_id)),
+                                    field_path: Some(format!("heroes[{}].blocks[{}].abilitydata.sd", hero_idx, block_idx)),
+                                    suggestion: Some(format!("Face ID {} is inappropriate for spell template '{}'", face_id, ability.template)),
+                                    message: format!(
+                                        "Spell face ID {} inappropriate for spell template '{}' in hero '{}' block {}",
+                                        face_id, ability.template, hero.mn_name, block_idx
+                                    ),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // W008: HP range per tier (skip if hp is None — inherits from template)
+            if let (Some(tier), Some(hp)) = (block.tier, block.hp) {
+                let (min_hp, max_hp) = hp_range_for_tier(tier);
+                if hp < min_hp || hp > max_hp {
+                    report.warnings.push(Finding {
+                        rule_id: W008.to_string(),
+                        severity: Severity::Warning,
+                        modifier_index: None,
+                        modifier_name: Some(ctx_name.clone()),
+                        position: None,
+                        context: Some(format!("tier={}, hp={}", tier, hp)),
+                        field_path: Some(format!("heroes[{}].blocks[{}].hp", hero_idx, block_idx)),
+                        suggestion: Some(format!("Expected HP {}-{} for tier {}", min_hp, max_hp, tier)),
+                        message: format!(
+                            "Hero '{}' block {} has HP {} for tier {} (expected {}-{})",
+                            hero.mn_name, block_idx, hp, tier, min_hp, max_hp
+                        ),
+                    });
+                }
+            }
+
+            // W009: SD face count
+            if block.sd.faces.len() != 6 {
+                report.warnings.push(Finding {
+                    rule_id: W009.to_string(),
+                    severity: Severity::Warning,
+                    modifier_index: None,
+                    modifier_name: Some(ctx_name.clone()),
+                    position: None,
+                    context: Some(format!("count={}", block.sd.faces.len())),
+                    field_path: Some(format!("heroes[{}].blocks[{}].sd", hero_idx, block_idx)),
+                    suggestion: Some("Dice should have exactly 6 faces".into()),
+                    message: format!(
+                        "Hero '{}' block {} has {} dice faces (expected 6)",
+                        hero.mn_name, block_idx, block.sd.faces.len()
+                    ),
+                });
+            }
+        }
+    }
+
+    // Per-replica-item validation
+    for item in &ir.replica_items {
+        // W010: Unknown template
+        if !is_known_template(&item.template) {
+            report.warnings.push(Finding {
+                rule_id: W010.to_string(),
+                severity: Severity::Warning,
+                modifier_index: None,
+                modifier_name: Some(item.name.clone()),
+                position: None,
+                context: Some(item.template.clone()),
+                message: format!("Replica item '{}' uses unknown template '{}'", item.name, item.template),
+                ..Default::default()
+            });
+        }
+
+        // W011: High HP on item with ability
+        if item.abilitydata.is_some() {
+            if let Some(hp) = item.hp {
+                if hp > 20 {
+                    report.warnings.push(Finding {
+                        rule_id: W011.to_string(),
+                        severity: Severity::Warning,
+                        modifier_index: None,
+                        modifier_name: Some(item.name.clone()),
+                        position: None,
+                        context: Some(format!("hp={}", hp)),
+                        message: format!(
+                            "Replica item '{}' has HP {} with ability (typical range 1-20)",
+                            item.name, hp
+                        ),
+                        ..Default::default()
+                    });
+                }
+            }
         }
     }
 

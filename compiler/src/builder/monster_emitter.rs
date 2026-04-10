@@ -3,14 +3,8 @@ use crate::ir::Monster;
 
 /// Emit a Monster struct as a modifier string.
 ///
-/// If the monster has a `raw` field, emits that directly.
-/// Otherwise, reconstructs from parsed fields.
+/// Reconstructs from parsed fields. Emits .img. when img_data is present.
 pub fn emit_monster(monster: &Monster) -> Result<String, CompilerError> {
-    if let Some(ref raw) = monster.raw {
-        return Ok(raw.clone());
-    }
-
-    // Reconstruct: floor_range.monsterpool.(replica.template.hp.N.sd.FACES...).n.Name
     let mut out = String::new();
 
     if !monster.floor_range.is_empty() {
@@ -18,9 +12,19 @@ pub fn emit_monster(monster: &Monster) -> Result<String, CompilerError> {
         out.push('.');
     }
 
+    // Simple monster format: monsterpool.(replica.TEMPLATE.n.NAME).OUTER_PROPS.mn.NAME
+    // The monsterpool paren wraps the template and name; other properties are outside.
     out.push_str("monsterpool.(replica.");
     out.push_str(&monster.base_template);
 
+    // Name inside the paren (the display name for the monster template)
+    out.push_str(".n.");
+    out.push_str(&monster.name);
+
+    // Close monsterpool paren
+    out.push(')');
+
+    // Properties outside the paren
     if let Some(c) = monster.color {
         out.push_str(".col.");
         out.push(c);
@@ -32,12 +36,12 @@ pub fn emit_monster(monster: &Monster) -> Result<String, CompilerError> {
     }
 
     if let Some(ref chain) = monster.modifier_chain {
-        out.push_str(chain);
+        out.push_str(&chain.emit());
     }
 
     if let Some(ref sd) = monster.sd {
         out.push_str(".sd.");
-        out.push_str(sd);
+        out.push_str(&sd.emit());
     }
 
     if let Some(ref balance) = monster.balance {
@@ -45,15 +49,15 @@ pub fn emit_monster(monster: &Monster) -> Result<String, CompilerError> {
         out.push_str(balance);
     }
 
-    out.push_str(".n.");
-    out.push_str(&monster.name);
+    if let Some(ref img) = monster.img_data {
+        out.push_str(".img.");
+        out.push_str(img);
+    }
 
     if let Some(ref doc) = monster.doc {
         out.push_str(".doc.");
         out.push_str(doc);
     }
-
-    out.push(')');
 
     // .mn. suffix
     out.push_str(".mn.");
@@ -65,6 +69,7 @@ pub fn emit_monster(monster: &Monster) -> Result<String, CompilerError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ir::{DiceFaces, Source};
 
     #[test]
     fn monster_raw_fallback() {
@@ -73,15 +78,17 @@ mod tests {
             base_template: "Slimelet".into(),
             floor_range: "1-3".into(),
             hp: Some(3),
-            sd: Some("0:0:0:0:0:0".into()),
+            sd: Some(DiceFaces::parse("0:0:0:0:0:0")),
             sprite_name: Some("Wooper".into()),
             color: None,
             doc: None,
             modifier_chain: None,
             balance: None,
-            raw: Some("original-monster-raw".into()),
+            img_data: None,
+            source: Source::Base,
         };
-        assert_eq!(emit_monster(&mon).unwrap(), "original-monster-raw");
+        let output = emit_monster(&mon).unwrap();
+        assert!(output.contains("monsterpool."), "Should produce valid monster");
     }
 
     #[test]
@@ -91,13 +98,14 @@ mod tests {
             base_template: "Slimelet".into(),
             floor_range: "1-3".into(),
             hp: Some(3),
-            sd: Some("0:0:0:0:0:0".into()),
+            sd: Some(DiceFaces::parse("0:0:0:0:0:0")),
             sprite_name: Some("Wooper".into()),
             color: Some('b'),
             doc: None,
             modifier_chain: None,
             balance: None,
-            raw: None,
+            img_data: None,
+            source: Source::Base,
         };
         let output = emit_monster(&mon).unwrap();
         assert!(output.contains("monsterpool."));

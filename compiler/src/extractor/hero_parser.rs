@@ -1,10 +1,9 @@
 use crate::error::CompilerError;
-use crate::ir::{Hero, HeroBlock, HeroFormat};
+use crate::ir::{Hero, HeroBlock, HeroFormat, Source};
 use crate::util;
 use crate::extractor::classifier;
 
 /// Parse a hero modifier string into a Hero struct.
-/// Falls back to raw passthrough if parsing fails.
 pub fn parse_hero(modifier: &str, modifier_index: usize) -> Hero {
     let format = classifier::detect_hero_format(modifier);
     match format {
@@ -17,7 +16,10 @@ pub fn parse_hero(modifier: &str, modifier_index: usize) -> Hero {
 fn parse_sliceymon(modifier: &str, modifier_index: usize) -> Hero {
     match try_parse_sliceymon(modifier, modifier_index) {
         Ok(hero) => hero,
-        Err(_e) => {
+        Err(e) => {
+            // Parse failure is now a hard error logged to stderr. We still produce a Hero
+            // with empty blocks so the pipeline can report the issue rather than panicking.
+            eprintln!("WARNING: Hero parse failed at modifier {}: {}", modifier_index, e);
             let internal_name = extract_internal_name(modifier).unwrap_or_default();
             let mn_name = util::extract_mn_name(modifier)
                 .or_else(|| util::extract_last_n_name(modifier))
@@ -29,7 +31,7 @@ fn parse_sliceymon(modifier: &str, modifier_index: usize) -> Hero {
                 format: HeroFormat::Sliceymon,
                 blocks: vec![],
                 removed: false,
-                raw: Some(modifier.to_string()),
+                source: Source::Base,
             }
         }
     }
@@ -82,7 +84,7 @@ fn parse_grouped(modifier: &str, _modifier_index: usize) -> Hero {
         format: HeroFormat::Grouped,
         blocks,
         removed: false,
-        raw: Some(modifier.to_string()),
+        source: Source::Base,
     }
 }
 
@@ -90,50 +92,89 @@ fn parse_grouped(modifier: &str, _modifier_index: usize) -> Hero {
 fn try_parse_grouped_block(block: &str) -> Option<HeroBlock> {
     // Blocks are either:
     // 1. (replica.Template.col.X.hp.N.sd.FACES.img.DATA).speech.X.n.Name
-    // 2. Plain name reference (no parens) — skip these
-    if !block.contains('(') {
+    // 2. Bare template block: Template.n.Name.sd.FACES.img.DATA... (no wrapping parens)
+    // 3. Plain name reference (no parens, no .sd.) — skip these
+    let (replica_content, outside_content, is_bare) = if let Some(open_pos) = block.find('(') {
+        if let Some(close_pos) = util::find_matching_close_paren(block, open_pos) {
+            (&block[open_pos + 1..close_pos], &block[close_pos + 1..], false)
+        } else {
+            return None;
+        }
+    } else if block.contains(".sd.") || block.contains(".img.") {
+        // Bare tier block — all content at same level, no inside/outside split
+        (block, block, true)
+    } else {
         return None;
-    }
+    };
 
-    let open_pos = block.find('(')?;
-    let close_pos = util::find_matching_close_paren(block, open_pos)?;
+    // Unwrap nested parens: ((replica.X...)) -> replica.X...
+    let unwrapped = {
+        let mut s = replica_content;
+        while s.starts_with('(') && s.ends_with(')') {
+            s = &s[1..s.len()-1];
+        }
+        // Also handle leading ( without matching ) (asymmetric nesting)
+        while s.starts_with('(') {
+            s = &s[1..];
+        }
+        s
+    };
 
-    let replica_content = &block[open_pos + 1..close_pos];
-    let outside_content = &block[close_pos + 1..];
-
-    let template = replica_content
+    let template = unwrapped
         .strip_prefix("replica.")
+        .or_else(|| unwrapped.strip_prefix("Replica."))
         .and_then(|r| r.find('.').map(|end| r[..end].to_string()))
+        .or_else(|| {
+            // Non-replica template: first segment before '.' (e.g., "Sparky.n.Rotom" -> "Sparky")
+            let end = unwrapped.find('.').unwrap_or(unwrapped.len());
+            let name = &unwrapped[..end];
+            if name.is_empty() { None } else { Some(name.to_string()) }
+        })
         .unwrap_or_default();
 
-    let tier = extract_tier_number(replica_content);
-    let hp = util::extract_hp(replica_content, true);
-    let sd = util::extract_sd(replica_content, true);
-    let block_color = util::extract_color(replica_content);
+    let tier = extract_tier_number(unwrapped);
+    let hp = util::extract_hp(unwrapped, true);
+    let sd = util::extract_sd(unwrapped, true)
+        .map(|s| crate::ir::DiceFaces::parse(&s))
+        .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
+    let block_color = util::extract_color(unwrapped);
 
-    let abilitydata = util::extract_nested_prop(replica_content, ".abilitydata.")
-        .or_else(|| util::extract_nested_prop(outside_content, ".abilitydata."));
-    let triggerhpdata = util::extract_nested_prop(replica_content, ".triggerhpdata.")
-        .or_else(|| util::extract_nested_prop(outside_content, ".triggerhpdata."));
-    let hue = util::extract_simple_prop(replica_content, ".hue.")
-        .or_else(|| util::extract_simple_prop(outside_content, ".hue."));
+    let abilitydata = util::extract_nested_prop(unwrapped, ".abilitydata.")
+        .or_else(|| util::extract_nested_prop(outside_content, ".abilitydata."))
+        .map(|s| crate::ir::AbilityData::parse(&s));
+    let triggerhpdata = util::extract_nested_prop(unwrapped, ".triggerhpdata.")
+        .or_else(|| util::extract_nested_prop(outside_content, ".triggerhpdata."))
+        .map(|s| crate::ir::TriggerHpDef::parse(&s));
+    let hue = extract_depth0_simple_prop(unwrapped, ".hue.")
+        .or_else(|| extract_depth0_simple_prop(outside_content, ".hue."));
 
-    let modifier_chain = util::extract_modifier_chain(replica_content);
-    let facades = util::extract_facades_from_chain(modifier_chain.as_deref().unwrap_or(""));
-    let items_inside: Option<String> = None;
+    let img_data = util::extract_img_data(unwrapped)
+        .or_else(|| util::extract_img_data(outside_content));
+    let modifier_chain = util::extract_modifier_chain(unwrapped)
+        .map(|s| crate::ir::ModifierChain::parse(&s));
+    let facades = modifier_chain.as_ref()
+        .map(|c| c.facades())
+        .unwrap_or_default();
+    let items_inside: Option<crate::ir::ModifierChain> = None;
 
+    // For bare blocks, speech/name/doc are in replica_content (same level)
     let speech = util::extract_simple_prop(outside_content, ".speech.");
-    let name = extract_display_name(outside_content);
+    let name = {
+        let n = extract_display_name(outside_content);
+        if n.is_empty() { extract_display_name(unwrapped) } else { n }
+    };
     let doc = util::extract_simple_prop(outside_content, ".doc.");
-    let items_outside = extract_items_outside(outside_content);
+    let items_outside = extract_items_outside(outside_content)
+        .map(|s| crate::ir::ModifierChain::parse(&s));
 
     let sprite_name = name.clone();
 
     Some(HeroBlock {
         template,
         tier,
-        hp: hp.unwrap_or(0),
-        sd: sd.unwrap_or_default(),
+        hp,
+        sd,
+        bare: is_bare,
         color: block_color,
         sprite_name,
         speech: speech.unwrap_or_default(),
@@ -146,6 +187,7 @@ fn try_parse_grouped_block(block: &str) -> Option<HeroBlock> {
         facades,
         items_inside,
         items_outside,
+        img_data,
     })
 }
 
@@ -247,7 +289,7 @@ fn try_parse_sliceymon(modifier: &str, modifier_index: usize) -> Result<Hero, Co
         format: HeroFormat::Sliceymon,
         blocks,
         removed: false,
-        raw: Some(modifier.to_string()),
+        source: Source::Base,
     })
 }
 
@@ -268,6 +310,19 @@ fn find_heropool_marker(modifier: &str) -> Option<usize> {
 
 /// Separate the suffix from the last tier block string, modifying it in place.
 fn separate_suffix(last_tier: &mut String) -> String {
+    // First, check for bare-block suffix: .part.1&hidden... at depth 0
+    // This must be checked BEFORE the paren-based approach because the suffix
+    // itself may contain parens (e.g., .mn.Name@2!m(skip&hidden&temporary)).
+    if let Some(part_pos) = util::find_last_at_depth0(last_tier, ".part.1&hidden") {
+        // Verify there's block content before this (contains .sd. or .img. or .n.)
+        let before = &last_tier[..part_pos];
+        if before.contains(".sd.") || before.contains(".img.") || before.contains(".n.") {
+            let suffix = last_tier[part_pos..].to_string();
+            last_tier.truncate(part_pos);
+            return suffix;
+        }
+    }
+
     // Find last close-paren at depth 0
     let bytes = last_tier.as_bytes();
     let mut last_close_paren = None;
@@ -337,63 +392,100 @@ fn parse_tier_block(
 ) -> Result<HeroBlock, CompilerError> {
     let block = block.trim();
 
-    let open_pos = block.find('(').ok_or_else(|| CompilerError::HeroParseError {
-        modifier_index,
-        hero_name: hero_name.to_string(),
-        tier_index: Some(tier_index),
-        position: 0,
-        expected: "opening '('".to_string(),
-        found: block[..block.len().min(40)].to_string(),
-    })?;
-
-    let close_pos = util::find_matching_close_paren(block, open_pos).ok_or_else(|| {
-        CompilerError::ParenError {
+    let (replica_content, outside_content, is_bare) = if let Some(open_pos) = block.find('(') {
+        let close_pos = util::find_matching_close_paren(block, open_pos).ok_or_else(|| {
+            CompilerError::ParenError {
+                modifier_index,
+                position: open_pos,
+                depth: 1,
+                context: block[open_pos..block.len().min(open_pos + 40)].to_string(),
+            }
+        })?;
+        (&block[open_pos + 1..close_pos], &block[close_pos + 1..], false)
+    } else if block.contains(".sd.") || block.contains(".img.") {
+        // Bare tier block — all content at same level
+        (block, block, true)
+    } else {
+        return Err(CompilerError::HeroParseError {
             modifier_index,
-            position: open_pos,
-            depth: 1,
-            context: block[open_pos..block.len().min(open_pos + 40)].to_string(),
-        }
-    })?;
-
-    let replica_content = &block[open_pos + 1..close_pos];
-    let outside_content = &block[close_pos + 1..];
+            hero_name: hero_name.to_string(),
+            tier_index: Some(tier_index),
+            position: 0,
+            expected: "opening '(' or bare block with .sd./.img.".to_string(),
+            found: block[..block.len().min(40)].to_string(),
+        });
+    };
 
     // Parse replica content using util functions
-    let template = replica_content
+    // Unwrap nested parens: ((replica.X...)) -> replica.X...
+    let unwrapped = {
+        let mut s = replica_content;
+        while s.starts_with('(') && s.ends_with(')') {
+            s = &s[1..s.len()-1];
+        }
+        // Also handle leading ( without matching ) (asymmetric nesting)
+        while s.starts_with('(') {
+            s = &s[1..];
+        }
+        s
+    };
+
+    let template = unwrapped
         .strip_prefix("replica.")
+        .or_else(|| unwrapped.strip_prefix("Replica."))
         .and_then(|r| r.find('.').map(|end| r[..end].to_string()))
+        .or_else(|| {
+            // Non-replica template: first segment before '.' (e.g., "Sparky.n.Rotom" -> "Sparky")
+            let end = unwrapped.find('.').unwrap_or(unwrapped.len());
+            let name = &unwrapped[..end];
+            if name.is_empty() { None } else { Some(name.to_string()) }
+        })
         .unwrap_or_default();
 
     let tier = extract_tier_number(replica_content);
     let hp = util::extract_hp(replica_content, true);
-    let sd = util::extract_sd(replica_content, true);
+    let sd = util::extract_sd(replica_content, true)
+        .map(|s| crate::ir::DiceFaces::parse(&s))
+        .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
     let block_color = util::extract_color(replica_content);
-    let _img = extract_img_at_depth0(replica_content);
+    let img_data = util::extract_img_data(replica_content)
+        .or_else(|| util::extract_img_data(outside_content));
 
     // Abilitydata/triggerhpdata can be inside OR outside the replica parens
     let abilitydata = util::extract_nested_prop(replica_content, ".abilitydata.")
-        .or_else(|| util::extract_nested_prop(outside_content, ".abilitydata."));
+        .or_else(|| util::extract_nested_prop(outside_content, ".abilitydata."))
+        .map(|s| crate::ir::AbilityData::parse(&s));
     let triggerhpdata = util::extract_nested_prop(replica_content, ".triggerhpdata.")
-        .or_else(|| util::extract_nested_prop(outside_content, ".triggerhpdata."));
-    let hue = util::extract_simple_prop(replica_content, ".hue.")
-        .or_else(|| util::extract_simple_prop(outside_content, ".hue."));
+        .or_else(|| util::extract_nested_prop(outside_content, ".triggerhpdata."))
+        .map(|s| crate::ir::TriggerHpDef::parse(&s));
+    let hue = extract_depth0_simple_prop(replica_content, ".hue.")
+        .or_else(|| extract_depth0_simple_prop(outside_content, ".hue."));
 
-    let modifier_chain = util::extract_modifier_chain(replica_content);
-    let facades = util::extract_facades_from_chain(modifier_chain.as_deref().unwrap_or(""));
-    let items_inside: Option<String> = None;
+    let modifier_chain = util::extract_modifier_chain(replica_content)
+        .map(|s| crate::ir::ModifierChain::parse(&s));
+    let facades = modifier_chain.as_ref()
+        .map(|c| c.facades())
+        .unwrap_or_default();
+    let items_inside: Option<crate::ir::ModifierChain> = None;
 
+    // For bare blocks, speech/name/doc are in replica_content (same level)
     let speech = util::extract_simple_prop(outside_content, ".speech.");
-    let name = extract_display_name(outside_content);
+    let name = {
+        let n = extract_display_name(outside_content);
+        if n.is_empty() { extract_display_name(unwrapped) } else { n }
+    };
     let doc = util::extract_simple_prop(outside_content, ".doc.");
-    let items_outside = extract_items_outside(outside_content);
+    let items_outside = extract_items_outside(outside_content)
+        .map(|s| crate::ir::ModifierChain::parse(&s));
 
     let sprite_name = name.clone();
 
     Ok(HeroBlock {
         template,
         tier,
-        hp: hp.unwrap_or(0),
-        sd: sd.unwrap_or_default(),
+        hp,
+        sd,
+        bare: is_bare,
         color: block_color,
         sprite_name,
         speech: speech.unwrap_or_default(),
@@ -406,7 +498,39 @@ fn parse_tier_block(
         facades,
         items_inside,
         items_outside,
+        img_data,
     })
+}
+
+/// Extract a simple property value at paren depth 0.
+/// Unlike `util::extract_simple_prop`, this skips occurrences inside nested parens.
+/// The value ends at the next property boundary or `)`.
+fn extract_depth0_simple_prop(content: &str, marker: &str) -> Option<String> {
+    let pos = util::find_at_depth0(content, marker)?;
+    let val_start = pos + marker.len();
+    let remaining = &content[val_start..];
+    // Value ends at next property boundary, `)`, or end
+    let mut end = remaining.len();
+    let boundary = util::find_next_prop_boundary(remaining);
+    if boundary < end { end = boundary; }
+    // Also stop at close paren at depth 0 (belongs to outer scope)
+    let mut depth: i32 = 0;
+    for (i, ch) in remaining.char_indices() {
+        if i >= end { break; }
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth < 0 {
+                    end = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let val = &remaining[..end];
+    if val.is_empty() { None } else { Some(val.to_string()) }
 }
 
 /// Extract `.tier.N` value at depth 0.
@@ -417,41 +541,77 @@ fn extract_tier_number(content: &str) -> Option<u8> {
     if b.is_ascii_digit() { Some(b - b'0') } else { None }
 }
 
-/// Extract last `.img.DATA` value at depth 0.
-fn extract_img_at_depth0(content: &str) -> Option<String> {
-    let pos = util::find_last_at_depth0(content, ".img.")?;
-    let val_start = pos + ".img.".len();
-    let val = &content[val_start..];
-    if val.is_empty() { None } else { Some(val.to_string()) }
-}
-
 /// Extract display name from last `.n.NAME` at depth 0 in outside content.
+/// NAME ends at the next property marker, `&`, `+`, or end of string.
 fn extract_display_name(outside: &str) -> String {
     if let Some(pos) = util::find_last_at_depth0(outside, ".n.") {
         let val_start = pos + 3;
         let remaining = &outside[val_start..];
-        let val_end = remaining
-            .find(".part.")
-            .or_else(|| remaining.find(".mn."))
-            .or_else(|| remaining.find('&'))
-            .or_else(|| remaining.find('+'))
-            .unwrap_or(remaining.len());
+        let val_end = util::find_next_prop_boundary(remaining)
+            .min(remaining.find('&').unwrap_or(remaining.len()))
+            .min(remaining.find('+').unwrap_or(remaining.len()));
         return remaining[..val_end].to_string();
     }
     String::new()
 }
 
 /// Extract items outside the replica block (like `.i.self.Something`).
+/// Must be paren-aware: items can contain parenthesized content like
+/// `.i.self.Summon.(wolf.n.Name.hp.4.sd.FACES.img.DATA)`.
 fn extract_items_outside(outside: &str) -> Option<String> {
-    let mut items = Vec::new();
-    let mut search_from = 0;
-    while let Some(pos) = outside[search_from..].find(".i.") {
-        let abs_pos = search_from + pos;
-        let remaining = &outside[abs_pos + 3..];
-        let val_end = util::find_next_prop_boundary(remaining);
-        items.push(&outside[abs_pos..abs_pos + 3 + val_end]);
-        search_from = abs_pos + 3 + val_end;
+    let non_item_markers = [
+        ".col.", ".tier.", ".hp.", ".sd.", ".img.", ".abilitydata.", ".triggerhpdata.",
+        ".doc.", ".hue.", ".speech.", ".n.", ".mn.", ".part.", ".bal.",
+    ];
+
+    let bytes = outside.as_bytes();
+    let mut items: Vec<&str> = Vec::new();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Look for .i. or .sticker. at depth 0
+        if i + 3 <= bytes.len() && &outside[i..i + 3] == ".i." {
+            // Found start of an item chain entry. Scan forward, tracking paren depth,
+            // until we hit a non-item marker at depth 0 or end of string.
+            let item_start = i;
+            i += 3; // skip ".i."
+            let mut depth: i32 = 0;
+
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'(' => { depth += 1; i += 1; }
+                    b')' => {
+                        depth -= 1;
+                        if depth < 0 {
+                            // Hit a close paren that belongs to outer scope — stop before it
+                            break;
+                        }
+                        i += 1;
+                    }
+                    b'.' if depth == 0 => {
+                        // Check if this is a non-item property marker
+                        let is_non_item = non_item_markers.iter().any(|m| {
+                            i + m.len() <= bytes.len() && &outside[i..i + m.len()] == *m
+                        });
+                        if is_non_item {
+                            break;
+                        }
+                        // Check if this is a new .i. — that starts a new item
+                        if i + 3 <= bytes.len() && &outside[i..i + 3] == ".i." {
+                            break;
+                        }
+                        i += 1;
+                    }
+                    _ => { i += 1; }
+                }
+            }
+
+            items.push(&outside[item_start..i]);
+        } else {
+            i += 1;
+        }
     }
+
     if items.is_empty() { None } else { Some(items.join("")) }
 }
 

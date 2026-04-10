@@ -52,27 +52,41 @@ fn classify_pansaer_hero() {
 }
 
 #[test]
-fn classify_sliceymon_capture() {
+fn classify_sliceymon_capture_pool_as_itempool() {
     let text = load_mod("sliceymon");
     let mods = split_modifiers(&text).unwrap();
-    // Captures start with "itempool." and contain "hat.replica"
-    let capture = mods.iter().enumerate().find(|(_, m)| {
+    // Capture pools are compound itempools with #alternatives — classified as ItemPool
+    let capture_pool = mods.iter().enumerate().find(|(_, m)| {
         let lower = m.to_lowercase();
         lower.starts_with("itempool.") && lower.contains("hat.replica")
     });
-    assert!(capture.is_some(), "Could not find capture modifier");
-    let (idx, m) = capture.unwrap();
-    assert_eq!(classify(m, idx).unwrap(), ModifierType::Capture);
+    assert!(capture_pool.is_some(), "Could not find capture pool modifier");
+    let (idx, m) = capture_pool.unwrap();
+    assert_eq!(classify(m, idx).unwrap(), ModifierType::ItemPool);
 }
 
 #[test]
-fn classify_sliceymon_monster() {
+fn classify_sliceymon_monster_pools_as_itempool() {
     let text = load_mod("sliceymon");
     let mods = split_modifiers(&text).unwrap();
-    let monster = mods.iter().enumerate().find(|(_, m)| {
+    // Sliceymon monsters are compound pools (start with "(") — classified as ItemPool
+    let monster_pool = mods.iter().enumerate().find(|(_, m)| {
         m.to_lowercase().contains("monsterpool.")
     });
-    assert!(monster.is_some(), "Could not find monster modifier");
+    assert!(monster_pool.is_some(), "Could not find monster pool modifier");
+    let (idx, m) = monster_pool.unwrap();
+    assert_eq!(classify(m, idx).unwrap(), ModifierType::ItemPool);
+}
+
+#[test]
+fn classify_simple_monster() {
+    // Punpuns has simple (non-wrapped) monsters
+    let text = load_mod("punpuns");
+    let mods = split_modifiers(&text).unwrap();
+    let monster = mods.iter().enumerate().find(|(_, m)| {
+        m.to_lowercase().contains("monsterpool.") && !m.starts_with('(')
+    });
+    assert!(monster.is_some(), "Could not find simple monster modifier in punpuns");
     let (idx, m) = monster.unwrap();
     assert_eq!(classify(m, idx).unwrap(), ModifierType::Monster);
 }

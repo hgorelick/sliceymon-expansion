@@ -248,6 +248,7 @@ pub fn extract_simple_prop(content: &str, marker: &str) -> Option<String> {
 }
 
 /// Find the boundary of the next property marker in a string.
+/// Also stops at `)` at depth 0 (which closes an outer scope, not part of the value).
 pub fn find_next_prop_boundary(remaining: &str) -> usize {
     let markers = [
         ".col.", ".tier.", ".hp.", ".sd.", ".img.", ".abilitydata.", ".triggerhpdata.",
@@ -255,14 +256,24 @@ pub fn find_next_prop_boundary(remaining: &str) -> usize {
         ".mn.", ".part.", ".bal.",
     ];
     let bytes = remaining.as_bytes();
+    let mut depth: i32 = 0;
     for i in 0..bytes.len() {
-        if bytes[i] != b'.' {
-            continue;
-        }
-        for marker in &markers {
-            if i + marker.len() <= bytes.len() && &remaining[i..i + marker.len()] == *marker {
-                return i;
+        match bytes[i] {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth < 0 {
+                    return i;
+                }
             }
+            b'.' if depth == 0 => {
+                for marker in &markers {
+                    if i + marker.len() <= bytes.len() && &remaining[i..i + marker.len()] == *marker {
+                        return i;
+                    }
+                }
+            }
+            _ => {}
         }
     }
     remaining.len()
@@ -320,6 +331,81 @@ pub fn extract_modifier_chain(content: &str) -> Option<String> {
     }
 
     if chain_parts.is_empty() { None } else { Some(chain_parts.join("")) }
+}
+
+/// Extract `.img.DATA` value at depth 0. DATA ends at the next known property
+/// marker (`.n.`, `.sd.`, etc.), `)`, or end of string.
+/// This is the shared extraction used by heroes, replica items, monsters, etc.
+/// Boss fight units use `extract_simple_prop(".img.")` which works the same way.
+pub fn extract_img_data(content: &str) -> Option<String> {
+    let pos = find_last_at_depth0(content, ".img.")?;
+    let val_start = pos + ".img.".len();
+    let remaining = &content[val_start..];
+    // End at next property boundary or closing paren
+    let end = find_img_data_end(remaining);
+    let val = &remaining[..end];
+    if val.is_empty() { None } else { Some(val.to_string()) }
+}
+
+/// Find where img data ends — at the next known property marker, `)`, or end of string.
+fn find_img_data_end(remaining: &str) -> usize {
+    let bytes = remaining.as_bytes();
+    for i in 0..bytes.len() {
+        match bytes[i] {
+            b')' => return i,
+            b'.' => {
+                // Check for known property markers starting at this position
+                let markers = [
+                    ".col.", ".tier.", ".hp.", ".sd.", ".abilitydata.", ".triggerhpdata.",
+                    ".doc.", ".hue.", ".speech.", ".n.", ".i.", ".k.", ".facade.", ".sticker.",
+                    ".mn.", ".part.", ".bal.", ".img.",
+                ];
+                for marker in &markers {
+                    if i + marker.len() <= bytes.len() && &remaining[i..i + marker.len()] == *marker {
+                        return i;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    remaining.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_img_data_basic() {
+        let content = "replica.Lost.col.a.hp.5.sd.170-3:0:0:0:0:0.img.ABC123.n.Gible";
+        assert_eq!(extract_img_data(content), Some("ABC123".to_string()));
+    }
+
+    #[test]
+    fn extract_img_data_at_end() {
+        let content = "replica.Lost.sd.0:0:0:0:0:0.img.LONGDATA";
+        assert_eq!(extract_img_data(content), Some("LONGDATA".to_string()));
+    }
+
+    #[test]
+    fn extract_img_data_before_paren() {
+        let content = "replica.Lost.img.ABC123).speech.X";
+        assert_eq!(extract_img_data(content), Some("ABC123".to_string()));
+    }
+
+    #[test]
+    fn extract_img_data_missing() {
+        let content = "replica.Lost.sd.0:0:0:0:0:0.n.Gible";
+        assert_eq!(extract_img_data(content), None);
+    }
+
+    #[test]
+    fn extract_img_data_depth_aware() {
+        // .img. inside nested parens should NOT be found (find_last_at_depth0 skips them)
+        let content = ".abilitydata.(Fey.sd.34-1:0.img.spark.n.Psychic).img.HERO_SPRITE";
+        assert_eq!(extract_img_data(content), Some("HERO_SPRITE".to_string()));
+    }
 }
 
 /// Extract facade values from a modifier chain string.

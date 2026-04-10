@@ -7,6 +7,8 @@ pub fn extract_structural_name(raw: &str) -> Option<String> {
 }
 
 /// Parse structured content from a structural modifier based on its type.
+/// Each variant stores the full modifier text as `body` for emission,
+/// plus typed summary fields for introspection.
 pub fn parse_structural_content(stype: &StructuralType, raw: &str) -> StructuralContent {
     match stype {
         StructuralType::HeroPoolBase => parse_heropoolbase(raw),
@@ -14,23 +16,22 @@ pub fn parse_structural_content(stype: &StructuralType, raw: &str) -> Structural
         StructuralType::BossModifier => parse_bossmodifier(raw),
         StructuralType::PartyConfig => parse_partyconfig(raw),
         StructuralType::EventModifier => parse_eventmodifier(raw),
-        StructuralType::Dialog | StructuralType::ArtCredits => parse_dialog(raw),
-        StructuralType::Selector | StructuralType::Difficulty => parse_selector(raw),
+        StructuralType::Dialog => parse_dialog(raw),
+        StructuralType::ArtCredits => parse_artcredits(raw),
+        StructuralType::Selector => parse_selector(raw),
+        StructuralType::Difficulty => parse_difficulty(raw),
         StructuralType::GenSelect => parse_genselect(raw),
         StructuralType::LevelUpAction => parse_levelupaction(raw),
         StructuralType::PoolReplacement => parse_poolreplacement(raw),
-        StructuralType::EndScreen | StructuralType::Unknown => StructuralContent::Raw,
+        StructuralType::EndScreen => parse_endscreen(raw),
+        StructuralType::Unknown => StructuralContent::Unknown { body: raw.to_string() },
     }
 }
 
 fn parse_heropoolbase(raw: &str) -> StructuralContent {
-    // HeroPoolBase modifiers are typically: heropool.Name.Name.Name... or heropool.o0.0.part.0
-    // Extract hero names by splitting the heropool content at '.' and filtering
     let mut hero_refs = Vec::new();
     if let Some(pos) = raw.to_lowercase().find("heropool.") {
         let content = &raw[pos + "heropool.".len()..];
-        // Split at depth-0 '.' — but heropool refs are just dot-separated names
-        // Filter out property markers and numeric entries
         for part in content.split('.') {
             let trimmed = part.trim();
             if trimmed.is_empty()
@@ -39,38 +40,33 @@ fn parse_heropoolbase(raw: &str) -> StructuralContent {
                 || trimmed == "part"
                 || trimmed == "1"
                 || trimmed.starts_with("mn")
-                || trimmed.starts_with("&")
+                || trimmed.starts_with('&')
             {
                 continue;
             }
-            // Skip if it looks like a property value
             if trimmed.parse::<u32>().is_ok() {
                 continue;
             }
             hero_refs.push(trimmed.to_string());
         }
     }
-    StructuralContent::HeroPoolBase { hero_refs }
+    StructuralContent::HeroPoolBase { body: raw.to_string(), hero_refs }
 }
 
 fn parse_itempool(raw: &str) -> StructuralContent {
-    // Item pools: itempool.((item1))#((item2))#...
-    // or complex nested structures
     let mut items = Vec::new();
     let lower = raw.to_lowercase();
 
-    // Find itempool content
     let start = if let Some(pos) = lower.find("itempool.") {
         pos + "itempool.".len()
     } else if let Some(pos) = lower.find("!mitempool.") {
         pos + "!mitempool.".len()
     } else {
-        return StructuralContent::ItemPool { items };
+        return StructuralContent::ItemPool { body: raw.to_string(), items };
     };
 
     let content = &raw[start..];
 
-    // Split by '#' at depth 0 to get individual items
     let item_strs = util::split_at_depth0(content, '#');
     for item_str in &item_strs {
         let trimmed = item_str.trim().trim_matches(|c| c == '(' || c == ')');
@@ -89,11 +85,10 @@ fn parse_itempool(raw: &str) -> StructuralContent {
         });
     }
 
-    StructuralContent::ItemPool { items }
+    StructuralContent::ItemPool { body: raw.to_string(), items }
 }
 
 fn parse_bossmodifier(raw: &str) -> StructuralContent {
-    // Boss modifiers contain flags like: levelstart.N, ch.omN, noflee, horde, etc.
     let mut flags = Vec::new();
     if raw.contains("noflee") || raw.contains("no flee") {
         flags.push("noflee".to_string());
@@ -101,14 +96,12 @@ fn parse_bossmodifier(raw: &str) -> StructuralContent {
     if raw.contains("horde") {
         flags.push("horde".to_string());
     }
-    // Extract levelstart patterns
     if let Some(pos) = raw.find("levelstart.") {
         let remaining = &raw[pos..];
         let end = remaining.find([',', '&', ' '])
             .unwrap_or(remaining.len());
         flags.push(remaining[..end].to_string());
     }
-    // Extract ch.omN patterns
     let mut search_from = 0;
     while let Some(pos) = raw[search_from..].find("ch.om") {
         let abs = search_from + pos;
@@ -120,11 +113,10 @@ fn parse_bossmodifier(raw: &str) -> StructuralContent {
         }
         search_from = abs + end.max(1);
     }
-    StructuralContent::BossModifier { flags }
+    StructuralContent::BossModifier { body: raw.to_string(), flags }
 }
 
 fn parse_partyconfig(raw: &str) -> StructuralContent {
-    // =party.Name+(members...)
     let party_name = if let Some(rest) = raw.strip_prefix("=party.") {
         let end = rest.find(['+', '(', '.', ','])
             .unwrap_or(rest.len());
@@ -133,11 +125,9 @@ fn parse_partyconfig(raw: &str) -> StructuralContent {
         String::new()
     };
 
-    // Extract member names from +() blocks
     let mut members = Vec::new();
     let blocks = util::split_at_depth0(raw, '+');
     for block in blocks.iter().skip(1) {
-        // Each block is typically (content).n.Name or just a name
         if let Some(name) = util::extract_simple_prop(block, ".n.") {
             members.push(name);
         } else if let Some(name) = util::extract_last_n_name(block) {
@@ -145,21 +135,19 @@ fn parse_partyconfig(raw: &str) -> StructuralContent {
         }
     }
 
-    StructuralContent::PartyConfig { party_name, members }
+    StructuralContent::PartyConfig { body: raw.to_string(), party_name, members }
 }
 
 fn parse_eventmodifier(raw: &str) -> StructuralContent {
-    // =EventName or =event.Name
     let event_name = if let Some(rest) = raw.strip_prefix('=') {
         rest.to_string()
     } else {
         raw.to_string()
     };
-    StructuralContent::EventModifier { event_name }
+    StructuralContent::EventModifier { body: raw.to_string(), event_name }
 }
 
 fn parse_dialog(raw: &str) -> StructuralContent {
-    // Dialog: contains .ph.4
     let phase = if let Some(pos) = raw.find(".ph.") {
         let remaining = &raw[pos + 4..];
         let end = remaining.find(['.', ',', '&'])
@@ -168,11 +156,73 @@ fn parse_dialog(raw: &str) -> StructuralContent {
     } else {
         String::new()
     };
-    StructuralContent::Dialog { phase }
+    StructuralContent::Dialog { body: raw.to_string(), phase }
+}
+
+fn parse_artcredits(raw: &str) -> StructuralContent {
+    StructuralContent::ArtCredits { body: raw.to_string() }
 }
 
 fn parse_selector(raw: &str) -> StructuralContent {
-    // Selector: @1[color]Label@2!m(...) patterns
+    let options = extract_options(raw);
+    StructuralContent::Selector { body: raw.to_string(), options }
+}
+
+fn parse_difficulty(raw: &str) -> StructuralContent {
+    let options = extract_options(raw);
+    StructuralContent::Difficulty { body: raw.to_string(), options }
+}
+
+fn parse_genselect(raw: &str) -> StructuralContent {
+    let options = extract_options(raw);
+    StructuralContent::GenSelect { body: raw.to_string(), options }
+}
+
+fn parse_levelupaction(raw: &str) -> StructuralContent {
+    StructuralContent::LevelUpAction { body: raw.to_string() }
+}
+
+fn parse_poolreplacement(raw: &str) -> StructuralContent {
+    let mut hero_names = Vec::new();
+
+    let content = raw.trim_start_matches('(').trim_end_matches(')');
+
+    let lower = content.to_lowercase();
+    if let Some(pos) = lower.find("heropool.") {
+        let after = &content[pos + "heropool.".len()..];
+        let parts = util::split_at_depth0(after, '+');
+        for part in &parts {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if trimmed.contains("replica.") {
+                if let Some(name) = util::extract_last_n_name(trimmed) {
+                    hero_names.push(name);
+                } else if let Some(name) = util::extract_mn_name(trimmed) {
+                    hero_names.push(name);
+                }
+            } else {
+                let name = trimmed.trim_matches(|c: char| c == '(' || c == ')');
+                let end = name.find(['.', '&', ',', '@'])
+                    .unwrap_or(name.len());
+                let clean = &name[..end];
+                if !clean.is_empty() {
+                    hero_names.push(clean.to_string());
+                }
+            }
+        }
+    }
+
+    StructuralContent::PoolReplacement { body: raw.to_string(), hero_names }
+}
+
+fn parse_endscreen(raw: &str) -> StructuralContent {
+    StructuralContent::EndScreen { body: raw.to_string() }
+}
+
+/// Extract option labels from @N-delimited selector text.
+fn extract_options(raw: &str) -> Vec<String> {
     let mut options = Vec::new();
     let mut search_from = 0;
 
@@ -180,14 +230,11 @@ fn parse_selector(raw: &str) -> StructuralContent {
         let abs = search_from + pos;
         let after_at = &raw[abs + 1..];
 
-        // Check if this is @N where N is a digit (option marker)
         if let Some(first_char) = after_at.chars().next() {
             if first_char.is_ascii_digit() {
-                // Find the label: after the digit, skip !m(...) patterns
-                let label_start = abs + 2; // skip @N
+                let label_start = abs + 2;
                 if label_start < raw.len() {
                     let remaining = &raw[label_start..];
-                    // The option text runs until next @ at depth 0 or end
                     let end = {
                         let mut d: i32 = 0;
                         let mut e = remaining.len();
@@ -202,13 +249,11 @@ fn parse_selector(raw: &str) -> StructuralContent {
                         e
                     };
                     let option_text = &remaining[..end];
-                    // Extract a readable label from the option
                     if let Some(mn) = util::extract_mn_name(option_text) {
                         options.push(mn);
                     } else if let Some(n) = util::extract_last_n_name(option_text) {
                         options.push(n);
                     } else {
-                        // Take first chunk as label
                         let label_end = option_text.find(['!', '(', '.'])
                             .unwrap_or(option_text.len());
                         let label = option_text[..label_end].trim();
@@ -222,65 +267,7 @@ fn parse_selector(raw: &str) -> StructuralContent {
         search_from = abs + 1;
     }
 
-    StructuralContent::Selector { options }
-}
-
-fn parse_genselect(raw: &str) -> StructuralContent {
-    // GenSelect uses similar @N option patterns
-    let content = parse_selector(raw);
-    if let StructuralContent::Selector { options } = content {
-        StructuralContent::GenSelect { options }
-    } else {
-        StructuralContent::GenSelect { options: vec![] }
-    }
-}
-
-fn parse_levelupaction(raw: &str) -> StructuralContent {
-    // Just extract the content
-    StructuralContent::LevelUpAction { content: raw.to_string() }
-}
-
-fn parse_poolreplacement(raw: &str) -> StructuralContent {
-    // ((heropool.Name+Name+(replica.X...).n.X+...))
-    // Extract hero names from the pool replacement
-    let mut hero_names = Vec::new();
-
-    // Strip outer (( and ))
-    let content = raw.trim_start_matches('(').trim_end_matches(')');
-
-    // Find heropool. prefix
-    let lower = content.to_lowercase();
-    if let Some(pos) = lower.find("heropool.") {
-        let after = &content[pos + "heropool.".len()..];
-        // Split at depth-0 '+'
-        let parts = util::split_at_depth0(after, '+');
-        for part in &parts {
-            let trimmed = part.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            // If it contains a replica block, extract .n. from it
-            if trimmed.contains("replica.") {
-                if let Some(name) = util::extract_last_n_name(trimmed) {
-                    hero_names.push(name);
-                } else if let Some(name) = util::extract_mn_name(trimmed) {
-                    hero_names.push(name);
-                }
-            } else {
-                // Plain name (no parens/replica)
-                let name = trimmed.trim_matches(|c: char| c == '(' || c == ')');
-                // Filter out suffix markers
-                let end = name.find(['.', '&', ',', '@'])
-                    .unwrap_or(name.len());
-                let clean = &name[..end];
-                if !clean.is_empty() {
-                    hero_names.push(clean.to_string());
-                }
-            }
-        }
-    }
-
-    StructuralContent::PoolReplacement { hero_names }
+    options
 }
 
 #[cfg(test)]
@@ -288,9 +275,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn structural_unknown_is_raw() {
+    fn structural_unknown_has_body() {
         let content = parse_structural_content(&StructuralType::Unknown, "anything");
-        assert_eq!(content, StructuralContent::Raw);
+        if let StructuralContent::Unknown { body } = content {
+            assert_eq!(body, "anything");
+        } else {
+            panic!("Expected Unknown");
+        }
     }
 
     #[test]
@@ -302,8 +293,9 @@ mod tests {
     #[test]
     fn parse_eventmodifier_extracts_name() {
         let content = parse_structural_content(&StructuralType::EventModifier, "=battle.event1");
-        if let StructuralContent::EventModifier { event_name } = content {
+        if let StructuralContent::EventModifier { event_name, body } = content {
             assert!(!event_name.is_empty());
+            assert_eq!(body, "=battle.event1");
         } else {
             panic!("Expected EventModifier");
         }
@@ -312,36 +304,37 @@ mod tests {
     #[test]
     fn parse_dialog_extracts_phase() {
         let content = parse_structural_content(&StructuralType::Dialog, "something.ph.4.text");
-        if let StructuralContent::Dialog { phase } = content {
+        if let StructuralContent::Dialog { phase, body } = content {
             assert_eq!(phase, "4");
+            assert_eq!(body, "something.ph.4.text");
         } else {
             panic!("Expected Dialog");
         }
     }
 
     #[test]
-    fn parse_difficulty_as_selector() {
+    fn parse_difficulty_as_own_variant() {
         let content = parse_structural_content(
             &StructuralType::Difficulty,
             ".ph.s@1Heaven@2!m(diff.heaven)@3Easy@4!m(diff.Easy)"
         );
-        if let StructuralContent::Selector { options } = content {
+        if let StructuralContent::Difficulty { options, .. } = content {
             assert!(!options.is_empty());
         } else {
-            panic!("Expected Selector for Difficulty");
+            panic!("Expected Difficulty");
         }
     }
 
     #[test]
-    fn parse_art_credits_as_dialog() {
+    fn parse_art_credits_as_own_variant() {
         let content = parse_structural_content(
             &StructuralType::ArtCredits,
             "something.ph.4.credits.mn.Art Credits"
         );
-        if let StructuralContent::Dialog { phase } = content {
-            assert_eq!(phase, "4");
+        if let StructuralContent::ArtCredits { body } = content {
+            assert_eq!(body, "something.ph.4.credits.mn.Art Credits");
         } else {
-            panic!("Expected Dialog for ArtCredits");
+            panic!("Expected ArtCredits");
         }
     }
 }

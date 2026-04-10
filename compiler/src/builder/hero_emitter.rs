@@ -5,14 +5,9 @@ use crate::ir::{Hero, HeroFormat};
 
 /// Emit a Hero struct as a modifier string.
 ///
-/// If the hero has a `raw` field, emits that directly (passthrough mode).
-/// Otherwise, reconstructs the modifier from parsed fields based on format.
+/// Reconstructs the modifier from parsed fields based on format.
+/// Sprite resolution order: sprite map > img_data > error.
 pub fn emit(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
-    // Raw passthrough
-    if let Some(ref raw) = hero.raw {
-        return Ok(raw.clone());
-    }
-
     match hero.format {
         HeroFormat::Sliceymon => emit_sliceymon(hero, sprites),
         HeroFormat::Grouped | HeroFormat::Unknown => emit_grouped(hero, sprites),
@@ -36,84 +31,137 @@ fn emit_sliceymon(hero: &Hero, sprites: &HashMap<String, String>) -> Result<Stri
     out.push_str(";1;!mheropool.");
 
     // Emit each block
+    let mut emitted_sliceymon = 0;
     for (i, block) in hero.blocks.iter().enumerate() {
-        if i > 0 {
+        // Skip degenerate blocks (vanilla references parsed as empty blocks)
+        if is_degenerate_block(block) {
+            continue;
+        }
+
+        if emitted_sliceymon > 0 {
             out.push('+');
         }
+        emitted_sliceymon += 1;
 
-        // Resolve sprite
-        let img_data = sprites.get(&block.sprite_name).ok_or_else(|| {
-            CompilerError::SpriteNotFound {
-                sprite_name: block.sprite_name.clone(),
-                hero_name: hero.internal_name.clone(),
-                tier_index: i,
+        // Resolve sprite: sprite map > img_data > error
+        let resolved_img = resolve_sprite(sprites, block, &hero.internal_name, i)?;
+
+        if block.bare {
+            // Bare block: Template.props... (no replica wrapper)
+            out.push_str(&block.template);
+            if let Some(ref doc) = block.doc {
+                out.push_str(".doc.");
+                out.push_str(doc);
             }
-        })?;
+            if !block.name.is_empty() {
+                out.push_str(".n.");
+                out.push_str(&block.name);
+            }
+            if let Some(ref chain) = block.modifier_chain {
+                out.push_str(&chain.emit());
+            }
+            if let Some(t) = block.tier {
+                out.push_str(".tier.");
+                out.push_str(&t.to_string());
+            }
+            if let Some(hp) = block.hp {
+                out.push_str(".hp.");
+                out.push_str(&hp.to_string());
+            }
+            if let Some(c) = block.color {
+                out.push_str(".col.");
+                out.push(c);
+            }
+            if !block.speech.is_empty() {
+                out.push_str(".speech.");
+                out.push_str(&block.speech);
+            }
+            out.push_str(".sd.");
+            out.push_str(&block.sd.emit());
+            out.push_str(".img.");
+            out.push_str(&resolved_img);
+        } else {
+            // Standard replica-wrapped block
+            out.push_str("(replica.");
+            out.push_str(&block.template);
 
-        // Open replica block
-        out.push_str("(replica.");
-        out.push_str(&block.template);
+            // Color: use block color if set, otherwise hero color; skip if unknown
+            let c = block.color.unwrap_or(hero.color);
+            if c != '?' {
+                out.push_str(".col.");
+                out.push(c);
+            }
 
-        // Color: use block color if set, otherwise hero color
-        out.push_str(".col.");
-        out.push(block.color.unwrap_or(hero.color));
+            // Tier number (omit for T1 / None)
+            if let Some(t) = block.tier {
+                out.push_str(".tier.");
+                out.push_str(&t.to_string());
+            }
 
-        // Tier number (omit for T1 / None)
-        if let Some(t) = block.tier {
-            out.push_str(".tier.");
-            out.push_str(&t.to_string());
+            // HP
+            if let Some(hp) = block.hp {
+                out.push_str(".hp.");
+                out.push_str(&hp.to_string());
+            }
+
+            // Hue (inside replica block, before modifier chain)
+            if let Some(ref hue) = block.hue {
+                out.push_str(".hue.");
+                out.push_str(hue);
+            }
+
+            // Modifier chain (.i./.k./.facade. sequences) - inside replica block
+            if let Some(ref chain) = block.modifier_chain {
+                out.push_str(&chain.emit());
+            }
+
+            // Items inside replica block
+            if let Some(ref items) = block.items_inside {
+                out.push_str(&items.emit());
+            }
+
+            // SD (dice faces)
+            out.push_str(".sd.");
+            out.push_str(&block.sd.emit());
+
+            // IMG (sprite encoding)
+            out.push_str(".img.");
+            out.push_str(&resolved_img);
+
+            // Close replica block
+            out.push(')');
+
+            // Abilitydata (outside replica parens)
+            if let Some(ref ability) = block.abilitydata {
+                out.push_str(".abilitydata.");
+                out.push_str(&ability.emit());
+            }
+
+            // Triggerhpdata (outside replica parens)
+            if let Some(ref thp) = block.triggerhpdata {
+                out.push_str(".triggerhpdata.");
+                out.push_str(&thp.emit());
+            }
+
+            // Speech (outside replica parens)
+            out.push_str(".speech.");
+            out.push_str(&block.speech);
+
+            // Items outside replica
+            if let Some(ref items) = block.items_outside {
+                out.push_str(&items.emit());
+            }
+
+            // Doc (outside replica parens)
+            if let Some(ref doc) = block.doc {
+                out.push_str(".doc.");
+                out.push_str(doc);
+            }
+
+            // Display name (always last before + or suffix)
+            out.push_str(".n.");
+            out.push_str(&block.name);
         }
-
-        // HP
-        out.push_str(".hp.");
-        out.push_str(&block.hp.to_string());
-
-        // Modifier chain (.i./.k./.facade. sequences) - inside replica block
-        if let Some(ref chain) = block.modifier_chain {
-            out.push_str(chain);
-        }
-
-        // SD (dice faces)
-        out.push_str(".sd.");
-        out.push_str(&block.sd);
-
-        // IMG (sprite encoding)
-        out.push_str(".img.");
-        out.push_str(img_data);
-
-        // Close replica block
-        out.push(')');
-
-        // Abilitydata (outside replica parens)
-        if let Some(ref ability) = block.abilitydata {
-            out.push_str(".abilitydata.");
-            out.push_str(ability);
-        }
-
-        // Triggerhpdata (outside replica parens)
-        if let Some(ref thp) = block.triggerhpdata {
-            out.push_str(".triggerhpdata.");
-            out.push_str(thp);
-        }
-
-        // Speech (outside replica parens)
-        out.push_str(".speech.");
-        out.push_str(&block.speech);
-
-        // Items outside replica
-        if let Some(ref items) = block.items_outside {
-            out.push_str(items);
-        }
-
-        // Doc (outside replica parens)
-        if let Some(ref doc) = block.doc {
-            out.push_str(".doc.");
-            out.push_str(doc);
-        }
-
-        // Display name (always last before + or suffix)
-        out.push_str(".n.");
-        out.push_str(&block.name);
     }
 
     // Suffix
@@ -139,19 +187,20 @@ fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String
     // Grouped format: heropool.Name+(replica.Template...)..
     out.push_str("heropool.");
 
+    let mut emitted = 0;
     for (i, block) in hero.blocks.iter().enumerate() {
-        if i > 0 {
-            out.push('+');
+        // Skip degenerate blocks (vanilla references parsed as empty blocks)
+        if is_degenerate_block(block) {
+            continue;
         }
 
-        // Resolve sprite
-        let img_data = sprites.get(&block.sprite_name).ok_or_else(|| {
-            CompilerError::SpriteNotFound {
-                sprite_name: block.sprite_name.clone(),
-                hero_name: hero.internal_name.clone(),
-                tier_index: i,
-            }
-        })?;
+        if emitted > 0 {
+            out.push('+');
+        }
+        emitted += 1;
+
+        // Resolve sprite: sprite map > img_data > error
+        let resolved_img = resolve_sprite(sprites, block, &hero.internal_name, i)?;
 
         // Open replica block
         out.push_str("(replica.");
@@ -171,21 +220,34 @@ fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String
         }
 
         // HP
-        out.push_str(".hp.");
-        out.push_str(&block.hp.to_string());
+        if let Some(hp) = block.hp {
+            out.push_str(".hp.");
+            out.push_str(&hp.to_string());
+        }
+
+        // Hue
+        if let Some(ref hue) = block.hue {
+            out.push_str(".hue.");
+            out.push_str(hue);
+        }
 
         // Modifier chain
         if let Some(ref chain) = block.modifier_chain {
-            out.push_str(chain);
+            out.push_str(&chain.emit());
+        }
+
+        // Items inside
+        if let Some(ref items) = block.items_inside {
+            out.push_str(&items.emit());
         }
 
         // SD
         out.push_str(".sd.");
-        out.push_str(&block.sd);
+        out.push_str(&block.sd.emit());
 
         // IMG
         out.push_str(".img.");
-        out.push_str(img_data);
+        out.push_str(&resolved_img);
 
         // Close replica
         out.push(')');
@@ -193,13 +255,13 @@ fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String
         // Abilitydata
         if let Some(ref ability) = block.abilitydata {
             out.push_str(".abilitydata.");
-            out.push_str(ability);
+            out.push_str(&ability.emit());
         }
 
         // Triggerhpdata
         if let Some(ref thp) = block.triggerhpdata {
             out.push_str(".triggerhpdata.");
-            out.push_str(thp);
+            out.push_str(&thp.emit());
         }
 
         // Speech
@@ -210,7 +272,7 @@ fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String
 
         // Items outside
         if let Some(ref items) = block.items_outside {
-            out.push_str(items);
+            out.push_str(&items.emit());
         }
 
         // Doc
@@ -231,6 +293,35 @@ fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String
     }
 
     Ok(out)
+}
+
+/// Resolve sprite data for a hero block.
+/// Priority: sprite map > block.img_data > error.
+fn resolve_sprite(
+    sprites: &HashMap<String, String>,
+    block: &crate::ir::HeroBlock,
+    hero_name: &str,
+    tier_index: usize,
+) -> Result<String, CompilerError> {
+    if !block.sprite_name.is_empty() {
+        if let Some(data) = sprites.get(&block.sprite_name) {
+            return Ok(data.clone());
+        }
+    }
+    if let Some(ref data) = block.img_data {
+        return Ok(data.clone());
+    }
+    Err(CompilerError::SpriteNotFound {
+        sprite_name: block.sprite_name.clone(),
+        hero_name: hero_name.to_string(),
+        tier_index,
+    })
+}
+
+/// Check if a block is a degenerate parser output that cannot be emitted.
+/// These are vanilla reference names in grouped format that got parsed as empty blocks.
+fn is_degenerate_block(block: &crate::ir::HeroBlock) -> bool {
+    block.template.is_empty() && block.name.is_empty() && block.img_data.is_none()
 }
 
 /// Check that emitted output has balanced parentheses.

@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 use textmod_compiler::error::CompilerError;
-use textmod_compiler::util;
 
 #[derive(Parser)]
 #[command(name = "textmod-compiler")]
@@ -43,13 +42,19 @@ enum Commands {
         #[arg(long)]
         round_trip: bool,
     },
-    /// Patch a base textmod with replacement hero files
-    Patch {
+    /// Generate JSON Schema for the IR types
+    Schema {
+        /// Output file path (prints to stdout if omitted)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Overlay an IR (JSON) onto a base textmod
+    Overlay {
         /// Path to the base textmod file
         base: PathBuf,
-        /// Directory containing hero .txt files to patch in
-        #[arg(short = 'H', long)]
-        heroes: PathBuf,
+        /// Path to the overlay IR JSON file
+        #[arg(long = "with")]
+        with_ir: PathBuf,
         /// Output file path
         #[arg(short, long)]
         output: PathBuf,
@@ -67,8 +72,8 @@ fn main() -> Result<(), CompilerError> {
 ?;
             fs::create_dir_all(&output)?;
             fs::write(output.join("registry.json"), json)?;
-            println!("Extracted {} heroes, {} captures, {} monsters, {} bosses, {} structural",
-                ir.heroes.len(), ir.captures.len(), ir.monsters.len(),
+            println!("Extracted {} heroes, {} replica_items, {} monsters, {} bosses, {} structural",
+                ir.heroes.len(), ir.replica_items.len(), ir.monsters.len(),
                 ir.bosses.len(), ir.structural.len());
         }
         Commands::Build { input, output, overlay } => {
@@ -142,106 +147,41 @@ fn main() -> Result<(), CompilerError> {
                 }
             }
         }
-        Commands::Patch { base, heroes, output } => {
-            let base_text = fs::read_to_string(&base)?;
-            let mut hero_patches: Vec<(String, String)> = Vec::new();
-            let mut new_heroes: Vec<String> = Vec::new();
-
-            let entries = fs::read_dir(&heroes)?;
-            for entry in entries {
-                let entry = entry?;
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("txt") {
-                    continue;
-                }
-                let content = fs::read_to_string(&path)?.trim().to_string();
-                if content.is_empty() {
-                    continue;
-                }
-                let filename = path.file_stem().unwrap().to_string_lossy().to_string();
-                let mn_name = util::extract_mn_name(&content)
-                    .or_else(|| util::extract_last_n_name(&content))
-                    .unwrap_or_else(|| "unknown".to_string());
-
-                if filename.starts_with("line_new_") {
-                    new_heroes.push(content);
-                    println!("  + NEW: {} ({})", mn_name, filename);
-                } else {
-                    hero_patches.push((mn_name.clone(), content));
-                    println!("  ~ REPLACE: {} ({})", mn_name, filename);
-                }
+        Commands::Schema { output } => {
+            let schema = schemars::schema_for!(textmod_compiler::ir::ModIR);
+            let json = serde_json::to_string_pretty(&schema)
+                .map_err(|e| CompilerError::BuildError {
+                    component: "schema".to_string(),
+                    message: e.to_string(),
+                })?;
+            if let Some(path) = output {
+                fs::write(&path, &json)?;
+                println!("Schema written to {}", path.display());
+            } else {
+                println!("{}", json);
             }
+        }
+        Commands::Overlay { base, with_ir, output } => {
+            let base_text = fs::read_to_string(&base)?;
+            let base_ir = textmod_compiler::extract(&base_text)?;
 
-            // Apply patches directly on modifier list
-            let result = patch_textmod(&base_text, &hero_patches, &new_heroes)?;
-            fs::write(&output, &result)?;
-            println!("\nPatched textmod written to {} ({} bytes)",
-                output.display(), result.len());
+            let overlay_json = fs::read_to_string(&with_ir)?;
+            let overlay_ir = textmod_compiler::ir_from_json(&overlay_json)
+                .map_err(|e| CompilerError::BuildError {
+                    component: "json".to_string(),
+                    message: e.to_string(),
+                })?;
+
+            let merged = textmod_compiler::merge(base_ir, overlay_ir)?;
+            let sprites: HashMap<String, String> = HashMap::new();
+            let textmod = textmod_compiler::build(&merged, &sprites)?;
+            fs::write(&output, &textmod)?;
+            println!("Overlay applied: {} heroes, {} replica items, {} monsters, {} bosses",
+                merged.heroes.len(), merged.replica_items.len(),
+                merged.monsters.len(), merged.bosses.len());
+            println!("Output written to {}", output.display());
         }
     }
 
     Ok(())
-}
-
-/// Patch a base textmod by replacing/adding hero modifiers.
-/// This is CLI-level logic, not part of the core library.
-fn patch_textmod(
-    base_text: &str,
-    hero_patches: &[(String, String)],
-    new_heroes: &[String],
-) -> Result<String, CompilerError> {
-    let mut modifiers = textmod_compiler::extractor::splitter::split_modifiers(base_text)?;
-    let mut replaced = 0;
-    let mut not_found: Vec<String> = Vec::new();
-    let mut color_replace_count: std::collections::HashMap<char, usize> = std::collections::HashMap::new();
-
-    for (mn_name, new_content) in hero_patches {
-        let new_color = util::extract_color(new_content);
-        let found = if let Some(color) = new_color {
-            let count = color_replace_count.entry(color).or_insert(0);
-            let target_n = *count;
-            let mut color_matches = 0usize;
-            let mut found_pos = None;
-            for (i, m) in modifiers.iter().enumerate() {
-                let lower = m.to_lowercase();
-                if lower.contains("heropool") && lower.contains("replica.") && util::has_color(m, color) {
-                    if color_matches == target_n {
-                        found_pos = Some(i);
-                        break;
-                    }
-                    color_matches += 1;
-                }
-            }
-            if found_pos.is_some() { *count += 1; }
-            found_pos
-        } else {
-            let search = format!(".mn.{}@", mn_name);
-            modifiers.iter().position(|m| m.contains(&search))
-        };
-
-        if let Some(pos) = found {
-            modifiers[pos] = new_content.clone();
-            replaced += 1;
-        } else {
-            not_found.push(mn_name.clone());
-        }
-    }
-
-    if !new_heroes.is_empty() {
-        let last_hero_pos = modifiers.iter().rposition(|m| {
-            let lower = m.to_lowercase();
-            lower.contains("heropool") && lower.contains("replica.")
-        }).unwrap_or(modifiers.len() - 1);
-        for (i, hero) in new_heroes.iter().enumerate() {
-            modifiers.insert(last_hero_pos + 1 + i, hero.clone());
-        }
-    }
-
-    if !not_found.is_empty() {
-        eprintln!("Warning: {} heroes not found: {:?}", not_found.len(), not_found);
-    }
-    eprintln!("Patch: {} replaced, {} new, {} not found", replaced, new_heroes.len(), not_found.len());
-
-    let output = modifiers.join(",\n\n");
-    Ok(if output.is_empty() { output } else { format!("{},", output) })
 }

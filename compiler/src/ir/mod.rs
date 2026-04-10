@@ -1,40 +1,469 @@
 pub mod merge;
+pub mod ops;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+
+// -- Provenance --
+
+/// Provenance tracking — where an IR item originated.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, JsonSchema)]
+pub enum Source {
+    /// Extracted from a base textmod (default).
+    #[default]
+    Base,
+    /// Added programmatically via CRUD operations.
+    Custom,
+    /// Came from an overlay merge.
+    Overlay,
+}
+
+impl Source {
+    fn is_base(&self) -> bool { *self == Source::Base }
+}
+
+// -- Shared Types --
+
+/// Dice faces — the .sd. field on heroes, captures, monsters, spells, etc.
+/// Format: colon-separated entries, each is "0" (blank) or "FaceID-Pips"
+/// Example: "34-1:30-1:0:0:30-1:0" → [Active(34,1), Active(30,1), Blank, Blank, Active(30,1), Blank]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct DiceFaces {
+    pub faces: Vec<DiceFace>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum DiceFace {
+    Blank,
+    Active { face_id: u16, pips: u8 },
+}
+
+impl DiceFaces {
+    /// Parse from the colon-separated .sd. format: "34-1:30-1:0:0:30-1:0"
+    pub fn parse(s: &str) -> Self {
+        let faces = s.split(':').map(|entry| {
+            let entry = entry.trim();
+            if entry == "0" || entry == "0-0" || entry.is_empty() {
+                DiceFace::Blank
+            } else if let Some((id_str, pips_str)) = entry.split_once('-') {
+                let face_id = id_str.parse::<u16>().unwrap_or(0);
+                let pips = pips_str.parse::<u8>().unwrap_or(0);
+                if face_id == 0 && pips == 0 {
+                    DiceFace::Blank
+                } else {
+                    DiceFace::Active { face_id, pips }
+                }
+            } else {
+                // Bare number with no dash — treat as face_id with 0 pips
+                let face_id = entry.parse::<u16>().unwrap_or(0);
+                if face_id == 0 {
+                    DiceFace::Blank
+                } else {
+                    DiceFace::Active { face_id, pips: 0 }
+                }
+            }
+        }).collect();
+        DiceFaces { faces }
+    }
+
+    /// Emit back to colon-separated .sd. format.
+    pub fn emit(&self) -> String {
+        self.faces.iter().map(|f| match f {
+            DiceFace::Blank => "0".to_string(),
+            DiceFace::Active { face_id, pips } => format!("{}-{}", face_id, pips),
+        }).collect::<Vec<_>>().join(":")
+    }
+}
+
+impl fmt::Display for DiceFaces {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.emit())
+    }
+}
+
+// -- Modifier Chains --
+
+/// Modifier chain — equipment, facades, triggers, and properties applied to an entity.
+/// Replaces raw `modifier_chain: Option<String>` and `item_modifiers: Option<String>` fields.
+///
+/// A chain is a sequence of segments, each introduced by `.i.` or `.sticker.` at paren depth 0.
+/// Within a segment, `#` separates sub-entries (items, facades, keywords, toggles, etc.).
+///
+/// Examples:
+/// - `.i.left.k.scared#facade.bas170:55` — one segment: slot "left", keyword + facade
+/// - `.i.topbot.facade.eba3:0` — one segment: slot "topbot", facade
+/// - `.i.(left.hat.(statue...))` — one segment: nested parenthesized content
+/// - `.sticker.k.dejavu#k.exert#sidesc.TEXT` — sticker segment with sub-entries
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ModifierChain {
+    pub segments: Vec<ChainSegment>,
+}
+
+/// A single segment within a modifier chain.
+/// Each segment corresponds to one `.i.` or `.sticker.` group from the chain string.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ChainSegment {
+    pub kind: SegmentKind,
+    /// The content of this segment (everything after the `.i.`/`.sticker.` prefix,
+    /// up to the next segment boundary). Includes slot, items, `#`-separated modifiers.
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum SegmentKind {
+    /// `.i.` — item/equipment segment
+    Item,
+    /// `.sticker.` — sticker segment
+    Sticker,
+}
+
+impl ModifierChain {
+    /// Parse a modifier chain string into segments.
+    /// The input is the output of `util::extract_modifier_chain()` — a concatenation of
+    /// `.i.` and `.sticker.` groups with no intervening non-chain content.
+    pub fn parse(s: &str) -> Self {
+        let mut segments = Vec::new();
+        let bytes = s.as_bytes();
+        let mut i = 0;
+
+        while i < bytes.len() {
+            // Find the next segment start
+            let (kind, prefix_len) = if i + 3 <= bytes.len() && &s[i..i + 3] == ".i." {
+                (SegmentKind::Item, 3)
+            } else if i + 9 <= bytes.len() && &s[i..i + 9] == ".sticker." {
+                (SegmentKind::Sticker, 9)
+            } else {
+                i += 1;
+                continue;
+            };
+
+            let content_start = i + prefix_len;
+            // Scan forward to find the end of this segment:
+            // next `.i.` or `.sticker.` at paren depth 0
+            let mut j = content_start;
+            let mut depth: i32 = 0;
+            while j < bytes.len() {
+                match bytes[j] {
+                    b'(' => depth += 1,
+                    b')' => depth -= 1,
+                    b'.' if depth == 0 => {
+                        if j + 3 <= bytes.len() && &s[j..j + 3] == ".i." {
+                            break;
+                        }
+                        if j + 9 <= bytes.len() && &s[j..j + 9] == ".sticker." {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+
+            let content = s[content_start..j].to_string();
+            if !content.is_empty() {
+                segments.push(ChainSegment { kind, content });
+            }
+            i = j;
+        }
+
+        ModifierChain { segments }
+    }
+
+    /// Emit the modifier chain back to its string representation.
+    /// Guaranteed: `ModifierChain::parse(s).emit() == s` for any valid chain string.
+    pub fn emit(&self) -> String {
+        let mut out = String::new();
+        for seg in &self.segments {
+            match seg.kind {
+                SegmentKind::Item => out.push_str(".i."),
+                SegmentKind::Sticker => out.push_str(".sticker."),
+            }
+            out.push_str(&seg.content);
+        }
+        out
+    }
+
+    /// Extract facade values from this chain (replaces `util::extract_facades_from_chain`).
+    pub fn facades(&self) -> Vec<String> {
+        let chain_str = self.emit();
+        crate::util::extract_facades_from_chain(&chain_str)
+    }
+}
+
+impl fmt::Display for ModifierChain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.emit())
+    }
+}
+
+#[cfg(test)]
+mod modifier_chain_tests {
+    use super::*;
+
+    #[test]
+    fn roundtrip_simple_chain() {
+        let s = ".i.left.k.scared#facade.bas170:55";
+        assert_eq!(ModifierChain::parse(s).emit(), s);
+    }
+
+    #[test]
+    fn roundtrip_multi_segment() {
+        let s = ".i.left.k.scared#facade.bas170:55.i.topbot.facade.eba3:0";
+        let chain = ModifierChain::parse(s);
+        assert_eq!(chain.segments.len(), 2);
+        assert_eq!(chain.segments[0].kind, SegmentKind::Item);
+        assert_eq!(chain.segments[0].content, "left.k.scared#facade.bas170:55");
+        assert_eq!(chain.segments[1].content, "topbot.facade.eba3:0");
+        assert_eq!(chain.emit(), s);
+    }
+
+    #[test]
+    fn roundtrip_sticker_segment() {
+        let s = ".sticker.k.dejavu#k.exert#sidesc.Add [pink]dejavu[cu] to target's sides this turn";
+        let chain = ModifierChain::parse(s);
+        assert_eq!(chain.segments.len(), 1);
+        assert_eq!(chain.segments[0].kind, SegmentKind::Sticker);
+        assert_eq!(chain.emit(), s);
+    }
+
+    #[test]
+    fn roundtrip_nested_parens() {
+        let s = ".i.(left.hat.(statue.sd.15-2.i.left.k.damage)).i.topbot.facade.ite163:95:25:10";
+        let chain = ModifierChain::parse(s);
+        // The .i. inside parens should NOT be a split point
+        assert_eq!(chain.segments.len(), 2);
+        assert!(chain.segments[0].content.starts_with("(left.hat."));
+        assert_eq!(chain.emit(), s);
+    }
+
+    #[test]
+    fn roundtrip_mixed_item_sticker() {
+        let s = ".i.left.k.pain.sticker.ritemx.dae9";
+        let chain = ModifierChain::parse(s);
+        assert_eq!(chain.segments.len(), 2);
+        assert_eq!(chain.segments[0].kind, SegmentKind::Item);
+        assert_eq!(chain.segments[1].kind, SegmentKind::Sticker);
+        assert_eq!(chain.emit(), s);
+    }
+
+    #[test]
+    fn empty_string_produces_empty_chain() {
+        let chain = ModifierChain::parse("");
+        assert!(chain.segments.is_empty());
+        assert_eq!(chain.emit(), "");
+    }
+
+    #[test]
+    fn facades_extraction() {
+        let chain = ModifierChain::parse(".i.left.k.scared#facade.bas170:55.i.topbot.facade.eba3:0");
+        let facades = chain.facades();
+        assert!(facades.contains(&"bas170:55".to_string()));
+        assert!(facades.contains(&"eba3:0".to_string()));
+    }
+}
+
+/// Spell/ability definition inside .abilitydata.(...) blocks.
+/// Format: (TEMPLATE.sd.FACES[.i.ITEMS][.img.ICON][.hsv.HUE].n.SPELL_NAME)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct AbilityData {
+    pub template: String,
+    pub sd: DiceFaces,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub img_data: Option<String>,
+    pub name: String,
+    /// Item/modifier chain inside the ability (e.g., .i.Ritemx.62e8.i.left.k.cleanse)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modifier_chain: Option<ModifierChain>,
+    /// HSV color adjustment (e.g., "50:-20:0")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hsv: Option<String>,
+}
+
+impl AbilityData {
+    /// Parse from the content inside .abilitydata.(...) — the string includes outer parens.
+    pub fn parse(s: &str) -> Self {
+        // Strip outer parens if present
+        let inner = s.strip_prefix('(')
+            .and_then(|s| s.strip_suffix(')'))
+            .unwrap_or(s);
+
+        // Template is the first segment before '.'
+        let template = inner.find('.')
+            .map(|end| inner[..end].to_string())
+            .unwrap_or_else(|| inner.to_string());
+
+        // Extract fields from the inner content using util functions
+        let sd = crate::util::extract_sd(inner, false)
+            .map(|s| DiceFaces::parse(&s))
+            .unwrap_or_else(|| DiceFaces { faces: vec![] });
+
+        let name = crate::util::extract_last_n_name(inner)
+            .unwrap_or_default();
+
+        let img_data = crate::util::extract_simple_prop(inner, ".img.");
+
+        let modifier_chain = crate::util::extract_modifier_chain(inner)
+            .map(|s| ModifierChain::parse(&s));
+
+        let hsv = crate::util::extract_simple_prop(inner, ".hsv.");
+
+        AbilityData { template, sd, img_data, name, modifier_chain, hsv }
+    }
+
+    /// Emit back to the .abilitydata.(...) format (including outer parens).
+    pub fn emit(&self) -> String {
+        let mut out = String::from("(");
+        out.push_str(&self.template);
+        out.push_str(".sd.");
+        out.push_str(&self.sd.emit());
+        if let Some(ref chain) = self.modifier_chain {
+            out.push_str(&chain.emit());
+        }
+        if let Some(ref img) = self.img_data {
+            out.push_str(".img.");
+            out.push_str(img);
+        }
+        if let Some(ref hsv) = self.hsv {
+            out.push_str(".hsv.");
+            out.push_str(hsv);
+        }
+        out.push_str(".n.");
+        out.push_str(&self.name);
+        out.push(')');
+        out
+    }
+}
+
+// -- Trigger HP Data --
+
+/// Entity definition triggered at an HP threshold.
+/// Format: `(TEMPLATE[.hp.N][.sd.FACES][.col.X][.i.CHAIN][.img.DATA][.n.NAME])`
+/// Stored including outer parens. Uses the same property markers as other entity types.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct TriggerHpDef {
+    pub template: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hp: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sd: Option<DiceFaces>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<char>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modifier_chain: Option<ModifierChain>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub img_data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tier: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part: Option<u8>,
+}
+
+impl TriggerHpDef {
+    /// Parse from the full `.triggerhpdata.(...)` value (including outer parens).
+    pub fn parse(s: &str) -> Self {
+        let inner = s.strip_prefix('(')
+            .and_then(|s| s.strip_suffix(')'))
+            .unwrap_or(s);
+
+        // Template is the first segment before '.'
+        let template = inner.find('.')
+            .map(|end| inner[..end].to_string())
+            .unwrap_or_else(|| inner.to_string());
+
+        let hp = crate::util::extract_hp(inner, false);
+        let sd = crate::util::extract_sd(inner, false)
+            .map(|s| DiceFaces::parse(&s));
+        let color = crate::util::extract_color(inner);
+        let modifier_chain = crate::util::extract_modifier_chain(inner)
+            .map(|s| ModifierChain::parse(&s));
+        let img_data = crate::util::extract_img_data(inner);
+        let name = crate::util::extract_last_n_name(inner);
+        let tier = crate::util::extract_simple_prop(inner, ".tier.")
+            .and_then(|v| v.parse::<u8>().ok());
+        let part = crate::util::extract_simple_prop(inner, ".part.")
+            .and_then(|v| v.parse::<u8>().ok());
+
+        TriggerHpDef { template, hp, sd, color, modifier_chain, img_data, name, tier, part }
+    }
+
+    /// Emit back to the `(TEMPLATE.props...)` format (including outer parens).
+    pub fn emit(&self) -> String {
+        let mut out = String::from("(");
+        out.push_str(&self.template);
+
+        if let Some(ref c) = self.color {
+            out.push_str(".col.");
+            out.push(*c);
+        }
+
+        if let Some(hp) = self.hp {
+            out.push_str(".hp.");
+            out.push_str(&hp.to_string());
+        }
+
+        if let Some(ref chain) = self.modifier_chain {
+            out.push_str(&chain.emit());
+        }
+
+        if let Some(ref sd) = self.sd {
+            out.push_str(".sd.");
+            out.push_str(&sd.emit());
+        }
+
+        if let Some(tier) = self.tier {
+            out.push_str(".tier.");
+            out.push_str(&tier.to_string());
+        }
+
+        if let Some(part) = self.part {
+            out.push_str(".part.");
+            out.push_str(&part.to_string());
+        }
+
+        if let Some(ref img) = self.img_data {
+            out.push_str(".img.");
+            out.push_str(img);
+        }
+
+        if let Some(ref name) = self.name {
+            out.push_str(".n.");
+            out.push_str(name);
+        }
+
+        out.push(')');
+        out
+    }
+}
 
 // -- Top-level IR --
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ModIR {
     pub heroes: Vec<Hero>,
-    pub captures: Vec<Capture>,
-    pub legendaries: Vec<Legendary>,
+    pub replica_items: Vec<ReplicaItem>,
     pub monsters: Vec<Monster>,
     pub bosses: Vec<Boss>,
     pub structural: Vec<StructuralModifier>,
-    /// Original modifier strings in extraction order. When present, the builder
-    /// emits these directly instead of using type-based assembly. Cleared on merge.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub original_modifiers: Option<Vec<String>>,
 }
 
 impl ModIR {
     pub fn empty() -> Self {
         ModIR {
             heroes: Vec::new(),
-            captures: Vec::new(),
-            legendaries: Vec::new(),
+            replica_items: Vec::new(),
             monsters: Vec::new(),
             bosses: Vec::new(),
             structural: Vec::new(),
-            original_modifiers: None,
         }
     }
 }
 
 // -- Heroes --
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, JsonSchema)]
 pub enum HeroFormat {
     Sliceymon,
     Grouped,
@@ -42,7 +471,7 @@ pub enum HeroFormat {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Hero {
     pub internal_name: String,
     pub mn_name: String,
@@ -52,16 +481,21 @@ pub struct Hero {
     pub blocks: Vec<HeroBlock>,
     #[serde(default)]
     pub removed: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw: Option<String>,
+    #[serde(default, skip_serializing_if = "Source::is_base")]
+    pub source: Source,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct HeroBlock {
     pub template: String,
     pub tier: Option<u8>,
-    pub hp: u16,
-    pub sd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hp: Option<u16>,
+    pub sd: DiceFaces,
+    /// True if this block is a bare template (not wrapped in `(replica....)` parens).
+    /// Bare blocks emit as `Template.props...` instead of `(replica.Template.props...)`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub bare: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<char>,
     pub sprite_name: String,
@@ -70,150 +504,194 @@ pub struct HeroBlock {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub abilitydata: Option<String>,
+    pub abilitydata: Option<AbilityData>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub triggerhpdata: Option<String>,
+    pub triggerhpdata: Option<TriggerHpDef>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hue: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modifier_chain: Option<String>,
+    pub modifier_chain: Option<ModifierChain>,
     #[serde(default)]
     pub facades: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub items_inside: Option<String>,
+    pub items_inside: Option<ModifierChain>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub items_outside: Option<String>,
+    pub items_outside: Option<ModifierChain>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub img_data: Option<String>,
 }
 
-// -- Captures --
+// -- Replica Items --
+//
+// Generic item pool entries wrapping a replica character inside an item container.
+// Covers what was previously "Capture" (simple: hat.replica) and "Legendary"
+// (with ability: hat.(replica...cast...)). The emit format is derived from
+// whether abilitydata is present — no format discriminant needed.
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Capture {
-    pub pokemon: String,
-    pub ball_name: String,
-    pub ball_tier: Option<u8>,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ReplicaItem {
+    /// Inner character name (used for .mn. suffix)
+    pub name: String,
+    /// Outer container/item display name (.n. at depth 0)
+    pub container_name: String,
     pub template: String,
     pub hp: Option<u16>,
-    pub sd: String,
+    pub sd: DiceFaces,
     pub sprite_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<char>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub item_modifiers: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sticker: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub toggle_flags: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw: Option<String>,
-}
-
-// -- Legendaries --
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Legendary {
-    pub pokemon: String,
-    pub summoning_item: String,
-    pub template: String,
-    pub hp: Option<u16>,
-    pub sd: String,
-    pub sprite_name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub color: Option<char>,
+    pub tier: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speech: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub abilitydata: Option<String>,
+    pub abilitydata: Option<AbilityData>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub item_modifiers: Option<String>,
+    pub item_modifiers: Option<ModifierChain>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw: Option<String>,
+    pub sticker: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toggle_flags: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub img_data: Option<String>,
+    #[serde(default, skip_serializing_if = "Source::is_base")]
+    pub source: Source,
 }
 
 // -- Monsters --
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Monster {
     pub name: String,
     pub base_template: String,
     pub floor_range: String,
     pub hp: Option<u16>,
-    pub sd: Option<String>,
+    pub sd: Option<DiceFaces>,
     pub sprite_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<char>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modifier_chain: Option<String>,
+    pub modifier_chain: Option<ModifierChain>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub balance: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw: Option<String>,
+    pub img_data: Option<String>,
+    #[serde(default, skip_serializing_if = "Source::is_base")]
+    pub source: Source,
 }
 
 // -- Bosses --
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// Boss format — how the encounter is encoded in the textmod.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+pub enum BossFormat {
+    /// Standard: `ch.omN.fight.(units+...)` or `ch.omN.fight.units+...`
+    #[default]
+    Standard,
+    /// Event: `ch.om(N.ph.s...narrative...fight content...)` — interactive boss event
+    /// with authored narrative text, selector options, and embedded fight data.
+    Event,
+    /// Encounter: `1.ph.bX;1;!m(N.fight....)`
+    Encounter,
+}
+
+/// A boss encounter definition. Can contain multiple fight variants
+/// (alternative boss fights for a floor — the game randomly selects one).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Boss {
+    /// Overall encounter name (e.g., "Floor8", "ZangooseQuagsireAriados")
     pub name: String,
+    /// Floor level
     pub level: Option<u8>,
+    #[serde(default)]
+    pub format: BossFormat,
+    /// Single letter after ph.b (X, Y, B, L) — Encounter format only
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub template: Option<String>,
+    pub encounter_id: Option<char>,
+    /// Fight variants — one or more alternative fights for this encounter
+    pub variants: Vec<BossFightVariant>,
+    /// Event body — authored narrative text for Event format bosses.
+    /// Contains dialog text, selector options, and embedded fight/game mechanics.
+    /// This is free-form game content (like speech or dialog body), not unparsed data.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hp: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sd: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sprite_name: Option<String>,
+    pub event_body: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modifier_chain: Option<String>,
+    pub modifier_chain: Option<ModifierChain>,
+    #[serde(default, skip_serializing_if = "Source::is_base")]
+    pub source: Source,
+}
+
+/// A single fight variant within a boss encounter.
+/// Multi-variant encounters define alternatives the game selects from.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct BossFightVariant {
+    /// Variant label (e.g., "Quagsire", "Exeggutor"). Empty for single-variant encounters.
+    pub name: String,
+    /// Game trigger suffix (e.g., "@4m4"). None for the last variant.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<String>,
+    /// Fight units in this variant
     pub fight_units: Vec<BossFightUnit>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub variant: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw: Option<String>,
 }
 
 /// A unit within a boss fight (parsed from +separated blocks inside .fight.(...))
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct BossFightUnit {
     pub template: String,
     pub name: String,
     pub hp: Option<u16>,
-    pub sd: Option<String>,
+    pub sd: Option<DiceFaces>,
     pub sprite_data: Option<String>,
+    /// Template override (the `.t.` property, e.g., "wisp", "Slate")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_override: Option<String>,
+    /// Documentation text
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc: Option<String>,
+    /// Item/equipment chain applied to this unit (.i./.k./.facade. sequences).
+    /// Can contain nested structures like eggs: `.i.all.mid.hat.(egg.(Slimelet...))`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modifier_chain: Option<ModifierChain>,
 }
 
 // -- Structural Modifiers --
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+fn is_false(b: &bool) -> bool { !*b }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct StructuralModifier {
     pub modifier_type: StructuralType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(default)]
     pub content: StructuralContent,
-    pub raw: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub derived: bool,
+    #[serde(default, skip_serializing_if = "Source::is_base")]
+    pub source: Source,
 }
 
 impl StructuralModifier {
-    /// Convenience constructor — fills name=None, content=Raw.
-    pub fn new_raw(modifier_type: StructuralType, raw: String) -> Self {
-        Self {
-            modifier_type,
-            name: None,
-            content: StructuralContent::Raw,
-            raw,
-        }
+    /// Convenience constructor — creates a structural modifier with the given body
+    /// stored in the appropriate content variant with empty summary fields.
+    pub fn new(modifier_type: StructuralType, body: String) -> Self {
+        let name = crate::util::extract_mn_name(&body);
+        let content = StructuralContent::from_body(&modifier_type, body);
+        Self { modifier_type, name, content, derived: false, source: Source::Base }
+    }
+
+    /// Get the body text of this structural modifier.
+    pub fn body(&self) -> &str {
+        self.content.body()
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum StructuralType {
     PartyConfig,
     EventModifier,
@@ -231,24 +709,114 @@ pub enum StructuralType {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+/// Structural modifier content. Each variant stores a `body` field containing the full
+/// modifier text for emission, plus typed summary fields for introspection/querying.
+///
+/// The `body` fields contain game modifier text — rich display text with [tag] formatting,
+/// game engine instructions, or structured content. These are NOT multi-property blobs:
+/// they are the authoritative content for each typed modifier category.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum StructuralContent {
-    HeroPoolBase { hero_refs: Vec<String> },
-    ItemPool { items: Vec<ItemPoolEntry> },
-    BossModifier { flags: Vec<String> },
-    PartyConfig { party_name: String, members: Vec<String> },
-    EventModifier { event_name: String },
-    Dialog { phase: String },
-    Selector { options: Vec<String> },
-    GenSelect { options: Vec<String> },
-    LevelUpAction { content: String },
-    PoolReplacement { hero_names: Vec<String> },
-    #[default]
-    Raw,
+    HeroPoolBase {
+        body: String,
+        hero_refs: Vec<String>,
+    },
+    ItemPool {
+        body: String,
+        items: Vec<ItemPoolEntry>,
+    },
+    BossModifier {
+        body: String,
+        flags: Vec<String>,
+    },
+    PartyConfig {
+        body: String,
+        party_name: String,
+        members: Vec<String>,
+    },
+    EventModifier {
+        body: String,
+        event_name: String,
+    },
+    Dialog {
+        body: String,
+        phase: String,
+    },
+    ArtCredits {
+        body: String,
+    },
+    Selector {
+        body: String,
+        options: Vec<String>,
+    },
+    GenSelect {
+        body: String,
+        options: Vec<String>,
+    },
+    Difficulty {
+        body: String,
+        options: Vec<String>,
+    },
+    LevelUpAction {
+        body: String,
+    },
+    PoolReplacement {
+        body: String,
+        hero_names: Vec<String>,
+    },
+    EndScreen {
+        body: String,
+    },
+    Unknown {
+        body: String,
+    },
+}
+
+impl StructuralContent {
+    /// Create a content variant for the given type with just a body string
+    /// and empty summary fields.
+    pub fn from_body(stype: &StructuralType, body: String) -> Self {
+        match stype {
+            StructuralType::HeroPoolBase => Self::HeroPoolBase { body, hero_refs: vec![] },
+            StructuralType::ItemPool => Self::ItemPool { body, items: vec![] },
+            StructuralType::BossModifier => Self::BossModifier { body, flags: vec![] },
+            StructuralType::PartyConfig => Self::PartyConfig { body, party_name: String::new(), members: vec![] },
+            StructuralType::EventModifier => Self::EventModifier { body, event_name: String::new() },
+            StructuralType::Dialog => Self::Dialog { body, phase: String::new() },
+            StructuralType::ArtCredits => Self::ArtCredits { body },
+            StructuralType::Selector => Self::Selector { body, options: vec![] },
+            StructuralType::GenSelect => Self::GenSelect { body, options: vec![] },
+            StructuralType::Difficulty => Self::Difficulty { body, options: vec![] },
+            StructuralType::LevelUpAction => Self::LevelUpAction { body },
+            StructuralType::PoolReplacement => Self::PoolReplacement { body, hero_names: vec![] },
+            StructuralType::EndScreen => Self::EndScreen { body },
+            StructuralType::Unknown => Self::Unknown { body },
+        }
+    }
+
+    /// Get the body text of this structural content.
+    pub fn body(&self) -> &str {
+        match self {
+            Self::HeroPoolBase { body, .. } => body,
+            Self::ItemPool { body, .. } => body,
+            Self::BossModifier { body, .. } => body,
+            Self::PartyConfig { body, .. } => body,
+            Self::EventModifier { body, .. } => body,
+            Self::Dialog { body, .. } => body,
+            Self::ArtCredits { body } => body,
+            Self::Selector { body, .. } => body,
+            Self::GenSelect { body, .. } => body,
+            Self::Difficulty { body, .. } => body,
+            Self::LevelUpAction { body } => body,
+            Self::PoolReplacement { body, .. } => body,
+            Self::EndScreen { body } => body,
+            Self::Unknown { body } => body,
+        }
+    }
 }
 
 /// An item entry within an ItemPool structural modifier
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ItemPoolEntry {
     pub name: String,
     pub tier: Option<i8>,

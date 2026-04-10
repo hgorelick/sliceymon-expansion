@@ -1,8 +1,9 @@
 pub mod hero_emitter;
 pub mod structural_emitter;
-pub mod capture_emitter;
+pub mod replica_item_emitter;
 pub mod monster_emitter;
 pub mod boss_emitter;
+pub mod derived;
 
 use std::collections::HashMap;
 
@@ -18,18 +19,7 @@ use crate::ir::{ModIR, StructuralType};
 ///
 /// Output format: one modifier per line, comma-terminated, with blank spacer lines.
 pub fn build(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
-    // If original modifier order is preserved (from extraction), emit in that order.
-    // This ensures the game sees modifiers in the exact same sequence as the original.
-    if let Some(ref originals) = ir.original_modifiers {
-        let output = originals.join(",\n\n");
-        return Ok(if output.is_empty() {
-            output
-        } else {
-            format!("{},", output)
-        });
-    }
-
-    // Otherwise, use type-based assembly for hand-authored or merged mods.
+    // Type-based assembly for all mods.
     let mut modifiers: Vec<String> = Vec::new();
 
     // 1. Party config
@@ -72,14 +62,9 @@ pub fn build(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<String, Co
         modifiers.push(structural_emitter::emit(s));
     }
 
-    // 9. Captures
-    for cap in &ir.captures {
-        modifiers.push(capture_emitter::emit_capture(cap)?);
-    }
-
-    // 10. Legendaries
-    for leg in &ir.legendaries {
-        modifiers.push(capture_emitter::emit_legendary(leg)?);
+    // 9. Replica items (captures, legendaries, etc.)
+    for item in &ir.replica_items {
+        modifiers.push(replica_item_emitter::emit(item)?);
     }
 
     // 11. Monsters
@@ -138,4 +123,25 @@ pub fn build(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<String, Co
     };
 
     Ok(output)
+}
+
+/// Build a complete textmod from an IR, auto-generating derived structurals
+/// (character selection, hero pool base) if not explicitly present.
+///
+/// Use this for programmatic IR creation where the IR may not have
+/// explicit structural modifiers. For round-trip builds from existing mods,
+/// use `build()` instead.
+pub fn build_complete(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
+    let mut ir = ir.clone();
+
+    if !ir.heroes.is_empty() {
+        if !ir.structural.iter().any(|s| s.modifier_type == StructuralType::Selector) {
+            ir.structural.push(derived::generate_char_selection(&ir.heroes));
+        }
+        if !ir.structural.iter().any(|s| s.modifier_type == StructuralType::HeroPoolBase) {
+            ir.structural.push(derived::generate_hero_pool_base(&ir.heroes));
+        }
+    }
+
+    build(&ir, sprites)
 }

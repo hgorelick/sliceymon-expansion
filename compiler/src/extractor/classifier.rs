@@ -8,8 +8,9 @@ pub enum ModifierType {
     HeroPoolBase,
     Monster,
     Boss,
-    Capture,
-    Legendary,
+    BossEncounter,
+    ReplicaItem,
+    ReplicaItemWithAbility,
     ItemPool,
     PartyConfig,
     EventModifier,
@@ -80,26 +81,27 @@ pub fn classify(modifier: &str, _modifier_index: usize) -> Result<ModifierType, 
     }
 
     // Monster: contains "monsterpool."
+    // Compound monster pools start with "(" and contain multiple +-separated entries
+    // inside outer parens — classify these as ItemPool (structural) since they're pools,
+    // not individual monsters. Simple monsters start with a floor range (digit).
     if contains_ci(modifier, "monsterpool.") {
+        if modifier.starts_with('(') {
+            // Compound monster pool — treat as structural ItemPool
+            return Ok(ModifierType::ItemPool);
+        }
         return Ok(ModifierType::Monster);
     }
 
-    // Boss: contains ".fight."
+    // BossEncounter: ph.b format with .fight. (NOT heropool — those are heroes)
+    if contains_ci(modifier, "ph.b") && contains_ci(modifier, ".fight.")
+        && !contains_ci(modifier, "heropool")
+    {
+        return Ok(ModifierType::BossEncounter);
+    }
+
+    // Boss: contains ".fight." (standard ch.om format)
     if contains_ci(modifier, ".fight.") {
         return Ok(ModifierType::Boss);
-    }
-
-    // Capture: starts with "itempool." AND contains "hat.replica"
-    if starts_with_ci(modifier, "itempool.") && contains_ci(modifier, "hat.replica") {
-        return Ok(ModifierType::Capture);
-    }
-
-    // Legendary: starts with "itempool." AND contains legendary patterns
-    if starts_with_ci(modifier, "itempool.")
-        && contains_ci(modifier, "hat.(replica")
-        && contains_ci(modifier, "cast.")
-    {
-        return Ok(ModifierType::Legendary);
     }
 
     // Compound hero item pools: ph.b[name];1;!mitempool.
@@ -108,6 +110,10 @@ pub fn classify(modifier: &str, _modifier_index: usize) -> Result<ModifierType, 
     }
 
     // ItemPool: starts with "itempool."
+    // This includes capture pools (hat.replica), legendary pools (hat.(replica + cast),
+    // and all other itempools. These are compound structures with #alternatives and
+    // +entries, handled as structural modifiers. Individual ReplicaItem IR types
+    // are for CRUD-created entries, not extracted from existing mods.
     if starts_with_ci(modifier, "itempool.") {
         return Ok(ModifierType::ItemPool);
     }

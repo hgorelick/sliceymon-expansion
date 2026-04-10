@@ -1,20 +1,22 @@
 use crate::error::CompilerError;
-use crate::ir::ModIR;
+use crate::ir::{ModIR, Source};
 
 /// Merge a base ModIR with an overlay ModIR.
 ///
 /// Merge rules:
 /// - Heroes: overlay heroes REPLACE base heroes with the same `internal_name`. New heroes ADDED.
 ///   Heroes with `removed: true` are filtered out.
-/// - Captures: match by `pokemon` name, replace or add.
-/// - Legendaries: match by `pokemon` name, replace or add.
+/// - ReplicaItems: match by `name`, replace or add.
 /// - Monsters: match by `name`, replace or add.
 /// - Bosses: match by `name`, replace or add.
 /// - Structural: overlay structural modifiers REPLACE base modifiers with matching
 ///   `(modifier_type, name)` pair. Unknown types are appended.
+///
+/// All overlay items are marked with `Source::Overlay`.
 pub fn merge(mut base: ModIR, overlay: ModIR) -> Result<ModIR, CompilerError> {
     // Heroes: replace by internal_name, add new, remove marked
-    for hero in overlay.heroes {
+    for mut hero in overlay.heroes {
+        hero.source = Source::Overlay;
         if let Some(pos) = base
             .heroes
             .iter()
@@ -28,30 +30,19 @@ pub fn merge(mut base: ModIR, overlay: ModIR) -> Result<ModIR, CompilerError> {
     // Filter removed heroes
     base.heroes.retain(|h| !h.removed);
 
-    // Captures: replace by pokemon name, add new
-    for cap in overlay.captures {
-        if let Some(pos) = base.captures.iter().position(|c| c.pokemon == cap.pokemon) {
-            base.captures[pos] = cap;
+    // Replica items: replace by name, add new
+    for mut item in overlay.replica_items {
+        item.source = Source::Overlay;
+        if let Some(pos) = base.replica_items.iter().position(|r| r.name == item.name) {
+            base.replica_items[pos] = item;
         } else {
-            base.captures.push(cap);
-        }
-    }
-
-    // Legendaries: replace by pokemon name, add new
-    for leg in overlay.legendaries {
-        if let Some(pos) = base
-            .legendaries
-            .iter()
-            .position(|l| l.pokemon == leg.pokemon)
-        {
-            base.legendaries[pos] = leg;
-        } else {
-            base.legendaries.push(leg);
+            base.replica_items.push(item);
         }
     }
 
     // Monsters: replace by name, add new
-    for mon in overlay.monsters {
+    for mut mon in overlay.monsters {
+        mon.source = Source::Overlay;
         if let Some(pos) = base.monsters.iter().position(|m| m.name == mon.name) {
             base.monsters[pos] = mon;
         } else {
@@ -60,7 +51,8 @@ pub fn merge(mut base: ModIR, overlay: ModIR) -> Result<ModIR, CompilerError> {
     }
 
     // Bosses: replace by name, add new
-    for boss in overlay.bosses {
+    for mut boss in overlay.bosses {
+        boss.source = Source::Overlay;
         if let Some(pos) = base.bosses.iter().position(|b| b.name == boss.name) {
             base.bosses[pos] = boss;
         } else {
@@ -69,7 +61,8 @@ pub fn merge(mut base: ModIR, overlay: ModIR) -> Result<ModIR, CompilerError> {
     }
 
     // Structural: replace by (modifier_type, name) pair, append Unknown
-    for s in overlay.structural {
+    for mut s in overlay.structural {
+        s.source = Source::Overlay;
         if s.modifier_type == crate::ir::StructuralType::Unknown {
             base.structural.push(s);
         } else if let Some(pos) = base
@@ -82,9 +75,6 @@ pub fn merge(mut base: ModIR, overlay: ModIR) -> Result<ModIR, CompilerError> {
             base.structural.push(s);
         }
     }
-
-    // Clear original_modifiers -- merged IR uses type-based assembly
-    base.original_modifiers = None;
 
     Ok(base)
 }
