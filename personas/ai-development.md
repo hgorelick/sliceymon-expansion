@@ -588,54 +588,77 @@ Task: [Action] [Component]
 
 ## Project-Specific Context
 
+### Vision
+
+The textmod compiler is the **backend foundation for a web/mobile mod-building app**. Users create heroes, captures, monsters, bosses from scratch via structured data (JSON). The compiler validates, assembles, and exports a pasteable textmod. The CLI is a first-class interface to the same library.
+
+**Every feature must be a library function first, CLI as thin wrapper.**
+
 ### Key Files for AI Context (Always Reference)
+
 | File | Purpose | When to Reference |
 |------|---------|-------------------|
-| `spec.md` | Product requirements | All feature tasks |
-| `context/specs/*.md` | Category-specific specs (books, future) | Category-specific work |
-| `backend/prisma/schema.prisma` | Database schema | All backend tasks |
-| `backend/src/schema/types/` | GraphQL patterns | New resolvers |
-| `backend/src/lib/` | External API clients & service orchestrators | Category data integration |
-| `mobile/src/graphql/operations.graphql` | GraphQL operations | Frontend tasks |
-| `mobile/src/hooks/` | Hook patterns | New hooks |
-| `context/architecture/` | Architecture decisions | System design |
-| `personas/` | Domain expertise | Specialized tasks |
-
-### Schema-First Development Workflow
-When writing code:
-1. **Read Prisma schema first**: `backend/prisma/schema.prisma`
-2. **Identify pattern file**: Find similar existing code
-3. **Check spec.md for business rules**: Score calculation, ranking flow, etc.
-4. **Generate code following pattern exactly**
-5. **Self-verify**: All fields exist, pattern matched, logic correct
+| `compiler/src/ir/mod.rs` | IR type definitions — the mod schema | All compiler tasks |
+| `compiler/src/builder/` | Emitters — field-based modifier construction | Build/emission tasks |
+| `compiler/src/extractor/` | Parsers — textmod → IR conversion | Extraction/parsing tasks |
+| `compiler/src/validator.rs` | Validation rules (structural + semantic) | Validation tasks |
+| `compiler/src/lib.rs` | Public API surface | API design tasks |
+| `compiler/src/util.rs` | Shared parsing utilities | Any parsing work |
+| `plans/FULL_ROSTER.md` | Authoritative Pokemon roster | All content tasks |
+| `plans/COMPILER_FIX_PLAN.md` | Current compiler fix plan | Compiler implementation |
+| `SLICEYMON_AUDIT.md` | Face IDs, templates, mod structure | Design validation |
+| `personas/slice-and-dice-design.md` | Game balance, dice design | Hero/monster/boss design |
 
 ### Project Stack Reference
+
 | Layer | Technology |
 |-------|------------|
-| Mobile | React Native + Expo |
-| Data | Apollo Client + GraphQL |
-| Backend | Fastify + GraphQL Yoga + Pothos |
-| Database | PostgreSQL (Docker Compose local, Railway prod) |
-| ORM | Prisma |
-| Auth | JWT |
-| External APIs | TMDB (movies/TV), Open Library (books, CC0), Google Books (book enrichment) |
+| Compiler | Rust (WASM-safe library + CLI) |
+| Serialization | serde + serde_json |
+| Schema | schemars (JSON Schema generation) |
+| CLI | clap |
+| Tooling | Node.js scripts (sprite encoding, legacy validation) |
+| Game | Slice & Dice (mobile roguelike by tann) |
+| Mod Format | Plain text, comma-separated modifiers, dot-property syntax |
 
-### Multi-Category Architecture
+### Compiler Architecture
 
-Ozzi is a **multi-category ranking platform**. Currently supports movies, TV shows, and books — designed to expand to more categories.
+The compiler has four layers:
 
-**Key architectural patterns:**
-- **Unified `MediaItem` model**: All categories share one Prisma model with nullable category-specific fields
-- **`sourceId` + `sourceType` deduplication**: The `(sourceId, sourceType)` unique constraint identifies items across external APIs
-- **Category-specific API clients**: Each category has its own client (e.g., `tmdb.ts`, `openLibrary.ts`, `googleBooks.ts`) in `backend/src/lib/`
-- **Service orchestrators**: Complex category logic (e.g., local-first search with API fallback) lives in service files (e.g., `bookService.ts`)
-- **Same ranking system**: All categories use the same tiered ranking and scoring system
+```
+1. Extractor (textmod string → IR)
+   - Splitter: comma-at-depth-0 splitting
+   - Classifier: modifier type detection (Hero, Capture, Monster, Boss, Structural)
+   - Type-specific parsers: hero_parser, capture_parser, monster_parser, boss_parser, structural_parser
+   - Output: ModIR with fully populated fields (NO raw passthrough)
 
-**When working on category-specific tasks:**
-1. Identify which category and external API(s) are involved
-2. Read the category-specific API client and service files
-3. Read the relevant category spec in `context/specs/` if it exists
-4. Ensure changes don't break other categories (nullable fields, enum additions — never removals)
+2. Builder (IR → textmod string)
+   - Type-specific emitters: hero_emitter, capture_emitter, monster_emitter, boss_emitter, structural_emitter
+   - Derived structural generator: auto-generates char selection, hero pools from IR content
+   - Assembly: orders modifiers by type (structural → heroes → items → captures → monsters → bosses)
+   - Output: pasteable textmod string
+
+3. Validator (IR or textmod string → findings)
+   - Structural validation: paren balance, face format, property order
+   - Semantic validation: face IDs per template, color uniqueness, Pokemon uniqueness across categories
+   - Context-aware validation: cross-references between types (hero pool refs, party configs)
+   - Output: structured findings with field paths, suggestions
+
+4. Operations (CRUD on IR)
+   - add/remove/update per type (hero, capture, monster, boss)
+   - Cross-category duplicate prevention
+   - Provenance tracking (base vs custom)
+   - Single-item build and validate
+```
+
+### IR-First Development Workflow
+
+When working on the compiler:
+1. **Read `ir/mod.rs` first**: The IR types ARE the mod schema. Everything flows from them.
+2. **Extraction must be complete**: Every field on the IR type must be populated during extraction. No raw fallback.
+3. **Emission must be faithful**: The emitter must reconstruct a valid modifier from fields alone. If extract(emit(extract(mod))) != extract(mod), the pipeline is broken.
+4. **Validate at every level**: Single-item validation (one hero), context validation (hero against IR), full-mod validation (complete textmod).
+5. **Library first, CLI second**: Every operation is a `pub fn` in `lib.rs`. The CLI calls library functions. No logic in `main.rs` except argument parsing.
 
 ### AI Workflow (One-Shot vs Chunked)
 
@@ -643,16 +666,16 @@ Ozzi is a **multi-category ranking platform**. Currently supports movies, TV sho
 graph TD
     Task[New Task] --> Assess{Task Size?}
 
-    Assess -->|Small| Context[Read All Context Files]
+    Assess -->|Small| Context[Read IR types + existing emitter/parser]
     Context --> Generate[Generate Complete Solution]
-    Generate --> Verify[Self-Verify Against Schema/Spec]
+    Generate --> Verify[Self-Verify: cargo test + round-trip]
     Verify -->|Pass| Complete[Mark Complete]
     Verify -->|Fail| Fix[Fix Issues]
     Fix --> Verify
 
     Assess -->|Medium/Large| Plan[Create Chunked Plan]
     Plan --> Chunk[Execute Current Chunk]
-    Chunk --> ChunkVerify[Verify Chunk]
+    Chunk --> ChunkVerify[Verify: cargo test + clippy]
     ChunkVerify -->|Fail| ChunkFix[Fix Chunk Issues]
     ChunkFix --> ChunkVerify
     ChunkVerify -->|Pass| CheckpointDue{Checkpoint Due?}
@@ -663,7 +686,7 @@ graph TD
     UserOK -->|Adjust| Revise[Revise Plan/Chunk]
     Revise --> Chunk
     MoreChunks -->|Yes| Chunk
-    MoreChunks -->|No| FinalVerify[Final Verification]
+    MoreChunks -->|No| FinalVerify[Round-trip all 4 mods]
     FinalVerify --> Complete
 ```
 
@@ -671,19 +694,18 @@ graph TD
 
 | Area | Guidance |
 |------|----------|
-| Pothos types | Always derive from Prisma models, read schema first |
-| GraphQL resolvers | Copy auth pattern from existing resolvers exactly |
-| TMDB integration (movies/TV) | Verify endpoints exist at developer.themoviedb.org |
-| Open Library integration (books) | Verify endpoints at openlibrary.org/developers/api; use `backend/src/lib/openLibrary.ts` client |
-| Google Books integration (books) | For enrichment only (descriptions, page counts); never display `averageRating` |
-| Book search | Local-first via Prisma, fallback to OL API — see `backend/src/lib/bookService.ts` |
-| Score calculations | Copy formula from spec.md verbatim — same formula for all categories |
-| React Native | Use Expo-compatible libraries only |
-| New operations | Add to operations.graphql first, then generate types |
-| sourceType usage | Always use correct `SourceType` enum value per category (never hardcode strings) |
-| Adding new categories | Follow the checklist in CLAUDE.md "Multi-Category Architecture" section |
-| Text search queries | Always add `mode: 'insensitive'` to `contains`/`startsWith`/`endsWith` — PostgreSQL is case-sensitive by default |
-| Local dev database | `docker compose up -d` before starting backend — PostgreSQL via Docker Compose (ADR-003) |
+| IR types | The IR IS the schema. Read `ir/mod.rs` before any compiler work. |
+| Emitters | Must reconstruct valid modifiers from fields only. No raw passthrough. |
+| Parsers | Must extract EVERY field. If a field exists on the IR type, it must be populated. |
+| Sprites | `.img.` data must be extracted into `img_data` field during parsing. Emitters use `img_data` directly. |
+| Structural modifiers | Follow the same dot-property syntax as all other types. NOT opaque blobs. |
+| Derived structurals | Character selection, hero pools are auto-generated from hero list — not hand-authored. |
+| Testing | Strict TDD: write failing test FIRST, then implement. Round-trip test is the ultimate verification. |
+| Validation | Must catch hand-authoring mistakes: wrong Face IDs for template, duplicate colors, duplicate Pokemon. |
+| Errors | Structured: error code + field path + human message + fix suggestion. Not flat strings. |
+| WASM safety | No `std::fs` or `std::process` in library code. Only in `main.rs`. |
+| Round-trip | `extract(build(extract(mod)))` must equal `extract(mod)` for ALL 4 working mods. |
+| Cargo | Use `~/.cargo/bin/cargo` (not bare `cargo`) — PATH may not include it. |
 
 ### Capturing Effective Prompts
 

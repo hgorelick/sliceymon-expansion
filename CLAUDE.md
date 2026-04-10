@@ -24,6 +24,18 @@
   - Simplifications made
   - Assumptions made
 
+## Verify Before Delegating (Non-Negotiable)
+
+Do NOT ask the user to answer questions you can resolve yourself by reading files in the repo. If the answer is in a source file, textmod, config, or test output — **read it and verify it yourself**. The user is not a lookup service.
+
+Specific anti-patterns:
+- Asking "do captures have `.img.` data?" when you can grep the textmod and see for yourself
+- Asking the user to confirm field usage when you can read the emitter/parser source code
+- Delegating verification to sub-agents without spot-checking their conclusions against actual files
+- Presenting "needs user input" items that are factual questions about the codebase, not design decisions
+
+**"Needs user input" is reserved for genuine design ambiguity — never for questions answerable by reading code.**
+
 ## Correctness Over Convenience (Non-Negotiable)
 
 Do NOT simplify, weaken, or replace a design, algorithm, or safety mechanism for reasons of convenience, speed, perceived complexity, or effort.

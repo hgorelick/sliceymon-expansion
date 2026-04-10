@@ -128,29 +128,29 @@ Study the existing Sliceymon bosses as templates for new designs:
 
 ### Textmod Architecture
 
-**Line structure**: 153 lines total. Even lines are blank spacers. All data on odd lines. Each line is a self-contained modifier definition.
+**Modifier format**: A textmod is a comma-separated list of modifiers. Each modifier is a self-contained definition using dot-property syntax. The game parses each modifier independently.
 
-**Key line ranges**:
-- Lines 13-99: Hero definitions (heropool lines)
-- Lines 101-109: Items, eggs, hidden triggers
-- Lines 111-117: Capture system (ball items, legendary summons)
-- Lines 119-129: Monster pools by floor range
-- Lines 131-149: Boss definitions and modifiers
-- Line 151: Difficulty selection
-- Line 153: End screen
+**Modifier types** (all follow the same dot-property syntax):
+- **Hero**: `hidden&temporary&ph.b{name};1;!mheropool.(replica.TEMPLATE...)+(...).mn.NAME@2!m(skip&hidden&temporary)`
+- **Capture**: `itempool.((hat.replica.TEMPLATE...)).n.BALL_NAME.mn.POKEMON`
+- **Legendary**: `itempool.((hat.(replica.TEMPLATE...cast.abilitydata...))).n.ITEM.mn.POKEMON`
+- **Monster**: `FLOOR_RANGE.monsterpool.(replica.TEMPLATE...).mn.NAME`
+- **Boss**: `ch.omN.fight.(replica.TEMPLATE...+replica.TEMPLATE...).mn.NAME`
+- **Structural**: Various (selectors, dialogs, item pools, party config, difficulty)
 
-**Appending vs replacing**: Use `.part.1` suffix to append to an existing pool without replacing it. This is the standard way to add new monsters to floor pools.
+**Compiler IR**: The Rust textmod compiler (`compiler/`) parses textmods into structured IR (JSON-serializable). The IR is the authoritative schema for mod content. Heroes, captures, monsters, bosses, and structural modifiers are all represented as typed structs with named fields. The compiler builds valid textmod strings from IR — no raw passthrough.
 
-**Property encoding**:
-```
-heropool.(replica.TEMPLATE.img.IMAGEDATA.col.COLOR.hp.N.sd.FID-P:FID-P:FID-P:FID-P:FID-P:FID-P).n.NAME
-```
+**Key design patterns**:
+- **Derived structural modifiers**: Character selection, hero pools, and pool replacements are auto-generated from the hero list — not hand-authored
+- **`.part.1` appending**: Adds to existing pools without replacing. Standard for new monsters, captures
+- **Template inheritance**: `replica.TEMPLATE` provides base config; `.hp.`, `.sd.`, `.col.`, `.img.` override
+- **Tier separators**: `+` at depth 0 separates evolution tiers within a hero
 
-**Facade system**: `.facade.` defines alternate dice configurations within a hero — used for form changes, stance switching, and evolution variants. Multiple facades on one hero create the branching T3 system (e.g., Eevee → 8 Eeveelutions).
-
-**triggerhpdata**: Triggers form changes or effects at specific HP thresholds — used for phase-transition bosses and heroes with HP-reactive mechanics (e.g., Slugma's self-shield).
-
-**abilitydata**: Defines spells attached to a hero. Spells cost mana and provide powerful effects beyond what dice faces alone can deliver.
+**Property systems**:
+- **`.facade.`**: Alternate dice configurations — form changes, stance switching, evolution variants
+- **`.triggerhpdata.`**: Effects at HP thresholds — phase-transition bosses, HP-reactive heroes
+- **`.abilitydata.`**: Spells with mana cost, keyword effects, and custom face sets
+- **`.modifier_chain`**: `.i.`/`.k.` sequences for keywords, stickers, and behavior modifiers
 
 ## Pokemon → Slice & Dice Translation Protocol
 
@@ -296,13 +296,20 @@ Before considering any hero, monster, or boss design complete:
 
 | File | Purpose | When to Reference |
 |------|---------|-------------------|
-| `SLICEYMON_AUDIT.md` | Complete mod state: all 44 heroes, monsters, captures, bosses, Face ID table, templates, balance guidelines | ALWAYS — this is the source of truth for current mod state |
-| `plans/EXPANSION_PLAN.md` | Detailed expansion roadmap: 21 new heroes, capture changes, monster additions, boss designs | When implementing new content or checking what's planned |
-| `textmod.txt` | The actual mod file (415KB, 153 lines, base64-encoded sprites) | When making direct edits to the mod |
+| `SLICEYMON_AUDIT.md` | Face ID tables, template defaults, property codes | Face ID validation, template selection |
+| `plans/FULL_ROSTER.md` | Authoritative Pokemon roster (heroes, monsters, bosses, captures) | All content decisions — prevents duplicates, confirms assignments |
+| `plans/COMPILER_FIX_PLAN.md` | Compiler architecture and fix plan | Compiler implementation work |
+| `compiler/src/ir/mod.rs` | IR type definitions — the mod schema | Understanding what fields exist per type |
+| `plans/hero_designs_batch{1,2,3}.md` | Hero dice stat designs | Hero implementation |
+| `plans/monster_boss_designs.md` | Monster + boss fight designs | Monster/boss implementation |
+| `plans/OVERHAUL_PLAN.md` | Capture dice designs, spell reference | Capture/spell implementation |
+| `textmod.txt` | Original unmodified Sliceymon mod | Format reference, baseline comparison |
+| `tools/sprite_encodings.json` | Sprite data for all Pokemon | Writing `.img.` fields |
 
 ## When to Defer
 
-- **Pixel art creation**: Source sprites from pmdcollab.org, encode at tann.fun/things/dice-img — this is a manual/creative task, not a design task
+- **Pixel art creation**: Source sprites from pmdcollab.org, encode with `node tools/encode_sprite.js` — this is a manual/creative task, not a design task
 - **User's Pokemon selections**: The user chooses which Pokemon to add. You provide role, color, and dice design guidance based on their choices. Do NOT unilaterally pick Pokemon.
 - **Subjective flavor preferences**: If the user wants Tyranitar to be a healer for thematic reasons, discuss the trade-offs but ultimately respect their vision
+- **Compiler architecture**: Defer to the AI Development persona for compiler design, IR schema changes, and pipeline architecture
 - **AI development workflow**: Defer to the AI Development persona for task structuring, chunked plans, and prompt engineering
