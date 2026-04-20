@@ -855,7 +855,7 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 | `ir/mod.rs` | 2 (new types), 3 (StructuralContent variants, AbilityData), 4 (ChainSegment migration), 8 (Boss migration) | Four modification rounds -- each must leave cargo test passing |
 | `ir/ops.rs` | 3 (structural CRUD), 8 (boss CRUD field renames) | Test helpers construct Boss/FightUnit |
 | `ir/merge.rs` | 3 (new StructuralType merge), 8 (boss field renames) | Merge logic for structural + boss types |
-| `error.rs` | 3 (add PhaseParseError, ChainParseError, RewardParseError) | One-time addition |
+| `error.rs` | 3 (add ErrorKind::PhaseParse, ErrorKind::ChainParse, ErrorKind::RewardParse) | One-time addition |
 | `extractor/mod.rs` | 3 (dispatch stubs), 4 (chain_parser module), 5 (level_scope_parser module), 6 (phase_parser module), 7 (reward_parser module), 8 (fight_parser module) | Module declarations + dispatch arms |
 | `extractor/classifier.rs` | 3 (new ModifierType variant stubs -- classify() never produces them), 7 (real classification patterns) | Chunk 3 adds enum variants with stub detection. Chunk 7 adds real detection patterns. Classification order is sensitive. |
 | `extractor/structural_parser.rs` | 3 (stub arms for new variants), 7 (typed parsing for choosable/value/phase) | Chunk 3 stubs; Chunk 7 replaces stubs with real parsing |
@@ -1015,7 +1015,7 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 - `compiler/src/ir/mod.rs` (MODIFY -- add StructuralContent/StructuralType variants, add ability_type to AbilityData)
 - `compiler/src/ir/merge.rs` (MODIFY -- handle new StructuralType variants in merge logic)
 - `compiler/src/ir/ops.rs` (MODIFY -- handle new structural types in CRUD)
-- `compiler/src/error.rs` (MODIFY -- add ChainParseError, PhaseParseError, RewardParseError variants)
+- `compiler/src/error.rs` (MODIFY -- add ErrorKind::ChainParse, ErrorKind::PhaseParse, ErrorKind::RewardParse variants)
 - `compiler/src/extractor/structural_parser.rs` (MODIFY -- add stub parse arms for new StructuralContent variants)
 - `compiler/src/builder/structural_emitter.rs` (MODIFY -- emit new StructuralContent variants via body.clone())
 - `compiler/src/builder/mod.rs` (MODIFY -- add emission loops for new StructuralType variants; without this, new types are silently dropped from output)
@@ -1029,7 +1029,7 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 - New `StructuralType` entries: `PhaseModifier`, `Choosable`, `ValueModifier`, `HiddenModifier`, `FightModifier` to match.
 - `StructuralContent::body()` and `StructuralContent::from_body()` exhaustive match arms must be updated for new variants.
 - `AbilityData`: add `#[serde(skip_serializing_if = "Option::is_none")] pub ability_type: Option<AbilityType>` -- existing parse/emit functions unchanged (ability_type is derived later by validator).
-- New `CompilerError` variants: `ChainParseError`, `PhaseParseError`, `RewardParseError` -- each with structured fields (content, position, expected, found). These are added now so later chunks can use them without modifying `error.rs`.
+- New `CompilerError` variants: `ErrorKind::ChainParse`, `ErrorKind::PhaseParse`, `ErrorKind::RewardParse` -- each with structured fields (content, position, expected, found). These are added now so later chunks can use them without modifying `error.rs`.
 - Classifier stubs: new `ModifierType` variants compile but classify() never produces them. The new `ModifierType` variants simply have no matching pattern in classify() until Chunk 7 adds real patterns.
 - `builder/mod.rs` MUST add emission loops (`.filter()` blocks) for every new `StructuralType` variant, or those modifiers will be silently dropped from output.
 - This chunk does NOT touch `ChainSegment`, `SegmentKind`, or `ModifierChain`. Those are handled atomically in Chunk 4.
@@ -1043,7 +1043,7 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 - `test_existing_classifier_not_regressed` -- classify all modifiers from 4 test mods, verify identical results to pre-migration baseline
 - `test_structural_emitter_new_variants` -- each new StructuralContent variant emits its body correctly
 - `test_new_structural_types_emitted_not_dropped` -- verifies `builder/mod.rs` includes new types in emission output
-- `test_new_error_variants_display` -- `CompilerError::ChainParseError`, `PhaseParseError`, `RewardParseError` produce descriptive Display output
+- `test_new_error_variants_display` -- `ErrorKind::ChainParse`, `ErrorKind::PhaseParse`, `ErrorKind::RewardParse` produce descriptive Display output
 
 **If Blocked**: Focus on the StructuralContent additions first. The classifier stub variants can have the detect functions added but classify() can initially never produce them (real detection patterns are added in Chunk 7). The new ModifierType variants simply have no matching pattern in classify() until Chunk 7.
 
@@ -1102,7 +1102,7 @@ Files touched by multiple chunks. Implementers must coordinate on these:
   - Detect `Memory` -> `ChainEntry::Memory`
   - Detect side positions as prefixes on any entry
   - Detect entity references: `r<type>.<hex_hash>[.part.<n>][.m.<n>]`
-  - Unrecognized entries: return `CompilerError::ChainParseError` with the entry content
+  - Unrecognized entries: return `ErrorKind::ChainParse` with the entry content
 - Emit `Vec<ChainEntry>` back to `#`-delimited content string
 - Handle nested parenthesized content: `(left.hat.Ace)#(togres)#(Memory)`
 
@@ -1124,7 +1124,7 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 - `test_parse_entity_ref_modifier` -- `"rmod.1270"` -> `ChainEntry::EntityRef { kind: RefKind::Modifier, hash: "1270", part: None, multiplier: None }`
 - `test_parse_entity_ref_monster` -- `"rmon.8"` -> `ChainEntry::EntityRef { kind: RefKind::Monster, hash: "8", part: None, multiplier: None }`
 - `test_parse_entity_ref_with_multiplier` -- `"ritemx.22c42be4.part.0.m.2"` -> `ChainEntry::EntityRef { kind: RefKind::Item, hash: "22c42be4", part: Some(0), multiplier: Some(2) }`
-- `test_parse_truly_unknown_errors` -- fabricated nonsense `"zzz_invalid_xyz"` -> returns `CompilerError::ChainParseError` with content
+- `test_parse_truly_unknown_errors` -- fabricated nonsense `"zzz_invalid_xyz"` -> returns `ErrorKind::ChainParse` with content
 - `test_parse_hash_delimited_chain` -- `"k.scared#facade.bas170:55"` -> 2 typed entries
 - `test_roundtrip_chains_from_test_mods` -- extract all chains from 4 test mods, parse entries, emit, compare
 - `test_all_chain_entries_typed_across_test_mods` -- extract ALL chain segments from all 4 test mods, parse every `#`-delimited entry, assert zero `CompilerError` results. **This test MUST run and pass before the no-Raw constraint is considered proven.** If any entry from a real mod fails to parse, add a new `ChainEntry` variant for the pattern rather than introducing a Raw fallback. This is the critical gatekeeping test for the no-Raw design.
@@ -1227,11 +1227,11 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 - `compiler/src/extractor/phase_parser.rs` (NEW)
 - `compiler/src/extractor/mod.rs` (MODIFY -- add `pub mod phase_parser;`)
 
-**Dependencies**: Chunks 2, 3, 5 (LevelScope parser from Chunk 5; PhaseParseError from Chunk 3)
+**Dependencies**: Chunks 2, 3, 5 (LevelScope parser from Chunk 5; ErrorKind::PhaseParse from Chunk 3)
 **Note**: NOT parallel with Chunk 5 -- hard dependency on LevelScope parser. Chunk 4 may still be running when this starts.
 
 **Constraints**:
-- Enforce bounded recursion: track depth, return `CompilerError::PhaseParseError` at `MAX_PHASE_DEPTH` (10) with a message indicating the nesting limit was exceeded
+- Enforce bounded recursion: track depth, return `ErrorKind::PhaseParse` at `MAX_PHASE_DEPTH` (10) with a message indicating the nesting limit was exceeded
 - No silent fallbacks -- if a phase cannot be parsed, return a structured `CompilerError` with the phase type, position, and what was expected vs. found
 - No `unwrap()` -- all parsing returns `Result`
 
@@ -1259,7 +1259,7 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 - Parse `phi.N` and `phmp.+-` shorthand forms
 - Parse level scope prefix on phases: `N.ph.X`, `N-M.ph.X`, `eN.ph.X`
 - Handle recursive phase nesting (LinkedPhase, BooleanPhase, SeqPhase all contain sub-phases)
-- Return `CompilerError::PhaseParseError` when content can't be parsed -- include the phase type code, the raw content, and a description of what was expected
+- Return `ErrorKind::PhaseParse` when content can't be parsed -- include the phase type code, the raw content, and a description of what was expected
 
 **TDD -- Specific Test Cases**:
 - `test_parse_message_phase` -- `"ph.4Hello World"` -> `PhaseContent::Message { text: RichText("Hello World"), button_text: None }`
@@ -1271,9 +1271,9 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 - `test_parse_run_end` -- `"ph.e"` -> PhaseContent::RunEnd
 - `test_parse_reset` -- `"ph.6"` -> PhaseContent::Reset
 - `test_parse_position_swap` -- `"ph.813"` -> PositionSwap { first: 1, second: 3 }
-- `test_parse_unknown_phase_code_errors` -- `"ph.qsomething"` -> returns `CompilerError::PhaseParseError` with unrecognized code 'q'
+- `test_parse_unknown_phase_code_errors` -- `"ph.qsomething"` -> returns `ErrorKind::PhaseParse` with unrecognized code 'q'
 - `test_parse_with_level_scope` -- `"5.ph.4Hello"` -> Phase with level_scope Some(LevelScope { start: 5, .. })
-- `test_parse_deeply_nested_errors` -- 11 levels of nesting -> returns `CompilerError::PhaseParseError` with depth limit message
+- `test_parse_deeply_nested_errors` -- 11 levels of nesting -> returns `ErrorKind::PhaseParse` with depth limit message
 - `test_parse_malformed_content_errors` -- malformed phase content returns `CompilerError` with expected vs. found description
 - `test_phase_roundtrip_emit_parse` -- for each phase type, emit then re-parse, compare
 
@@ -1444,7 +1444,7 @@ Full blast radius: ir/mod.rs, boss_parser, boss_emitter, ir/merge.rs, ir/ops.rs,
 - `test_boss_standard_roundtrip` -- existing standard boss tests pass with new types
 - `test_boss_encounter_roundtrip` -- existing encounter boss tests pass with new types
 - `test_boss_event_phases_parsed` -- event boss `ch.om(...)` has event_phases populated (not just raw string)
-- `test_boss_event_parse_error` -- malformed event content returns `CompilerError::PhaseParseError` (not silent fallback)
+- `test_boss_event_parse_error` -- malformed event content returns `ErrorKind::PhaseParse` (not silent fallback)
 - `test_entity_wrapper_orb` -- `"orb.sSlimelet"` -> `EntityWrapper::Orb { entity: "Slimelet" }`
 - `test_entity_wrapper_egg` -- `"egg.Zombie"` -> `EntityWrapper::Egg { entity: "Zombie" }`
 - `test_fight_from_phase_context` -- `"!m(4.fight.bones+zombie)"` parses fight correctly
