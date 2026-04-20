@@ -1,0 +1,10 @@
+phase: complete
+heroes.count: 48 -> 48
+heroes.equal: true
+replica_items.count: 0 -> 0
+replica_items.equal: true
+monsters.count: 0 -> 0
+monsters.equal: true
+bosses.count: 14 -> 14
+bosses.equal: false
+roundtrip.equal: false
