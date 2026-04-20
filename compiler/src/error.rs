@@ -2,7 +2,10 @@ use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct CompilerError {
-    pub kind: ErrorKind,
+    // Boxed to keep `Result<T, CompilerError>` small (clippy::result_large_err).
+    // The largest `ErrorKind` variants carry up to six String/Option fields; inlining
+    // them bloats every Err slot to ~176 bytes even on success paths.
+    pub kind: Box<ErrorKind>,
     pub field_path: Option<String>,
     pub suggestion: Option<String>,
     pub context: Option<String>,
@@ -92,7 +95,7 @@ pub enum ErrorKind {
 impl CompilerError {
     pub fn new(kind: ErrorKind) -> Self {
         Self {
-            kind,
+            kind: Box::new(kind),
             field_path: None,
             suggestion: None,
             context: None,
@@ -279,7 +282,7 @@ impl CompilerError {
 
 impl fmt::Display for CompilerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.kind {
+        match self.kind.as_ref() {
             ErrorKind::Split { raw_position, message } => {
                 write!(f, "SplitError at position {}: {}", raw_position, message)?;
             }

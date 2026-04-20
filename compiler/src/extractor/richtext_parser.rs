@@ -79,9 +79,12 @@ mod tests {
         let result = parse_richtext("[orangehello");
         assert!(result.is_err());
         match result {
-            Err(CompilerError { kind: crate::error::ErrorKind::PhaseParse { expected, .. }, .. }) => {
-                assert_eq!(expected, "balanced brackets");
-            }
+            Err(err) => match err.kind.as_ref() {
+                crate::error::ErrorKind::PhaseParse { expected, .. } => {
+                    assert_eq!(expected, "balanced brackets");
+                }
+                _ => panic!("expected PhaseParse error"),
+            },
             _ => panic!("expected PhaseParse error"),
         }
 

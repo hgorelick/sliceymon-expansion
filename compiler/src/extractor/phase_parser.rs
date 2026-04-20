@@ -502,8 +502,12 @@ mod tests {
     fn test_parse_unknown_phase_code_errors() {
         let result = parse_phase("ph.qsomething");
         assert!(result.is_err());
-        if let Err(CompilerError { kind: crate::error::ErrorKind::PhaseParse { phase_code, .. }, .. }) = result {
-            assert_eq!(phase_code, Some('q'));
+        if let Err(err) = result {
+            if let crate::error::ErrorKind::PhaseParse { phase_code, .. } = err.kind.as_ref() {
+                assert_eq!(*phase_code, Some('q'));
+            } else {
+                panic!("Expected PhaseParse kind, got {:?}", err.kind);
+            }
         }
     }
 
