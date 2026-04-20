@@ -1,6 +1,6 @@
 # Pipeline Fidelity Plan
 
-> **Target:** compiler rebuild produces **structurally correct** textmods for all 4 known-working mods (sliceymon, pansaer, punpuns, community). Byte-identity is only required where Thunder's guide implies a form carries meaning; otherwise normalization is acceptable. Covers the full extract→build pipeline: heroes, bosses, monsters, items, selectors, phases, entity-refs, and structural modifiers.
+> **Target:** `extract(build(extract(mod))) == extract(mod)` as **semantic IR equality** (SPEC §3.1) for all 4 known-working mods (sliceymon, pansaer, punpuns, community). Byte-level comparison (`drift_audit`) is a supporting canary, not a co-equal gate — it catches byte regressions that also happen to be semantic, but the contract is IR equality. Covers the full extract→build pipeline: heroes, bosses, monsters, items, selectors, phases, entity-refs, and structural modifiers.
 
 ## Context & trigger
 
@@ -14,10 +14,11 @@ Audit across all 4 mods confirms widespread hero-pipeline drift (not limited to 
 
 ## Correctness bar
 
-Thunder's guide is the source of truth.
+Per SPEC §3.1, the contract is **semantic IR equality**: `extract(build(extract(mod))) == extract(mod)`. Per SPEC §2, Thunder's guide is the authoritative format spec — when parser, emitter, and guide disagree, the guide wins.
 
-- **Must preserve** any shape the guide describes as semantically meaningful.
-- **May normalize** shapes the guide shows in multiple equivalent forms without claiming one is required.
+- **Must preserve** any shape the guide describes as semantically meaningful → represent as a typed IR field with a semantic (not presentation) name.
+- **May normalize** shapes the guide shows in multiple equivalent forms → IR collapses to one canonical shape; emitter picks it deterministically.
+- **Must not** encode source text presentation as IR state (no `has_explicit_n`, `hidden_placement: BeforeClose|AfterClose`, `outer_wrap_depth`, etc.) unless a guide lookup confirms the distinction is semantic. "Preserve verbatim" is not a substitute for understanding what the shape means.
 
 Specific guide evidence already gathered:
 
@@ -53,13 +54,13 @@ Drift classes are enumerated A–R. Each class appears only once in the legend b
 | K | `heropool` with `+`-separated mixed list (bare vanilla names, `(replica...)` blocks, and multi-tier `+`-joined bodies, some with embedded newlines) collapsed to a single replica block | Structural — data corruption | Phase 1.5 |
 | L | `itempool` `(ritemx.ID.part.N)#(rmod.ID.part.N)#...` entity-ref groups replaced with fabricated replica content | Structural — data corruption | Phase 1.6 |
 | M | Leading whitespace / newlines between `+` tier separators | Cosmetic | Normalize |
-| O | Boss `.mn.NAME&hidden)` vs `.mn.NAME)&hidden` suffix placement | Structural — suffix placement must be preserved | Phase 1.8 |
+| O | Boss `.mn.NAME&hidden)` vs `.mn.NAME)&hidden` suffix placement | **Unresolved** — presentation vs semantic is not yet confirmed against the guide | Phase 1.8 (guide lookup first) |
 | P | Hero body content replaced by inheritance-target fabrication (parser substitutes a template's body for the source's authored body) | Structural — data corruption | Phase 1.10 |
 | Q | `v`-prefixed boss-ref list in selectors (`Number#1;vX@3vY@3...`) replaced with a different set of boss refs | Structural — data corruption | Phase 1.11 |
 | R | Inner-block `.n.DisplayName` (`.n.Punch`, `.n.Flux`, `.n.Wilding`, etc. *inside* a `(replica.Template...)` block) dropped | Structural — data loss | Phase 1.9 |
 | S | Selector inline modifier-kind rewrite: `!m(add.(dabble...))` → `!m(party.(dabble...))` (sliceymon Warning selector; the `add`/`party`/`skip` inline verb inside a selector's `!m(...)` clause is being replaced) | Structural — data corruption | Phase 1.12 |
-| T | Fight-unit auto-injection of `.n.TemplateName` into bare tier entries: source `fight.alpha+wolf` → rebuild `fight.alpha.n.alpha+wolf.n.wolf`; source `fight.Slimelet+Rat.n.Venus` → rebuild `fight.Slimelet.n.Slimelet+Rat.n.Venus`. Parser normalizes every fight-unit entry to carry an explicit `.n.`, synthesizing one when absent | Structural — content fabrication (sometimes semantically equivalent, sometimes not; the game treats bare `alpha` and `alpha.n.alpha` differently in some cases — verify per entry) | Phase 1.13 |
-| U | Boss `.ph.` prefix + outer wrapper rewrite: source `((0.ph.bAlpha;1;!m(...)&Hidden)@2!mskip&Hidden)&Hidden).mn.Alpha` → rebuild `1.ph.bA;1;!m(...&hidden).mn.Alpha@2!m(skip&hidden&temporary)` — (a) `.ph.bAlpha` truncated to `.ph.bA`, (b) leading phase index `0` changed to `1`, (c) doubly-wrapped `(( ... )&Hidden)&Hidden)` collapsed to a single flat form, (d) `@N!m` suffix re-parenthesized | Structural — data corruption | Phase 1.14 |
+| T | Fight-unit auto-injection of `.n.TemplateName` into bare tier entries: source `fight.alpha+wolf` → rebuild `fight.alpha.n.alpha+wolf.n.wolf`; source `fight.Slimelet+Rat.n.Venus` → rebuild `fight.Slimelet.n.Slimelet+Rat.n.Venus`. Parser normalizes every fight-unit entry to carry an explicit `.n.`, synthesizing one when absent | **Unresolved** — semantic status unclear: bare vs `.n.TemplateName` may be equivalent, may override a template inner name, may trigger a template lookup. Guide lookup required before IR shape | Phase 1.13 (guide lookup first) |
+| U | Boss `.ph.` prefix + outer wrapper rewrite: source `((0.ph.bAlpha;1;!m(...)&Hidden)@2!mskip&Hidden)&Hidden).mn.Alpha` → rebuild `1.ph.bA;1;!m(...&hidden).mn.Alpha@2!m(skip&hidden&temporary)` — (a) `.ph.bAlpha` truncated to `.ph.bA` (**unambiguous data loss**), (b) leading phase index `0` changed to `1` (**unambiguous data corruption**), (c) doubly-wrapped `(( ... )&Hidden)&Hidden)` collapsed (**presentation vs semantic — guide lookup required**), (d) `@N!m` suffix re-parenthesized (**presentation vs semantic — guide lookup required**) | Mixed: (a)(b) data corruption; (c)(d) unresolved | Phase 1.14 (split: name/index fix, wrapper/suffix guide lookup first) |
 | V | Monsterpool template form: source `monsterpool.(rmon.ded.bal.boar).hp.4.n.Soldier.sd....` and `monsterpool.(Saber.bal.rat).hp.2.sd....` → rebuild `monsterpool.(replica.rmon.n.Forest Soldier)` / `(replica.Saber.n.Forest Worker Ant)` with body content stripped or reordered. Bare-template / entity-ref monsterpool entries forced into replica form, inheriting the outer `.mn.` as the inner `.n.` | Structural — data corruption (monster-scope variant of classes J, K, P) | Phase 1.15 |
 | W | Suffix-group loss around `@N` transitions in boss fight-unit chains: source `...facade.bas242:20&Hidden@4m4.fight.Dragon...` → rebuild `...facade.Eme66:0.i@4m4.fight.Dragon...` — the `&Hidden` suffix before the `@4` transition is dropped (pansaer "Boss Fight 01") | Structural — data loss | Phase 1.16 |
 | X | Multi-line phase content dropped: source `ch.om4.ph.tivoid.n.Diary Page.doc.\nYour Group Notice...\n.img.pape` → rebuild omits the modifier entirely (6/6 community phase modifiers unmatched) | Structural — data loss | Phase 1.17 |
@@ -131,6 +132,50 @@ Kind breakdown: heropool 50/54 unmatched, boss 3 drifted + 6 unmatched, entity-r
 
 ## Fix plan
 
+### Phase 0 — SPEC-invariant gaps surfaced by the 2026-04-20 audit
+
+These are violations of SPEC §3–§5/§8 that exist independently of the A–Y drift classes. They are prerequisites: every Phase 1 change lands on top of a pipeline that already satisfies them. None may be deferred to a follow-up.
+
+0.1 **Self-contained IR — remove external sprite map (SPEC §3.3, BLOCKING).** Today `build(ir: &ModIR, sprites: &HashMap<String, String>)` (`compiler/src/lib.rs:23`, `compiler/src/builder/mod.rs:25`) requires an external sprite table. SPEC §3.3 forbids this: every type that references a sprite must own its `img_data`. Path B (author-from-scratch) is structurally impossible while the builder needs an ambient map. Fix:
+
+- Drop the `sprites` parameter from `build`, `build_with`, `build_complete`, and every internal emitter signature.
+- `img_data` moves from `Option<String>` to `String` on every type that can carry a sprite (`Hero`/`HeroBlock`, `ReplicaItem`, `Monster`, `Boss` fight units, `AbilityData`, `TriggerHpDef`). Absent = empty string is not acceptable; the extractor must populate it from the source, and the authoring layer must populate it via the typed sprite registry (see 0.6 and the authoring plan).
+- Merge and CRUD must carry `img_data` through; no callsite may "fill it in later."
+
+0.2 **`build_with` + `BuildOptions { include: SourceFilter }` (SPEC §5 #4, HIGH).** `Source::{Base, Custom, Overlay}` is stamped by the extractor and `merge` but consumed nowhere — SPEC §5 #4 says an unused provenance field is a schema bug. Fix:
+
+- Introduce `pub struct BuildOptions { include: SourceFilter }` and `pub enum SourceFilter { All, Only(BitFlags<Source>), Exclude(BitFlags<Source>) }` (exact shape per the implementation; the contract is filter-by-provenance).
+- `build_with(ir, opts)` filters every content emission by `opts.include`. `build(ir)` is `build_with(ir, &BuildOptions::default())` where the default is `All`.
+- `xref` scopes findings by source: a rule violation on `Source::Base` is a warning about the source mod; `Source::Custom` / `Source::Overlay` is an author error. Add `source: Source` to `Finding` if not already present, populate it during xref, and use it in severity promotion.
+
+0.3 **Path C merge: strip derived structurals, regenerate on build (SPEC §4, HIGH).** `compiler/src/ir/merge.rs` (lines 1–78) copies all structural modifiers including derived ones (Character Selection, HeroPoolBase, PoolReplacement, hero-bound ItemPool) — see SPEC §4 derived-structural table. This causes silent semantic drift when overlays touch heroes. Fix:
+
+- `merge` must reject (or strip, with a warning) any derived structural it encounters on either base or overlay. SPEC says `build`/`xref` "reject it with a `CompilerError`" for user-authored derived structurals; the merge path must not smuggle them through.
+- `build` regenerates derived structurals from content after merge, unconditionally — independent of what either input carried.
+- Add a Path C integration test: `base + overlay` where overlay adds a hero; the rebuilt character selection / hero pools reflect the merged content, not base's snapshot.
+
+0.4 **`ReplicaItem` kind discriminator (SPEC §3.6, §5 glossary, MEDIUM).** `ReplicaItem` at `ir/mod.rs:566–590` is one struct with no Capture/Legendary discriminator, conflating two semantically distinct kinds (SPEC §5 glossary explicitly names them as kinds of the same type). Fix:
+
+- Add `pub kind: ReplicaItemKind` where `ReplicaItemKind::{Capture, Legendary}` is a typed enum (not a boolean, not a string).
+- Extractor classifies from source shape; builder dispatches emission on `kind`.
+- xref uses `kind` for the "no duplicate Pokemon across heroes / captures / legendaries / monsters" rule (SPEC §6.3).
+
+0.5 **`panic!` in library code (SPEC §8, MEDIUM).** `compiler/src/ir/mod.rs:284` — `panic!("Expected Item segment")` inside `ModifierChain::split_at_segment()`. SPEC §8 forbids `unwrap()`/`expect()`/`panic!` in library code. Fix: return `Result<_, CompilerError>` with a populated `field_path` and `suggestion`; propagate through callers.
+
+0.6 **`FaceId` / `SpriteId` newtypes (SPEC §3.6, BLOCKING).** `DiceFace::Active { face_id: u16, pips: i16 }` and `sprite_name: String` make invalid states representable. SPEC §3.6 requires typed newtypes with whitelist constructors: "`FaceId` is a newtype backed by the guide's whitelist — constructing an invalid `FaceId` is a compile error, not a runtime validation failure."
+
+Design and implementation of the newtypes live in the **authoring plan** (`AUTHORING_ERGONOMICS_PLAN.md` §S5/§S6, revised to introduce newtypes, not bare `pub const u16`). The fidelity plan's obligation is:
+
+- The IR **uses** `FaceId` and `SpriteId` in `DiceFace::Active`, `HeroBlock.sprite_name`, etc. — not `u16` / `String`.
+- The extractor produces them via the fallible constructor; unknown IDs / sprites are `CompilerError`, not silently admitted.
+- Round-trip and Path B tests assert equality on the newtype values.
+
+Lands simultaneously with the authoring plan's Chunk 3/4 — neither ships alone.
+
+0.7 **IR-equivalence gate replaces byte-count canary (SPEC §3.1, HIGH).** Clarification, not a new task: the existing `roundtrip_diag` example compares only node *counts* (`compiler/examples/roundtrip_diag.rs:79–100`). Phase 4.1 already specifies replacement with `roundtrip_verify` asserting `PartialEq` on the full `ModIR`. Note here so 0.7 is tracked with the other audit findings.
+
+Each Phase 0 item fits the non-negotiables: no parallel fields, no deferred replacement, all callsites updated in one pass (SPEC §3.7).
+
 ### Phase 1 — IR changes
 
 1.1 **ChainEntry sub-entry parser overlap check** — when `.col.`, `.tier.`, `.hp.`, `.t.` appears in content preceded by `.i.` or `.k.` (3-char overlap check on the preceding bytes, same pattern used for `.i.t.X` in fight_parser), do NOT treat as property boundary. It's a chain sub-entry. (Fixes class B.)
@@ -141,13 +186,24 @@ Kind breakdown: heropool 50/54 unmatched, boss 3 drifted + 6 unmatched, entity-r
 
 1.4 **HeroBlock format flag for bare head-paren hero** — when block shape is `(Template.n.Name).rest` or bare `Template.rest` (no `replica.` prefix), parse and emit preserving that shape. Add a `BlockWrapper` enum or flags (`bare`, `head_paren_with_name`). (Fixes class J.)
 
-1.5 **Heropool mixed-list entry** — new `HeropoolEntry` enum with `BareName(String)`, `ReplicaBlock(HeroBlock)`, separator-preserved list. Handles punpuns `heropool.Thief+Scoundrel+...+(replica.Reflection...).n.Reflection+...` (bare + replica mix) AND community's multi-tier `+`-joined bodies with embedded newlines (each tier is its own `ReplicaBlock`). Emitter re-joins with `+`; internal whitespace is cosmetic class M. (Fixes class K, both scopes.)
+1.5 **Heropool mixed-list entry — distinguish user-authored from derived first.** SPEC §4 lists `HeroPoolBase` and `PoolReplacement` as derived structurals — the builder regenerates them from hero content, they are **never** round-tripped from the source text. Before touching parser/emitter:
+
+- Inventory which heropool-adjacent modifier forms are *user-authored* (round-tripped) vs *derived* (regenerated). The community mod's 50/54 unmatched heropools may be partially explained by derived-structural regeneration, not by class K alone.
+- For derived heropools: the IR-equivalence check (Phase 4.1) must either compare *before* regeneration strips them, or explicitly exclude them with a justified exception. Byte-level `drift_audit` will naturally show drift for derived structurals; that drift is expected and must be classified, not fixed.
+- For user-authored heropool modifiers: new `HeropoolEntry` enum with `BareName(String)`, `ReplicaBlock(HeroBlock)`, separator-preserved list. Handles punpuns `heropool.Thief+Scoundrel+...+(replica.Reflection...).n.Reflection+...` (bare + replica mix) AND community's multi-tier `+`-joined bodies with embedded newlines (each tier is its own `ReplicaBlock`). Emitter re-joins with `+`; internal whitespace is cosmetic class M.
+
+(Fixes user-authored scope of class K; derived scope is out-of-scope for this plan and handled by the builder's derived-structural regeneration path.)
 
 1.6 **Itempool ritemx/rmod references** — `ItemPoolEntry::EntityRef { kind: "ritemx"|"rmod"|"rmon", id, part }` variant. Parser must match these before falling through to replica-block parsing. Guide line 1211 confirms `rmon.` as an entity prefix; `ritemx`/`rmod` follow the same pattern. (Fixes class L.)
 
 1.7 **Block-closure paren accounting around abilitydata** — class I is the outer block's closing `)` being dropped when `abilitydata` is the final property of a `(replica...)` (or bare-template) block. The emitter must emit the block's own closing `)` regardless of what the last property is; `))` in source is just inner-close + outer-close (guide line 1012 `(Lazy.abilitydata.(Statue...n.Snooze)).n.Lazy` confirms). No new IR type — emitter correctness bug. (Fixes class I.)
 
-1.8 **Boss `.mn.` suffix-ordering preservation** — source bosses use `.mn.NAME&hidden)` (suffix inside close) or `.mn.NAME)&hidden` (suffix outside). Add `hidden_placement: BeforeClose | AfterClose` on the boss IR node and preserve through emit. (Fixes class O.)
+1.8 **Boss `.mn.` suffix-ordering — guide lookup first (class O).** Source bosses use `.mn.NAME&hidden)` vs `.mn.NAME)&hidden`. Before any IR change, search `reference/textmod_guide.md` for `.mn.` and `&hidden`/`&Hidden` examples. Two possible outcomes only:
+
+- **Guide treats the two orderings as equivalent** → mark class O cosmetic, normalize in the emitter, no IR field. Done.
+- **Guide shows the ordering carries meaning** → represent the semantic difference with a named field (e.g., `hidden_scope: Modifier | Replica` or whatever the guide distinction actually is). Do **not** add a positional `BeforeClose|AfterClose` flag that encodes text shape.
+
+"Preserve source verbatim because we saw both forms" is not a valid conclusion — pick one based on guide evidence.
 
 1.9 **Inner-block `.n.DisplayName`** — `HeroBlock` (and any `(replica.Template...)` sub-block) must carry `inner_display_name: Option<String>` distinct from the outer-block `n`. Today the IR collapses both into one slot; inner `.n.Punch`/`.n.Flux`/`.n.Wilding` are silently dropped. Fix at IR + parser + emitter simultaneously. (Fixes class R.)
 
@@ -157,9 +213,26 @@ Kind breakdown: heropool 50/54 unmatched, boss 3 drifted + 6 unmatched, entity-r
 
 1.12 **Selector inline modifier-kind preservation** — `Selector` IR must carry the inline verb (`add`/`party`/`skip`/etc.) inside `!m(...)` as an explicit field, not re-derive it from some default. Parser reads the verb verbatim; emitter emits it verbatim. Source `!m(add.(dabble...))` must not become `!m(party.(dabble...))`. (Fixes class S.)
 
-1.13 **Fight-unit `.n.TemplateName` sparsity preservation** — `FightUnit` tier entries (the `+`-joined template list inside `fight.X+Y+Z.n.Name`) must remember which entries had an explicit `.n.` in source and which did not. Emitter must not auto-inject `.n.TemplateName` after bare entries. Source `fight.alpha+wolf` must round-trip verbatim; source `fight.Slimelet+Rat.n.Venus` must not gain a synthesized `.n.Slimelet`. (Fixes class T.)
+1.13 **Fight-unit `.n.TemplateName` — guide lookup first (class T).** Before any IR change, search `reference/textmod_guide.md` for `fight.` examples with and without per-entry `.n.`. The design hinges on what the game does:
 
-1.14 **Boss `.ph.b` + outer-wrapper preservation** — the boss IR must capture (a) the full `.ph.b<NAME>` head token verbatim (not truncate to a single letter), (b) the phase index prefix (`0.` vs `1.`), (c) the outer paren-nesting depth and `&Hidden` placement of the boss entry (`((0.ph.b<NAME>;...&Hidden)&Hidden)`), and (d) the suffix-clause re-parenthesization (`@2!mskip&Hidden` vs `@2!m(skip&hidden&temporary)`). Add explicit fields: `ph_head: String`, `phase_index: u8`, `outer_wrap: Vec<Wrapper>`, `suffix_clauses: Vec<SuffixClause>`. (Fixes class U.)
+- **Bare `alpha` and `alpha.n.alpha` are equivalent per guide** → normalize; no per-entry flag; emitter picks one form deterministically. Class T becomes cosmetic.
+- **Bare vs explicit `.n.` differ semantically** (e.g., `.n.` renames the unit, bare uses template's inner name) → the IR field is the display name itself (`display_name: Option<String>`, where `None` means "use template's intrinsic name"), not a presentation flag `has_explicit_n`.
+- **Explicit `.n.Slimelet` where name matches template is a no-op** → canonicalize at parse by dropping it.
+
+In no case should the IR carry a boolean that records "did the author type the redundant form." That is text-shape leakage (SPEC §3.6).
+
+1.14 **Boss `.ph.b` head + phase index (class U, sub-parts a/b).** These are unambiguous data corruption:
+
+- `.ph.bAlpha` truncated to `.ph.bA` — the parser is taking the first character of the boss name instead of the whole token. Fix: `ph_head: String` captures the full `.ph.b<NAME>` content.
+- Leading phase index `0.` rewritten to `1.` — the parser is defaulting a field it failed to read. Fix: `phase_index: u8` read verbatim from source.
+
+1.14b **Boss outer wrapper + suffix clauses — guide lookup first (class U, sub-parts c/d).** Source `((0.ph.b<NAME>;...&Hidden)&Hidden)` doubly-wrapped vs rebuild's single wrapper; source `@2!mskip&Hidden` vs rebuild's `@2!m(skip&hidden&temporary)`. Before adding `outer_wrap: Vec<Wrapper>` or `suffix_clauses: Vec<SuffixClause>`:
+
+- Search `reference/textmod_guide.md` for phase wrapper depth rules and `!m` clause grammar.
+- If wrapping/parenthesization is semantically free per guide → normalize in emitter; no IR change.
+- If it is semantic (e.g., each `&Hidden` layer scopes to a different level) → encode the scoping, not the paren depth. The IR field names reflect what the game sees, not how the text is bracketed.
+
+Do not ship `outer_wrap` as a `Vec<Wrapper>` of presentation tokens.
 
 1.15 **Monsterpool template shape (class V)** — monsterpool entries mirror heropool's variety: `(rmon.ID...)` entity-ref form, bare `(Saber.bal.rat)` head-paren form, and `(replica.Template...)` form all occur. Add a `MonsterPoolEntry` enum (`EntityRef { kind, id, body }`, `BareTemplate { template, body }`, `ReplicaBlock { ... }`) and have the parser dispatch on the first token inside the paren. Do NOT coerce bare or entity-ref forms into `(replica.X.n.Name)` with an injected outer-`.mn.` name. (Fixes class V.)
 
@@ -167,7 +240,21 @@ Kind breakdown: heropool 50/54 unmatched, boss 3 drifted + 6 unmatched, entity-r
 
 1.17 **Multiline phase-modifier content (class X)** — `ch.omN.ph.t<type>.n.Title.doc.<multi-line body>.img.X` phase-prompt modifiers use embedded newlines inside `.doc.` bodies. The modifier splitter and phase parser must retain newlines as part of the `.doc.` value, not treat them as modifier delimiters. All 6 community phase modifiers currently unmatched because the splitter treats `\n` inside `.doc.` as a separator. (Fixes class X.)
 
-1.18 **`add.` modifier with entity-ref / custom body (class Y)** — `add.` modifiers can carry an arbitrary body: entity-refs (`rmon.8.hp.6.n.Fallen`), vanilla templates, item references with `.i.hat.X`/`.i.self.Y`/`.doc.Z` chains. The parser currently discards the body and emits only `fight.` + `.mn.`. The IR needs an `AddModifier { body: RawContent | StructuredBody }` representation that preserves the full body and an emitter that round-trips it. Canonical test case: community "fallen". (Fixes class Y.)
+1.18 **`add.` modifier with entity-ref / custom body (class Y)** — `add.` modifiers can carry an arbitrary body: entity-refs (`rmon.8.hp.6.n.Fallen`), vanilla templates, item references with `.i.hat.X`/`.i.self.Y`/`.doc.Z` chains. The parser currently discards the body and emits only `fight.` + `.mn.`. The IR needs an `AddModifier { body: StructuredBody }` representation that preserves the full body as typed fields (no `raw: String` — SPEC §3.2 prohibits raw passthrough). If extraction cannot represent a construct with fields, extend the IR schema. Canonical test case: community "fallen". (Fixes class Y.)
+
+### Phase 1b — IR-adjacent obligations (SPEC §3.4, §3.7, §5, §8)
+
+Each new IR variant introduced in 1.1–1.18 must ship simultaneously with the items below. No variant lands half-done.
+
+1b.1 **Authoring-layer constructors (SPEC §3.4, §6.1).** For every new IR variant (`HeropoolEntry::{BareName, ReplicaBlock}`, `ItemPoolEntry::EntityRef`, `MonsterPoolEntry::{EntityRef, BareTemplate, ReplicaBlock}`, `AddModifier`, `HeroBlock::BlockWrapper` variants, `FightUnitEntry` shape, and the `ReplicaItemKind` discriminator from 0.4), add a typed constructor in `compiler/src/authoring/` so Path B (author-from-scratch) can produce the variant without going through `extract`. The authoring-layer scope, newtypes, and constructor catalog are owned by `AUTHORING_ERGONOMICS_PLAN.md`; this plan's obligation is that **every new IR variant lands with its authoring-layer constructor in the same PR** — no IR variant merges ahead of its authoring counterpart. Direct struct-literal construction is unsupported per SPEC §6.1.
+
+1b.2 **Provenance (SPEC §3, §4 Path C).** Every new variant that represents a content item must carry `Source::{Base, Custom, Overlay}` and propagate through `merge`. Variants that are sub-fields of an already-provenance-tracked parent inherit from the parent; confirm this explicitly rather than leaving it implicit.
+
+1b.3 **JSON Schema (SPEC §8).** Every new IR variant, field, and enum extends the `schemars`-derived schema. A variant without a schema entry is incomplete.
+
+1b.4 **Structured errors (SPEC §5).** Every new parser branch that can fail emits `CompilerError` / `Finding` with populated `field_path` and an actionable `suggestion`. No flat-string errors. No `unwrap()`/`expect()`/`panic!` in library code (SPEC §8).
+
+1b.5 **No `std::fs` / `std::process` leakage (SPEC §3.4, §8).** New parser and IR code stays WASM-clean. Test fixtures may read files in `tests/`; library code must not.
 
 ### Phase 2 — Parser fixes
 
@@ -183,7 +270,7 @@ Apply IR changes from Phase 1 to `src/extractor/hero_parser.rs`, `src/extractor/
 
 3.4 Emit itempool entity-refs per fixed IR. (Applies class L fix.)
 
-3.5 Emit boss `.mn.NAME&hidden)` / `.mn.NAME)&hidden` per preserved placement flag. (Applies class O fix.)
+3.5 Emit boss `.mn.` suffix per the resolution of 1.8: either canonical normalized form (if guide shows equivalence) or semantic-field-driven form. No positional `BeforeClose|AfterClose` flag. (Applies class O fix.)
 
 3.6 Emit inner-block `.n.DisplayName` when present. (Applies class R fix.)
 
@@ -193,9 +280,9 @@ Apply IR changes from Phase 1 to `src/extractor/hero_parser.rs`, `src/extractor/
 
 3.9 Emit selector inline verb verbatim (`add`/`party`/`skip`) from IR field. (Applies class S fix.)
 
-3.10 Emit fight-unit tier entries respecting per-entry `has_explicit_n` flag; never synthesize `.n.TemplateName`. (Applies class T fix.)
+3.10 Emit fight-unit tier entries per the resolution of 1.13: either canonical normalized form (bare ≡ `.n.TemplateName` per guide) or semantic `display_name: Option<String>`. No `has_explicit_n` presentation flag. (Applies class T fix.)
 
-3.11 Emit boss `.ph.b<FULL_NAME>` with preserved phase index, outer wrapper, and suffix-clause structure. (Applies class U fix.)
+3.11 Emit boss `.ph.b<FULL_NAME>` with full name and preserved `phase_index` (class U data-corruption fixes from 1.14). Outer wrapper and suffix-clause emission per the resolution of 1.14b: either normalized or driven by semantic scoping fields — never by a recorded paren-depth vector. (Applies class U fix.)
 
 3.12 Emit monsterpool entries per `MonsterPoolEntry` variant (`rmon.`/`ritemx.` entity-ref, bare head-paren, replica). (Applies class V fix.)
 
@@ -207,26 +294,35 @@ Apply IR changes from Phase 1 to `src/extractor/hero_parser.rs`, `src/extractor/
 
 ### Phase 4 — Verify
 
-The current `roundtrip_diag` only compares IR node *counts* between source and rebuild — it is a shape-preservation smoke test, not a fidelity guarantee. Every structural class in this plan (B/F/P/Q/R/I/K/L) passes count-equivalence while silently corrupting content. The parser itself cannot catch this either: corrupted rebuilds are syntactically valid, the parser is intentionally lenient (mods must be authorable in non-canonical forms), and there is no source↔rebuild equivalence check anywhere in the pipeline.
+Per SPEC §3.1, the primary correctness bar is **IR equality**, not byte diff. The current `roundtrip_diag` only compares IR node *counts* between source and rebuild — a shape smoke test, not a fidelity guarantee. Corrupted rebuilds are syntactically valid and the parser is intentionally lenient, so shape count is meaningless. The parser catches nothing on its own.
 
-Phase 4 closes both gaps.
+Phase 4 makes IR equality the contract and adds byte-level drift as a supporting canary.
 
-4.1 **Replace `roundtrip_diag` with an IR-equivalence check.** Rename to `roundtrip_verify` (or similar) and make it assert `extract(source) == extract(build(extract(source)))` as structural equality across the full `ModIR` (heroes, replica_items, monsters, bosses, structural — all fields, recursively). Derive `PartialEq` where needed on IR types. Any mismatch prints the path (`heroes[3].body.chain[2].sub_entries[0]`) and the two differing subtrees. Node-count reporting stays as a first-pass summary but no longer gates `OK`.
+4.1 **Primary gate: IR-equivalence check.** Replace `roundtrip_diag` with `roundtrip_verify` that asserts `extract(source) == extract(build(extract(source)))` as structural equality across the full `ModIR` (heroes, replica_items, monsters, bosses, structural — all fields, recursively). Derive `PartialEq` where needed on IR types. Any mismatch prints the path (`heroes[3].body.chain[2].sub_entries[0]`) and the two differing subtrees.
 
-4.2 **Wire `drift_audit` into the test harness.** Move it from `examples/` to `tests/` (or add a test that invokes it programmatically), parametrise the classifier (cosmetic vs structural per class A–Y), and fail the test on any drift in a structural class. This is the byte-level counterpart to 4.1's IR-level check — they must both pass.
+**Derived-structural handling:** per SPEC §4, derived structurals (Character Selection, HeroPoolBase, PoolReplacement, Hero-bound ItemPool) are regenerated from content during `build`, not round-tripped from source text. The IR-equivalence check must compare `ModIR` *excluding* derived structurals (since the source may contain author-written derived structurals that the builder regenerates), and separately assert that `regenerate_derived(extracted) == regenerate_derived(rebuilt)` — i.e., derived structurals are stable under rebuild even if they don't match the author's source.
 
-4.3 **CI gate.** `cargo test` must run both 4.1 and 4.2 against all 4 working mods. No `ROUNDTRIP OK` print without both checks green.
+4.2 **Path B round-trip fixtures (SPEC §4 Path B).** For each new IR variant introduced in Phase 1 (heropool mixed list, itempool entity-ref, monsterpool variants, `AddModifier`, fight-unit tier entry, boss phase fields, etc.), add a fixture under `compiler/tests/path_b/` that constructs the IR directly via the authoring layer (no `extract` call) and asserts `extract(build(ir)) == ir`. This is the regression test that the builder does not secretly depend on extractor metadata.
 
-4.4 Target: zero drift in structural classes (B, F, G, H, I, J, K, L, O, P, Q, R, S, T, U, V, W, X, Y). Cosmetic classes (A, C, D, E, M) may remain — each is guide-backed equivalent.
+4.3 **Secondary canary: byte-level drift audit.** Wire `drift_audit` into the test harness (move from `examples/` to `tests/` or invoke programmatically), parametrise the classifier per class A–Y, and fail on any drift in a **structural** class **that is not also explained by derived-structural regeneration**. This is a supporting canary, not a co-equal gate — if 4.1 passes and 4.3 reports drift, the drift is evidence of a bug in the cosmetic/structural classification or of derived-structural regeneration; investigate and reclassify. Cosmetic classes (A, C, D, E, M) may freely drift.
 
-4.5 In-game paste test (user task): sliceymon rebuild pastes without BUG curse; Axew/Larvitar show correct names during team selection.
+4.4 **CI gate.** `cargo test` runs 4.1, 4.2, and 4.3 against all 4 working mods. 4.1 and 4.2 are hard gates; 4.3 is a hard gate for classes marked structural post-guide-lookup (final list depends on 1.8, 1.13, 1.14b resolutions).
+
+4.5 **Target state:** zero IR-equivalence failures; zero Path B round-trip failures; zero byte drift in confirmed-structural classes. Cosmetic classes (A, C, D, E, M, and any of O/T/U sub-parts that guide-lookup confirms as normalize-acceptable) may remain.
+
+4.6 **In-game paste test (user task):** sliceymon rebuild pastes without BUG curse; Axew/Larvitar show correct names during team selection.
 
 ## Correctness guarantees (non-negotiable)
 
-- No raw-content bypass. Every field in IR is properly typed.
-- No parallel / compat fields ("old_field alongside new_field"). Replace the current form.
-- No phased scope. Every mod, every drift class, single pass.
-- Fixes land across parser AND emitter AND tests AND schema simultaneously — no half-shipped changes.
+- **IR equality is the contract** (SPEC §3.1). Byte-level drift is a canary, not the bar.
+- **No raw-content bypass** (SPEC §3.2). Every field in IR is properly typed; no `raw: String`.
+- **No text-shape leakage into IR** (SPEC §3.6). Fields encode game-observable semantics, not source presentation. No `has_explicit_n`, `hidden_placement: BeforeClose|AfterClose`, `outer_wrap: Vec<Wrapper>`, etc.
+- **No parallel / compat fields** (SPEC §3.7). No `new_field` alongside `old_field`. Replace the current form across every callsite.
+- **No phased scope.** Every mod, every drift class, single pass.
+- **Fixes land simultaneously** across parser AND emitter AND tests AND JSON Schema AND authoring-layer constructors — no half-shipped changes (SPEC §8).
+- **Every new variant carries provenance** (`Source::{Base, Custom, Overlay}`) and propagates through `merge` (SPEC §3 #4, §4 Path C).
+- **Every new parser branch emits structured errors** with `field_path` and `suggestion` (SPEC §5). No `unwrap`/`expect`/`panic` in library code.
+- **Guide is the tiebreaker** (SPEC §2). When parser, emitter, and `reference/textmod_guide.md` disagree, the guide wins. Classes O, T, and U sub-parts require a guide lookup before the IR shape is decided.
 
 ## Non-goals
 
