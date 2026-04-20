@@ -42,7 +42,12 @@ Replace the current per-variant shape with:
 
 ```rust
 pub struct CompilerError {
-    pub kind: ErrorKind,
+    // Boxed to keep `Result<T, CompilerError>` small (clippy::result_large_err):
+    // the largest ErrorKind variants reach ~100 bytes inline, which combined
+    // with the three Option<String> fields below pushes the struct past the
+    // lint threshold on every public API that returns `Result<T, CompilerError>`.
+    // Destructure via `err.kind.as_ref()` rather than by value.
+    pub kind: Box<ErrorKind>,
     pub field_path: Option<String>,
     pub suggestion: Option<String>,
     pub context: Option<String>,
