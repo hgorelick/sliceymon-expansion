@@ -3,6 +3,7 @@
 > **Project**: Slice & Dice textmod compiler + Sliceymon+ Pokemon expansion
 > **Stack**: Rust compiler (`compiler/`) — extract → IR → build → cross-check.
 > **Game**: Slice & Dice (mobile roguelike deck-builder by tann).
+> **Spec**: [`SPEC.md`](SPEC.md) — read this first for vision, invariants, and quality bar.
 
 ## Project state
 
@@ -18,6 +19,7 @@ Sliceymon+ (the ~100-Pokemon expansion) is authored *through* the compiler — I
 
 | Purpose | File / Path |
 |---------|-------------|
+| Project spec (vision, invariants, quality bar) | `SPEC.md` |
 | Format spec (authoritative) | `reference/textmod_guide.md` |
 | IR schema | `compiler/src/ir/mod.rs` |
 | Pipeline | `compiler/src/{extractor,builder}/` |

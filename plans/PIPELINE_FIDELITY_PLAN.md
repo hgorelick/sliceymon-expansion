@@ -132,49 +132,9 @@ Kind breakdown: heropool 50/54 unmatched, boss 3 drifted + 6 unmatched, entity-r
 
 ## Fix plan
 
-### Phase 0 — SPEC-invariant gaps surfaced by the 2026-04-20 audit
+### Prerequisites
 
-These are violations of SPEC §3–§5/§8 that exist independently of the A–Y drift classes. They are prerequisites: every Phase 1 change lands on top of a pipeline that already satisfies them. None may be deferred to a follow-up.
-
-0.1 **Self-contained IR — remove external sprite map (SPEC §3.3, BLOCKING).** Today `build(ir: &ModIR, sprites: &HashMap<String, String>)` (`compiler/src/lib.rs:23`, `compiler/src/builder/mod.rs:25`) requires an external sprite table. SPEC §3.3 forbids this: every type that references a sprite must own its `img_data`. Path B (author-from-scratch) is structurally impossible while the builder needs an ambient map. Fix:
-
-- Drop the `sprites` parameter from `build`, `build_with`, `build_complete`, and every internal emitter signature.
-- `img_data` moves from `Option<String>` to `String` on every type that can carry a sprite (`Hero`/`HeroBlock`, `ReplicaItem`, `Monster`, `Boss` fight units, `AbilityData`, `TriggerHpDef`). Absent = empty string is not acceptable; the extractor must populate it from the source, and the authoring layer must populate it via the typed sprite registry (see 0.6 and the authoring plan).
-- Merge and CRUD must carry `img_data` through; no callsite may "fill it in later."
-
-0.2 **`build_with` + `BuildOptions { include: SourceFilter }` (SPEC §5 #4, HIGH).** `Source::{Base, Custom, Overlay}` is stamped by the extractor and `merge` but consumed nowhere — SPEC §5 #4 says an unused provenance field is a schema bug. Fix:
-
-- Introduce `pub struct BuildOptions { include: SourceFilter }` and `pub enum SourceFilter { All, Only(BitFlags<Source>), Exclude(BitFlags<Source>) }` (exact shape per the implementation; the contract is filter-by-provenance).
-- `build_with(ir, opts)` filters every content emission by `opts.include`. `build(ir)` is `build_with(ir, &BuildOptions::default())` where the default is `All`.
-- `xref` scopes findings by source: a rule violation on `Source::Base` is a warning about the source mod; `Source::Custom` / `Source::Overlay` is an author error. Add `source: Source` to `Finding` if not already present, populate it during xref, and use it in severity promotion.
-
-0.3 **Path C merge: strip derived structurals, regenerate on build (SPEC §4, HIGH).** `compiler/src/ir/merge.rs` (lines 1–78) copies all structural modifiers including derived ones (Character Selection, HeroPoolBase, PoolReplacement, hero-bound ItemPool) — see SPEC §4 derived-structural table. This causes silent semantic drift when overlays touch heroes. Fix:
-
-- `merge` must reject (or strip, with a warning) any derived structural it encounters on either base or overlay. SPEC says `build`/`xref` "reject it with a `CompilerError`" for user-authored derived structurals; the merge path must not smuggle them through.
-- `build` regenerates derived structurals from content after merge, unconditionally — independent of what either input carried.
-- Add a Path C integration test: `base + overlay` where overlay adds a hero; the rebuilt character selection / hero pools reflect the merged content, not base's snapshot.
-
-0.4 **`ReplicaItem` kind discriminator (SPEC §3.6, §5 glossary, MEDIUM).** `ReplicaItem` at `ir/mod.rs:566–590` is one struct with no Capture/Legendary discriminator, conflating two semantically distinct kinds (SPEC §5 glossary explicitly names them as kinds of the same type). Fix:
-
-- Add `pub kind: ReplicaItemKind` where `ReplicaItemKind::{Capture, Legendary}` is a typed enum (not a boolean, not a string).
-- Extractor classifies from source shape; builder dispatches emission on `kind`.
-- xref uses `kind` for the "no duplicate Pokemon across heroes / captures / legendaries / monsters" rule (SPEC §6.3).
-
-0.5 **`panic!` in library code (SPEC §8, MEDIUM).** `compiler/src/ir/mod.rs:284` — `panic!("Expected Item segment")` inside `ModifierChain::split_at_segment()`. SPEC §8 forbids `unwrap()`/`expect()`/`panic!` in library code. Fix: return `Result<_, CompilerError>` with a populated `field_path` and `suggestion`; propagate through callers.
-
-0.6 **`FaceId` / `SpriteId` newtypes (SPEC §3.6, BLOCKING).** `DiceFace::Active { face_id: u16, pips: i16 }` and `sprite_name: String` make invalid states representable. SPEC §3.6 requires typed newtypes with whitelist constructors: "`FaceId` is a newtype backed by the guide's whitelist — constructing an invalid `FaceId` is a compile error, not a runtime validation failure."
-
-Design and implementation of the newtypes live in the **authoring plan** (`AUTHORING_ERGONOMICS_PLAN.md` §S5/§S6, revised to introduce newtypes, not bare `pub const u16`). The fidelity plan's obligation is:
-
-- The IR **uses** `FaceId` and `SpriteId` in `DiceFace::Active`, `HeroBlock.sprite_name`, etc. — not `u16` / `String`.
-- The extractor produces them via the fallible constructor; unknown IDs / sprites are `CompilerError`, not silently admitted.
-- Round-trip and Path B tests assert equality on the newtype values.
-
-Lands simultaneously with the authoring plan's Chunk 3/4 — neither ships alone.
-
-0.7 **IR-equivalence gate replaces byte-count canary (SPEC §3.1, HIGH).** Clarification, not a new task: the existing `roundtrip_diag` example compares only node *counts* (`compiler/examples/roundtrip_diag.rs:79–100`). Phase 4.1 already specifies replacement with `roundtrip_verify` asserting `PartialEq` on the full `ModIR`. Note here so 0.7 is tracked with the other audit findings.
-
-Each Phase 0 item fits the non-negotiables: no parallel fields, no deferred replacement, all callsites updated in one pass (SPEC §3.7).
+Before any Phase 1 work begins, `PLATFORM_FOUNDATIONS_PLAN.md` must be complete. Foundations delivers `FaceId`/`SpriteId` newtypes, IR sprite-field consolidation, self-contained `build`, `BuildOptions`/`SourceFilter`, `Finding.source`, merge-strips-derived semantics, the `ReplicaItemKind` discriminator, and `panic!` elimination. This plan assumes all of that is in place.
 
 ### Phase 1 — IR changes
 
@@ -186,13 +146,12 @@ Each Phase 0 item fits the non-negotiables: no parallel fields, no deferred repl
 
 1.4 **HeroBlock format flag for bare head-paren hero** — when block shape is `(Template.n.Name).rest` or bare `Template.rest` (no `replica.` prefix), parse and emit preserving that shape. Add a `BlockWrapper` enum or flags (`bare`, `head_paren_with_name`). (Fixes class J.)
 
-1.5 **Heropool mixed-list entry — distinguish user-authored from derived first.** SPEC §4 lists `HeroPoolBase` and `PoolReplacement` as derived structurals — the builder regenerates them from hero content, they are **never** round-tripped from the source text. Before touching parser/emitter:
+1.5 **Heropool mixed-list entry — user-authored scope only.** `HeroPoolBase` and `PoolReplacement` are derived structurals (foundations §F6) — stripped on merge, regenerated at build, excluded from the Phase 4.1 IR-equivalence check via the foundations' derived-structural classifier. Class K's user-authored scope:
 
-- Inventory which heropool-adjacent modifier forms are *user-authored* (round-tripped) vs *derived* (regenerated). The community mod's 50/54 unmatched heropools may be partially explained by derived-structural regeneration, not by class K alone.
-- For derived heropools: the IR-equivalence check (Phase 4.1) must either compare *before* regeneration strips them, or explicitly exclude them with a justified exception. Byte-level `drift_audit` will naturally show drift for derived structurals; that drift is expected and must be classified, not fixed.
-- For user-authored heropool modifiers: new `HeropoolEntry` enum with `BareName(String)`, `ReplicaBlock(HeroBlock)`, separator-preserved list. Handles punpuns `heropool.Thief+Scoundrel+...+(replica.Reflection...).n.Reflection+...` (bare + replica mix) AND community's multi-tier `+`-joined bodies with embedded newlines (each tier is its own `ReplicaBlock`). Emitter re-joins with `+`; internal whitespace is cosmetic class M.
+- New `HeropoolEntry` enum with `BareName(String)` and `ReplicaBlock(HeroBlock)` variants, plus a separator-preserved list field. Handles punpuns `heropool.Thief+Scoundrel+...+(replica.Reflection...).n.Reflection+...` (bare + replica mix) and community's multi-tier `+`-joined bodies with embedded newlines (each tier is its own `ReplicaBlock`). Emitter re-joins with `+`; internal whitespace is cosmetic class M.
+- The first task before writing the variant is to inventory which heropool-adjacent modifier forms are user-authored (round-tripped) vs derived (regenerated). The community mod's 50/54 unmatched heropools may be largely explained by derived-structural regeneration rather than class K parsing gaps; bucket them before fixing.
 
-(Fixes user-authored scope of class K; derived scope is out-of-scope for this plan and handled by the builder's derived-structural regeneration path.)
+(Fixes user-authored scope of class K. Derived scope is foundations §F6.)
 
 1.6 **Itempool ritemx/rmod references** — `ItemPoolEntry::EntityRef { kind: "ritemx"|"rmod"|"rmon", id, part }` variant. Parser must match these before falling through to replica-block parsing. Guide line 1211 confirms `rmon.` as an entity prefix; `ritemx`/`rmod` follow the same pattern. (Fixes class L.)
 
@@ -246,15 +205,13 @@ Do not ship `outer_wrap` as a `Vec<Wrapper>` of presentation tokens.
 
 Each new IR variant introduced in 1.1–1.18 must ship simultaneously with the items below. No variant lands half-done.
 
-1b.1 **Authoring-layer constructors (SPEC §3.4, §6.1).** For every new IR variant (`HeropoolEntry::{BareName, ReplicaBlock}`, `ItemPoolEntry::EntityRef`, `MonsterPoolEntry::{EntityRef, BareTemplate, ReplicaBlock}`, `AddModifier`, `HeroBlock::BlockWrapper` variants, `FightUnitEntry` shape, and the `ReplicaItemKind` discriminator from 0.4), add a typed constructor in `compiler/src/authoring/` so Path B (author-from-scratch) can produce the variant without going through `extract`. The authoring-layer scope, newtypes, and constructor catalog are owned by `AUTHORING_ERGONOMICS_PLAN.md`; this plan's obligation is that **every new IR variant lands with its authoring-layer constructor in the same PR** — no IR variant merges ahead of its authoring counterpart. Direct struct-literal construction is unsupported per SPEC §6.1.
+1b.1 **Provenance (SPEC §3, §4 Path C).** Every new variant that represents a content item carries `Source::{Base, Custom, Overlay}` and propagates through `merge`. Variants that are sub-fields of an already-provenance-tracked parent inherit from the parent; confirm this explicitly rather than leaving it implicit.
 
-1b.2 **Provenance (SPEC §3, §4 Path C).** Every new variant that represents a content item must carry `Source::{Base, Custom, Overlay}` and propagate through `merge`. Variants that are sub-fields of an already-provenance-tracked parent inherit from the parent; confirm this explicitly rather than leaving it implicit.
+1b.2 **JSON Schema (SPEC §8).** Every new IR variant, field, and enum extends the `schemars`-derived schema. A variant without a schema entry is incomplete.
 
-1b.3 **JSON Schema (SPEC §8).** Every new IR variant, field, and enum extends the `schemars`-derived schema. A variant without a schema entry is incomplete.
+1b.3 **Structured errors (SPEC §5, §8).** Every new parser branch that can fail emits `CompilerError` / `Finding` with populated `field_path` and an actionable `suggestion`. No flat-string errors. No `unwrap()`/`expect()`/`panic!` in library code.
 
-1b.4 **Structured errors (SPEC §5).** Every new parser branch that can fail emits `CompilerError` / `Finding` with populated `field_path` and an actionable `suggestion`. No flat-string errors. No `unwrap()`/`expect()`/`panic!` in library code (SPEC §8).
-
-1b.5 **No `std::fs` / `std::process` leakage (SPEC §3.4, §8).** New parser and IR code stays WASM-clean. Test fixtures may read files in `tests/`; library code must not.
+1b.4 **No `std::fs` / `std::process` leakage (SPEC §3.4, §8).** New parser and IR code stays WASM-clean. Test fixtures may read files in `tests/`; library code must not.
 
 ### Phase 2 — Parser fixes
 
@@ -300,11 +257,11 @@ Phase 4 makes IR equality the contract and adds byte-level drift as a supporting
 
 4.1 **Primary gate: IR-equivalence check.** Replace `roundtrip_diag` with `roundtrip_verify` that asserts `extract(source) == extract(build(extract(source)))` as structural equality across the full `ModIR` (heroes, replica_items, monsters, bosses, structural — all fields, recursively). Derive `PartialEq` where needed on IR types. Any mismatch prints the path (`heroes[3].body.chain[2].sub_entries[0]`) and the two differing subtrees.
 
-**Derived-structural handling:** per SPEC §4, derived structurals (Character Selection, HeroPoolBase, PoolReplacement, Hero-bound ItemPool) are regenerated from content during `build`, not round-tripped from source text. The IR-equivalence check must compare `ModIR` *excluding* derived structurals (since the source may contain author-written derived structurals that the builder regenerates), and separately assert that `regenerate_derived(extracted) == regenerate_derived(rebuilt)` — i.e., derived structurals are stable under rebuild even if they don't match the author's source.
+**Derived-structural handling:** derived structurals (per foundations §F6: CharacterSelection, HeroPoolBase, PoolReplacement, hero-bound ItemPool) are regenerated at build time, not round-tripped from source. The IR-equivalence check uses the foundations' `StructuralModifier::is_derived()` classifier to skip derived structurals in the `extracted == rebuilt` comparison, and separately asserts `regenerate_derived(extracted) == regenerate_derived(rebuilt)` — derived structurals are stable under rebuild even if they don't match the author's source.
 
 4.2 **Path B round-trip fixtures (SPEC §4 Path B).** For each new IR variant introduced in Phase 1 (heropool mixed list, itempool entity-ref, monsterpool variants, `AddModifier`, fight-unit tier entry, boss phase fields, etc.), add a fixture under `compiler/tests/path_b/` that constructs the IR directly via the authoring layer (no `extract` call) and asserts `extract(build(ir)) == ir`. This is the regression test that the builder does not secretly depend on extractor metadata.
 
-4.3 **Secondary canary: byte-level drift audit.** Wire `drift_audit` into the test harness (move from `examples/` to `tests/` or invoke programmatically), parametrise the classifier per class A–Y, and fail on any drift in a **structural** class **that is not also explained by derived-structural regeneration**. This is a supporting canary, not a co-equal gate — if 4.1 passes and 4.3 reports drift, the drift is evidence of a bug in the cosmetic/structural classification or of derived-structural regeneration; investigate and reclassify. Cosmetic classes (A, C, D, E, M) may freely drift.
+4.3 **Secondary canary: byte-level drift audit.** Wire `drift_audit` into the test harness (move from `examples/` to `tests/` or invoke programmatically), parametrise the classifier per class A–Y, and fail on any drift in a **structural** class that is not also explained by derived-structural regeneration (using the same `is_derived()` classifier as 4.1). Supporting canary, not a co-equal gate: if 4.1 passes and 4.3 reports drift, the drift is a bug in class classification or derived-regeneration; investigate and reclassify. Cosmetic classes (A, C, D, E, M) may freely drift.
 
 4.4 **CI gate.** `cargo test` runs 4.1, 4.2, and 4.3 against all 4 working mods. 4.1 and 4.2 are hard gates; 4.3 is a hard gate for classes marked structural post-guide-lookup (final list depends on 1.8, 1.13, 1.14b resolutions).
 
@@ -319,7 +276,7 @@ Phase 4 makes IR equality the contract and adds byte-level drift as a supporting
 - **No text-shape leakage into IR** (SPEC §3.6). Fields encode game-observable semantics, not source presentation. No `has_explicit_n`, `hidden_placement: BeforeClose|AfterClose`, `outer_wrap: Vec<Wrapper>`, etc.
 - **No parallel / compat fields** (SPEC §3.7). No `new_field` alongside `old_field`. Replace the current form across every callsite.
 - **No phased scope.** Every mod, every drift class, single pass.
-- **Fixes land simultaneously** across parser AND emitter AND tests AND JSON Schema AND authoring-layer constructors — no half-shipped changes (SPEC §8).
+- **Fixes land simultaneously** across parser, emitter, tests, and JSON Schema — no half-shipped changes (SPEC §8).
 - **Every new variant carries provenance** (`Source::{Base, Custom, Overlay}`) and propagates through `merge` (SPEC §3 #4, §4 Path C).
 - **Every new parser branch emits structured errors** with `field_path` and `suggestion` (SPEC §5). No `unwrap`/`expect`/`panic` in library code.
 - **Guide is the tiebreaker** (SPEC §2). When parser, emitter, and `reference/textmod_guide.md` disagree, the guide wins. Classes O, T, and U sub-parts require a guide lookup before the IR shape is decided.
