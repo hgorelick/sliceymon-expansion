@@ -89,7 +89,15 @@ pub enum ErrorKind {
         expected: String,
         found: String,
     },
-    Io(String),
+    Io {
+        kind: std::io::ErrorKind,
+        message: String,
+    },
+    Json {
+        line: Option<usize>,
+        column: Option<usize>,
+        message: String,
+    },
 }
 
 impl CompilerError {
@@ -275,8 +283,23 @@ impl CompilerError {
         })
     }
 
-    pub fn io(message: impl Into<String>) -> Self {
-        Self::new(ErrorKind::Io(message.into()))
+    pub fn io(kind: std::io::ErrorKind, message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Io {
+            kind,
+            message: message.into(),
+        })
+    }
+
+    pub fn json(
+        line: Option<usize>,
+        column: Option<usize>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self::new(ErrorKind::Json {
+            line,
+            column,
+            message: message.into(),
+        })
     }
 }
 
@@ -413,8 +436,16 @@ impl fmt::Display for CompilerError {
                     expected, found, content
                 )?;
             }
-            ErrorKind::Io(msg) => {
-                write!(f, "IoError: {}", msg)?;
+            ErrorKind::Io { kind, message } => {
+                write!(f, "IoError ({:?}): {}", kind, message)?;
+            }
+            ErrorKind::Json { line, column, message } => {
+                let loc = match (line, column) {
+                    (Some(l), Some(c)) => format!(" at line {}, column {}", l, c),
+                    (Some(l), None) => format!(" at line {}", l),
+                    _ => String::new(),
+                };
+                write!(f, "JsonError{}: {}", loc, message)?;
             }
         }
 
@@ -435,13 +466,16 @@ impl std::error::Error for CompilerError {}
 
 impl From<std::io::Error> for CompilerError {
     fn from(e: std::io::Error) -> Self {
-        CompilerError::io(e.to_string())
+        CompilerError::io(e.kind(), e.to_string())
     }
 }
 
 impl From<serde_json::Error> for CompilerError {
     fn from(e: serde_json::Error) -> Self {
-        CompilerError::build("json", e.to_string())
+        // serde_json reports 0 for unknown/EOF positions; normalize to None.
+        let line = Some(e.line()).filter(|&l| l > 0);
+        let column = Some(e.column()).filter(|&c| c > 0);
+        CompilerError::json(line, column, e.to_string())
     }
 }
 
@@ -494,7 +528,8 @@ mod tests {
         let _: CompilerError = CompilerError::chain_parse("c", 0, "e", "f");
         let _: CompilerError = CompilerError::phase_parse(Some('q'), "c", "e", "f");
         let _: CompilerError = CompilerError::reward_parse("c", "e", "f");
-        let _: CompilerError = CompilerError::io("io");
+        let _: CompilerError = CompilerError::io(std::io::ErrorKind::NotFound, "io");
+        let _: CompilerError = CompilerError::json(Some(3), Some(12), "bad json");
     }
 
     #[test]

@@ -84,8 +84,7 @@ fn main() -> Result<(), CompilerError> {
 
             if let Some(overlay_dir) = overlay {
                 let overlay_json = fs::read_to_string(overlay_dir.join("registry.json"))?;
-                let overlay_ir = textmod_compiler::ir_from_json(&overlay_json)
-                    .map_err(|e| CompilerError::build("json", e.to_string()))?;
+                let overlay_ir = textmod_compiler::ir_from_json(&overlay_json)?;
                 ir = textmod_compiler::merge(ir, overlay_ir)?;
             }
 
@@ -133,8 +132,7 @@ fn main() -> Result<(), CompilerError> {
         }
         Commands::Schema { output } => {
             let schema = schemars::schema_for!(textmod_compiler::ir::ModIR);
-            let json = serde_json::to_string_pretty(&schema)
-                .map_err(|e| CompilerError::build("schema", e.to_string()))?;
+            let json = serde_json::to_string_pretty(&schema)?;
             if let Some(path) = output {
                 fs::write(&path, &json)?;
                 println!("Schema written to {}", path.display());
@@ -147,8 +145,7 @@ fn main() -> Result<(), CompilerError> {
             let base_ir = textmod_compiler::extract(&base_text)?;
 
             let overlay_json = fs::read_to_string(&with_ir)?;
-            let overlay_ir = textmod_compiler::ir_from_json(&overlay_json)
-                .map_err(|e| CompilerError::build("json", e.to_string()))?;
+            let overlay_ir = textmod_compiler::ir_from_json(&overlay_json)?;
 
             let merged = textmod_compiler::merge(base_ir, overlay_ir)?;
             let sprites: HashMap<String, String> = HashMap::new();
