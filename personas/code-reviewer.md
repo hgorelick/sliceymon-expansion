@@ -146,13 +146,13 @@ When reviewing parser code:
 ├── working-mods/pansaer.txt          # Does the parser handle this mod?
 ├── working-mods/punpuns.txt          # And this one?
 ├── working-mods/sliceymon.txt        # And this one?
-├── SLICEYMON_AUDIT.md                # Property codes, Face IDs
-└── plans/BUILDER_PLAN.md             # IR types, expected behavior
+├── working-mods/community.txt        # And this one?
+└── reference/textmod_guide.md        # Format spec — when in doubt, the guide wins
 
 When reviewing builder/emitter code:
-├── textmod.txt                        # What correct output looks like
-├── tools/sprite_encodings.json        # Valid sprite data
-└── CLAUDE.md                          # Format rules, property order
+├── working-mods/*.txt                 # Roundtrip target — extract(build(extract)) == extract
+├── reference/textmod_guide.md         # Property semantics, must-preserve shapes
+└── CLAUDE.md                          # Working principles, correctness bar
 ```
 
 ## Communication Style

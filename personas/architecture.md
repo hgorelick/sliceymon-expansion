@@ -45,7 +45,7 @@ Every architectural decision must support this workflow.
                     ┌──────────────────────────────────────────────────────┐
                     │              TEXTMOD COMPILER (Library)               │
                     │                                                      │
-  textmod.txt ──────┤  Extractor                                           │
+  mod.txt ──────────┤  Extractor                                           │
                     │  ┌─────────┐   ┌─────────────┐                      │
                     │  │Classifier│──>│ Type Parsers │──> ModIR            │
                     │  └─────────┘   │ (hero, cap,  │    (fields only,    │
@@ -119,7 +119,7 @@ The builder auto-generates these from the IR content. They are NOT stored in the
 
 ```
 Path A (import + modify):
-  extract(textmod.txt) → base IR → CRUD (add/remove heroes) → build → textmod
+  extract(mod.txt) → base IR → CRUD (add/remove heroes) → build → textmod
 
 Path B (from scratch):
   author IR as JSON → build → textmod
@@ -224,7 +224,7 @@ Consider:
 
 | Mod | Location | Architectural Test |
 |-----|----------|--------------------|
-| sliceymon.txt | `textmod.txt` | Full feature set: heroes, captures, legendaries, monsters, bosses, all structural types |
+| sliceymon.txt | `working-mods/` | Full feature set: heroes, captures, legendaries, monsters, bosses, all structural types |
 | pansaer.txt | `working-mods/` | All 7 new templates, grouped hero format |
 | punpuns.txt | `working-mods/` | Different mod style, grouped format |
 | community.txt | `working-mods/` | Community mod format variant |
@@ -233,10 +233,10 @@ Consider:
 
 | File | Purpose |
 |------|---------|
-| `plans/COMPILER_FIX_PLAN.md` | Current compiler fix plan — implementation roadmap |
-| `plans/FULL_ROSTER.md` | Authoritative Pokemon roster |
+| `reference/textmod_guide.md` | Textmod format spec, Face IDs, property codes |
 | `compiler/src/ir/mod.rs` | IR types — the mod schema |
-| `SLICEYMON_AUDIT.md` | Textmod format reference, Face IDs, property codes |
+| `compiler/src/{extractor,builder}/` | How the IR maps to/from textmod |
+| `working-mods/*.txt` | Reference mods that any schema change must still roundtrip |
 | `CLAUDE.md` | Format rules, validation requirements |
 | `personas/slice-and-dice-design.md` | Game mechanics context for IR design |
 

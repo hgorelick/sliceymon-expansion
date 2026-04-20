@@ -159,9 +159,10 @@ Consider:
 | File | Purpose |
 |------|---------|
 | `compiler/src/lib.rs` | WASM-compatible library API — the frontend's interface to Rust |
-| `plans/BUILDER_PLAN.md` | Compiler design, IR types |
-| `tools/sprite_encodings.json` | Sprite data that must be available in browser |
-| `CLAUDE.md` | Format rules for validation error messages |
+| `compiler/src/ir/mod.rs` | IR types — the schema the frontend constructs |
+| `compiler/src/sprite.rs` | Sprite registry exported by the compiler (built from `working-mods/`) — frontend reads this for sprite payloads |
+| `reference/textmod_guide.md` | Format spec for validation error messages and field semantics |
+| `CLAUDE.md` | Working principles |
 
 ### Technology Stack (Frontend)
 

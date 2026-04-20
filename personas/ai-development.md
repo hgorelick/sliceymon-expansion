@@ -604,9 +604,9 @@ The textmod compiler is the **backend foundation for a web/mobile mod-building a
 | `compiler/src/validator.rs` | Validation rules (structural + semantic) | Validation tasks |
 | `compiler/src/lib.rs` | Public API surface | API design tasks |
 | `compiler/src/util.rs` | Shared parsing utilities | Any parsing work |
-| `plans/FULL_ROSTER.md` | Authoritative Pokemon roster | All content tasks |
-| `plans/COMPILER_FIX_PLAN.md` | Current compiler fix plan | Compiler implementation |
-| `SLICEYMON_AUDIT.md` | Face IDs, templates, mod structure | Design validation |
+| `reference/textmod_guide.md` | Format spec, Face IDs, property codes, template structure | Design validation, parser/emitter work |
+| `compiler/src/ir/mod.rs` | IR types — current schema | Any IR/schema work |
+| `working-mods/*.txt` | Four reference mods (corpus + roundtrip target) | Testing, sprite/face-id derivation |
 | `personas/slice-and-dice-design.md` | Game balance, dice design | Hero/monster/boss design |
 
 ### Project Stack Reference

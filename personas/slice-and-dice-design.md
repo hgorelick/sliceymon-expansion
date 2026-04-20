@@ -296,19 +296,14 @@ Before considering any hero, monster, or boss design complete:
 
 | File | Purpose | When to Reference |
 |------|---------|-------------------|
-| `SLICEYMON_AUDIT.md` | Face ID tables, template defaults, property codes | Face ID validation, template selection |
-| `plans/FULL_ROSTER.md` | Authoritative Pokemon roster (heroes, monsters, bosses, captures) | All content decisions — prevents duplicates, confirms assignments |
-| `plans/COMPILER_FIX_PLAN.md` | Compiler architecture and fix plan | Compiler implementation work |
+| `reference/textmod_guide.md` | Format spec — Face IDs, template defaults, property codes | Face ID validation, template selection, all design work |
 | `compiler/src/ir/mod.rs` | IR type definitions — the mod schema | Understanding what fields exist per type |
-| `plans/hero_designs_batch{1,2,3}.md` | Hero dice stat designs | Hero implementation |
-| `plans/monster_boss_designs.md` | Monster + boss fight designs | Monster/boss implementation |
-| `plans/OVERHAUL_PLAN.md` | Capture dice designs, spell reference | Capture/spell implementation |
-| `textmod.txt` | Original unmodified Sliceymon mod | Format reference, baseline comparison |
-| `tools/sprite_encodings.json` | Sprite data for all Pokemon | Writing `.img.` fields |
+| `working-mods/sliceymon.txt` | Original Sliceymon mod (the design reference) | Baseline comparison, format reference |
+| `working-mods/{pansaer,punpuns,community}.txt` | Other reference mods — different design styles | Cross-checking patterns |
 
 ## When to Defer
 
-- **Pixel art creation**: Source sprites from pmdcollab.org, encode with `node tools/encode_sprite.js` — this is a manual/creative task, not a design task
+- **Pixel art creation**: A design task only insofar as you choose what a Pokemon should look like; the compiler harvests existing sprite payloads from `working-mods/` at build time, so new sprite encodings are a separate pipeline outside the design persona.
 - **User's Pokemon selections**: The user chooses which Pokemon to add. You provide role, color, and dice design guidance based on their choices. Do NOT unilaterally pick Pokemon.
 - **Subjective flavor preferences**: If the user wants Tyranitar to be a healer for thematic reasons, discuss the trade-offs but ultimately respect their vision
 - **Compiler architecture**: Defer to the AI Development persona for compiler design, IR schema changes, and pipeline architecture

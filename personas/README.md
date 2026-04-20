@@ -21,7 +21,7 @@ This folder contains AI persona files representing expert principal engineers wi
 
 **Why Rust**: Strong type system for IR correctness, WASM compilation target, proper CLI tool.
 
-**Design doc**: `plans/BUILDER_PLAN.md`
+**Format spec**: `reference/textmod_guide.md`. **IR schema**: `compiler/src/ir/mod.rs`.
 
 ## How to Use
 
@@ -46,8 +46,8 @@ Task: Implement capture_parser.rs
 
 Files to Read First:
 - working-mods/sliceymon.txt (capture lines)
-- SLICEYMON_AUDIT.md (property codes)
-- plans/BUILDER_PLAN.md (Capture IR type)
+- reference/textmod_guide.md (property codes, capture semantics)
+- compiler/src/ir/mod.rs (ReplicaItem IR type)
 
 Requirements:
 - Parse capture modifiers into Capture structs
@@ -66,28 +66,28 @@ Verification:
 
 | Task | Personas | Key Files |
 |------|----------|-----------|
-| Implement a parser | Rust engineer | working-mods/*.txt, SLICEYMON_AUDIT.md |
-| Implement an emitter | Rust engineer + code reviewer | textmod.txt, BUILDER_PLAN.md |
-| Design IR types | Architecture | BUILDER_PLAN.md, SLICEYMON_AUDIT.md |
-| Write tests | Testing + Rust engineer | working-mods/*.txt, BUILDER_PLAN.md |
-| Review parser code | Code reviewer | working-mods/*.txt (test against all 3 mods) |
+| Implement a parser | Rust engineer | working-mods/*.txt, reference/textmod_guide.md |
+| Implement an emitter | Rust engineer + code reviewer | working-mods/*.txt, reference/textmod_guide.md |
+| Design IR types | Architecture | compiler/src/ir/mod.rs, reference/textmod_guide.md |
+| Write tests | Testing + Rust engineer | working-mods/*.txt, compiler/tests/ |
+| Review parser code | Code reviewer | working-mods/*.txt (roundtrip across all 4 mods) |
 | Plan WASM integration | Frontend + architecture | compiler/src/lib.rs |
-| Audit dependencies | Security | Cargo.toml, Cargo.lock |
+| Audit dependencies | Security | compiler/Cargo.toml, compiler/Cargo.lock |
 | Fuzz the parser | Security + testing | compiler/src/extractor/ |
-| Design hero balance | Game design | plans/hero_designs_batch*.md |
-| Plan a new phase | AI development | BUILDER_PLAN.md |
+| Design hero/monster/boss | Game design | reference/textmod_guide.md, personas/slice-and-dice-design.md |
+| Plan a new phase | AI development | reference/textmod_guide.md (phase syntax), compiler/src/extractor/phase_parser.rs |
 
 ## Source of Truth Files
 
 | File | Purpose | When to Read |
 |------|---------|--------------|
-| `plans/BUILDER_PLAN.md` | Compiler design, IR types, TDD phases | All architecture/implementation work |
-| `SLICEYMON_AUDIT.md` | Textmod format, property codes, Face IDs | Parser/emitter work |
-| `textmod.txt` | Original mod baseline | Understanding correct output format |
-| `working-mods/*.txt` | Three test mods (pansaer, punpuns, sliceymon) | Testing, round-trip validation |
-| `tools/sprite_encodings.json` | Sprite name -> encoding mapping | Builder sprite resolution |
-| `CLAUDE.md` | Format rules, validation requirements | All mod content work |
-| `plans/hero_designs_batch*.md` | Hero designs for Sliceymon+ | Hero implementation |
+| `reference/textmod_guide.md` | Textmod format spec — Face IDs, property codes, semantics | All parser/emitter work |
+| `compiler/src/ir/mod.rs` | IR type definitions — the mod schema | Architecture/implementation work |
+| `compiler/src/{extractor,builder}/` | How the IR maps to/from textmod | Parser/emitter work |
+| `working-mods/*.txt` | Four reference mods (pansaer, punpuns, sliceymon, community) | Testing, round-trip validation, sprite corpus |
+| `CLAUDE.md` | Working principles, correctness bar | All work |
+
+For active plans (which go stale once executed), see `plans/`. Use them as roadmaps, not sources of truth.
 
 ## Technology Stack
 

@@ -239,12 +239,9 @@ compiler/
 
 | File | When to Read |
 |------|--------------|
-| `plans/COMPILER_FIX_PLAN.md` | Compiler fix plan — current implementation roadmap |
-| `plans/FULL_ROSTER.md` | Authoritative Pokemon roster |
-| `SLICEYMON_AUDIT.md` | Textmod format reference, Face IDs, property codes |
-| `textmod.txt` | Original mod baseline — what the parser must handle |
-| `working-mods/*.txt` | Four test mods for round-trip validation |
-| `tools/sprite_encodings.json` | Sprite name → encoding mapping (optional override) |
+| `reference/textmod_guide.md` | Textmod format spec, Face IDs, property codes |
+| `compiler/src/ir/mod.rs` | IR types — the mod schema |
+| `working-mods/*.txt` | Four reference mods for round-trip validation; also the sprite-payload corpus |
 
 ## When to Defer
 

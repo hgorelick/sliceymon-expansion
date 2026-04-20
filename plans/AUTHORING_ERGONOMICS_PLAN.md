@@ -22,7 +22,7 @@ Downstream consumers (webapp, CLI JSON input) are unaffected: they construct IR 
 - No new IR fields, no IR refactors, no emit changes.
 - No authoring DSL / macro gymnastics beyond one small `dice![]` macro.
 - No persistence layer — this is in-memory construction ergonomics only. Serde/JSON I/O stays as-is.
-- No auto-balance checks — that's the validator's job (`plans/VALIDATOR_PLAN.md`).
+- No auto-balance checks. Structural validation is the extract/build pipeline; cross-IR semantic checks live in `compiler/src/xref.rs`. Balance heuristics are out of scope here.
 
 ---
 
@@ -245,7 +245,7 @@ Verification: a test suite that builds IR via the authoring layer, emits it, re-
 
 **Verification**:
 - [ ] Each constructor has a unit test constructing a value and asserting default fields.
-- [ ] Doc comment on each `new()` links to the relevant design doc (e.g., HeroBlock → `plans/hero_designs_batch*.md`).
+- [ ] Doc comment on each `new()` shows a minimal usage example.
 - [ ] No regressions in existing tests.
 
 ---
@@ -350,7 +350,7 @@ Verification: a test suite that builds IR via the authoring layer, emits it, re-
   2. Emit to textmod string.
   3. Re-parse that string.
   4. Assert the re-parsed IR equals the original authored IR.
-- Verify against ONE real Pokemon design from `plans/hero_designs_batch1.md` (e.g., Charmander) — build it via `HeroReplica` and confirm the emitted line matches what a hand-written struct literal with the same field values would emit.
+- Verify against ONE real hero from `working-mods/sliceymon.txt` — extract it to IR, then re-author it via `HeroReplica`, and confirm the resulting IR is field-equal to the extracted version (and re-emits to the same textmod line).
 
 **Verification**:
 - [ ] `cargo test authoring` passes.
@@ -365,7 +365,7 @@ Verification: a test suite that builds IR via the authoring layer, emits it, re-
 - [ ] `cargo run --example roundtrip_diag -- ../working-mods/{pansaer,punpuns,sliceymon,community}.txt` — all 4 ROUNDTRIP OK, 0 diff.
 - [ ] `cargo run --example author_hero` compiles and emits a valid hero line.
 - [ ] A manually written Pokemon hero (≤30 lines of authoring code) emits a modifier that passes the Rust validator.
-- [ ] One Sliceymon+ hero from `plans/hero_designs_batch1.md` is written using the new API end-to-end as a proof-of-concept — presented to user for sign-off before we scale to the full roster.
+- [ ] One hero is written end-to-end using the new API as a proof-of-concept — presented to user for sign-off before we scale to the full roster. Pokemon choice and design come from the user, not from archived design docs.
 
 ---
 
