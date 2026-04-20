@@ -235,11 +235,11 @@ mod tests {
             level: Some(4),
             format: crate::ir::BossFormat::Standard,
             encounter_id: None,
-            variants: vec![],
+            fights: vec![],
             doc: None,
             modifier_chain: None,
             source: Source::Base,
-            event_body: None,
+            event_phases: None,
         }
     }
 

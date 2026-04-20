@@ -109,14 +109,23 @@ pub fn verify_paren_balance(s: &str) -> Result<(), String> {
 }
 
 /// Extract the last `.mn.NAME` from a modifier string.
-/// NAME ends at `@`, `&`, `,`, or end of string.
+/// NAME ends at `@`, `&`, `,`, newline, or end of string.
+/// Trailing property markers like `.modtier.N` (community mod convention) also
+/// terminate the name — they are NOT part of it.
 pub fn extract_mn_name(modifier: &str) -> Option<String> {
     let marker = ".mn.";
     let pos = modifier.rfind(marker)?;
     let start = pos + marker.len();
     let remaining = &modifier[start..];
-    let end = remaining.find(['@', '&', ','])
+    let mut end = remaining.find(['@', '&', ',', '\n'])
         .unwrap_or(remaining.len());
+    // Also end at known trailing property markers (community mods put
+    // `.modtier.N` / `.doc.` / `.part.` after `.mn.`).
+    for m in &[".modtier.", ".doc.", ".part.", ".img.", ".tier."] {
+        if let Some(p) = remaining[..end].find(m) {
+            end = p;
+        }
+    }
     let name = remaining[..end].trim();
     if name.is_empty() { None } else { Some(name.to_string()) }
 }
@@ -237,9 +246,11 @@ pub fn verify_ascii_only(s: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Extract a simple property value, ending at the next known property marker.
+/// Extract a simple property value at depth 0, ending at the next known property marker.
+/// Only matches markers at parenthesis depth 0, so values inside nested paren groups
+/// (abilitydata, triggerhpdata, replica-inner) are ignored.
 pub fn extract_simple_prop(content: &str, marker: &str) -> Option<String> {
-    let pos = content.find(marker)?;
+    let pos = find_at_depth0(content, marker)?;
     let val_start = pos + marker.len();
     let remaining = &content[val_start..];
     let val_end = find_next_prop_boundary(remaining);
@@ -251,9 +262,9 @@ pub fn extract_simple_prop(content: &str, marker: &str) -> Option<String> {
 /// Also stops at `)` at depth 0 (which closes an outer scope, not part of the value).
 pub fn find_next_prop_boundary(remaining: &str) -> usize {
     let markers = [
-        ".col.", ".tier.", ".hp.", ".sd.", ".img.", ".abilitydata.", ".triggerhpdata.",
+        ".col.", ".tier.", ".hp.", ".sd.", ".img.", ".hsv.", ".abilitydata.", ".triggerhpdata.",
         ".doc.", ".hue.", ".speech.", ".n.", ".i.", ".k.", ".facade.", ".sticker.",
-        ".mn.", ".part.", ".bal.",
+        ".mn.", ".part.", ".bal.", ".t.",
     ];
     let bytes = remaining.as_bytes();
     let mut depth: i32 = 0;
@@ -279,7 +290,13 @@ pub fn find_next_prop_boundary(remaining: &str) -> usize {
     remaining.len()
 }
 
-/// Extract the modifier chain (.i./.k./.facade./.sticker. sequences) from replica content.
+/// Extract the modifier chain (.i./.sticker. sequences, plus standalone `.k.X`
+/// unit-level keywords) from replica or fight-unit content.
+///
+/// Standalone `.k.X` detection is conservative — only `.k.` at depth 0 that
+/// is NOT preceded by `.i.`, `.sticker.`, `.col.`, `#`, or another `.k.` is
+/// treated as a top-level keyword segment. This excludes item sub-entries
+/// (`.i.k.X`, `#k.X`) and the color letter `.col.k` boundary.
 pub fn extract_modifier_chain(content: &str) -> Option<String> {
     let non_chain_markers = [
         ".col.", ".tier.", ".hp.", ".sd.", ".img.", ".abilitydata.", ".triggerhpdata.",
@@ -299,8 +316,21 @@ pub fn extract_modifier_chain(content: &str) -> Option<String> {
         }
 
         if depth == 0 && bytes[i] == b'.' {
-            let is_chain = (i + 3 <= bytes.len() && &content[i..i + 3] == ".i.")
-                || (i + 9 <= bytes.len() && &content[i..i + 9] == ".sticker.");
+            let is_dot_i = i + 3 <= bytes.len() && &content[i..i + 3] == ".i.";
+            let is_sticker = i + 9 <= bytes.len() && &content[i..i + 9] == ".sticker.";
+            let is_chain = is_dot_i || is_sticker;
+
+            // Reject false `.i.` matches: when `.col.X.i.NEXT_PROPERTY`, the `.i.`
+            // is really the terminator of the color value (e.g. `col.i`). Detect by
+            // checking whether the next content starts with a non-chain property.
+            if is_dot_i {
+                let after = &content[i + 2..]; // starts with the trailing `.`
+                let is_false = non_chain_markers.iter().any(|m| after.starts_with(m));
+                if is_false {
+                    i += 1;
+                    continue;
+                }
+            }
 
             if is_chain {
                 let mut j = i + 1;
@@ -312,6 +342,10 @@ pub fn extract_modifier_chain(content: &str) -> Option<String> {
                             d -= 1;
                             if d < 0 { break; }
                         }
+                        // `&` and `@` at depth 0 mark top-level modifier flags
+                        // (&Hidden, &temporary) and variant triggers (@4m, @2!m).
+                        // Chain content never spans these — break the chunk.
+                        b'&' | b'@' if d == 0 => break,
                         _ => {}
                     }
                     if d == 0 && bytes[j] == b'.' {
@@ -319,6 +353,17 @@ pub fn extract_modifier_chain(content: &str) -> Option<String> {
                             j + m.len() <= bytes.len() && &content[j..j + m.len()] == *m
                         });
                         if is_non_chain { break; }
+                        // Top-level `.t.X` (template override) terminates chain
+                        // content. Inside `.i.t.X` or `.k.t.X` it's a sub-entry,
+                        // recognised by the 3-char-ending-at-j overlap with `.i.`
+                        // or `.k.`.
+                        if j + 3 <= bytes.len() && &content[j..j + 3] == ".t." {
+                            let preceded_by_chain = j >= 2 && {
+                                let pre = &content[j - 2..j + 1];
+                                pre == ".i." || pre == ".k."
+                            };
+                            if !preceded_by_chain { break; }
+                        }
                     }
                     j += 1;
                 }
@@ -334,31 +379,49 @@ pub fn extract_modifier_chain(content: &str) -> Option<String> {
 }
 
 /// Extract `.img.DATA` value at depth 0. DATA ends at the next known property
-/// marker (`.n.`, `.sd.`, etc.), `)`, or end of string.
+/// marker (`.n.`, `.sd.`, etc.), a `)` that closes an outer scope, or end of string.
+/// If DATA itself is a `(X)` paren group (e.g. `.img.(rdhero.hsv.0:0:0)`), the
+/// full group including the closing `)` is captured.
+///
 /// This is the shared extraction used by heroes, replica items, monsters, etc.
 /// Boss fight units use `extract_simple_prop(".img.")` which works the same way.
 pub fn extract_img_data(content: &str) -> Option<String> {
     let pos = find_last_at_depth0(content, ".img.")?;
     let val_start = pos + ".img.".len();
     let remaining = &content[val_start..];
+    // Paren-wrapped value: capture the whole matched group verbatim.
+    if remaining.starts_with('(') {
+        if let Some(close) = find_matching_close_paren(remaining, 0) {
+            return Some(remaining[..=close].to_string());
+        }
+    }
     // End at next property boundary or closing paren
     let end = find_img_data_end(remaining);
     let val = &remaining[..end];
     if val.is_empty() { None } else { Some(val.to_string()) }
 }
 
-/// Find where img data ends — at the next known property marker, `)`, or end of string.
+/// Find where img data ends — at the next known property marker, a depth-0 `)`
+/// (which closes an outer scope), or end of string. Depth-aware so that
+/// `)` characters inside a paren group inside the value don't terminate it.
 fn find_img_data_end(remaining: &str) -> usize {
     let bytes = remaining.as_bytes();
+    let mut depth: i32 = 0;
     for i in 0..bytes.len() {
         match bytes[i] {
-            b')' => return i,
-            b'.' => {
+            b'(' => depth += 1,
+            b')' => {
+                if depth == 0 {
+                    return i;
+                }
+                depth -= 1;
+            }
+            b'.' if depth == 0 => {
                 // Check for known property markers starting at this position
                 let markers = [
                     ".col.", ".tier.", ".hp.", ".sd.", ".abilitydata.", ".triggerhpdata.",
                     ".doc.", ".hue.", ".speech.", ".n.", ".i.", ".k.", ".facade.", ".sticker.",
-                    ".mn.", ".part.", ".bal.", ".img.",
+                    ".mn.", ".part.", ".bal.", ".img.", ".hsv.", ".t.",
                 ];
                 for marker in &markers {
                     if i + marker.len() <= bytes.len() && &remaining[i..i + marker.len()] == *marker {

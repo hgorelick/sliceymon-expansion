@@ -1,11 +1,12 @@
+pub mod constants;
 pub mod error;
 pub mod ir;
 pub mod extractor;
 pub mod builder;
 pub mod util;
-pub mod validator;
+pub mod xref;
 
-pub use validator::{validate, validate_cross_references, validate_ir, Finding, Severity, ValidationReport};
+pub use xref::{check_references, check_hero_in_context, check_boss_in_context, Finding, Severity, ValidationReport};
 pub use ir::Source;
 
 use std::collections::HashMap;
@@ -56,86 +57,56 @@ pub fn build_boss(boss: &ir::Boss) -> Result<String, CompilerError> {
     builder::boss_emitter::emit_boss(boss)
 }
 
-// -- Single-item validate functions --
+// -- Single-item validation wrappers (build = structural check, xref = semantic) --
 
-/// Validate a single hero in isolation.
+/// Validate a single hero by attempting to build it. If the build succeeds,
+/// the hero is structurally valid. Returns an empty report on success,
+/// or a report with a build error on failure.
 pub fn validate_hero(hero: &ir::Hero, sprites: &HashMap<String, String>) -> ValidationReport {
     let mut report = ValidationReport::default();
-    match build_hero(hero, sprites) {
-        Ok(modifier) => {
-            let single_mod = format!("{},", modifier);
-            match validate(&single_mod) {
-                Ok(sub_report) => {
-                    report.errors.extend(sub_report.errors);
-                    report.warnings.extend(sub_report.warnings);
-                }
-                Err(e) => {
-                    report.errors.push(Finding {
-                        rule_id: "E000".to_string(),
-                        severity: Severity::Error,
-                        modifier_index: Some(0),
-                        modifier_name: Some(hero.mn_name.clone()),
-                        position: None,
-                        context: None,
-                        message: format!("Validation failed: {}", e),
-                        ..Default::default()
-                    });
-                }
-            }
-        }
-        Err(e) => {
-            report.errors.push(Finding {
-                rule_id: "E000".to_string(),
-                severity: Severity::Error,
-                modifier_index: Some(0),
-                modifier_name: Some(hero.mn_name.clone()),
-                position: None,
-                context: None,
-                message: format!("Build failed: {}", e),
-                ..Default::default()
-            });
-        }
+    if let Err(e) = build_hero(hero, sprites) {
+        report.errors.push(Finding {
+            rule_id: "E000".to_string(),
+            severity: Severity::Error,
+            modifier_name: Some(hero.mn_name.clone()),
+            message: format!("Build failed: {}", e),
+            field_path: Some(format!("hero[{}]", hero.mn_name)),
+            suggestion: Some("Fix the hero definition so it can be built into a valid modifier".to_string()),
+            ..Default::default()
+        });
     }
     report
 }
 
 /// Validate a hero in the context of an existing IR (checks color conflicts, name duplicates).
+/// Combines build validation with cross-reference checks.
 pub fn validate_hero_in_context(hero: &ir::Hero, ir: &ModIR, sprites: &HashMap<String, String>) -> ValidationReport {
     let mut report = validate_hero(hero, sprites);
-
-    // Check color conflict
-    if let Some(existing) = ir.heroes.iter().find(|h| h.color == hero.color && h.mn_name != hero.mn_name) {
-        report.errors.push(Finding {
-            rule_id: "E019".to_string(),
-            severity: Severity::Error,
-            modifier_index: None,
-            modifier_name: Some(hero.mn_name.clone()),
-            position: None,
-            context: Some(format!("color '{}' used by '{}'", hero.color, existing.mn_name)),
-            message: format!(
-                "Hero '{}' uses color '{}' which is already used by '{}'",
-                hero.mn_name, hero.color, existing.mn_name
-            ),
-            ..Default::default()
-        });
-    }
-
-    // Check cross-category name duplicate
-    let lower = hero.mn_name.to_lowercase();
-    if ir.replica_items.iter().any(|r| r.name.to_lowercase() == lower) {
-        report.errors.push(Finding {
-            rule_id: "E020".to_string(),
-            severity: Severity::Error,
-            modifier_index: None,
-            modifier_name: Some(hero.mn_name.clone()),
-            position: None,
-            context: None,
-            message: format!("Hero name '{}' conflicts with an existing replica item", hero.mn_name),
-            ..Default::default()
-        });
-    }
-
+    let context_report = xref::check_hero_in_context(hero, ir);
+    report.merge(context_report);
     report
+}
+
+// -- Single-item phase functions --
+
+/// Parse a phase string into a Phase IR struct.
+pub fn parse_phase(content: &str) -> Result<ir::Phase, CompilerError> {
+    extractor::phase_parser::parse_phase(content)
+}
+
+/// Emit a Phase IR struct back to its textmod string representation.
+pub fn emit_phase(phase: &ir::Phase) -> Result<String, CompilerError> {
+    builder::phase_emitter::emit_phase(phase)
+}
+
+/// Parse a reward tag string into a RewardTag struct.
+pub fn parse_reward_tag(content: &str) -> Result<ir::RewardTag, CompilerError> {
+    extractor::reward_parser::parse_reward_tag(content)
+}
+
+/// Emit a RewardTag back to its textmod string representation.
+pub fn emit_reward_tag(tag: &ir::RewardTag) -> String {
+    builder::reward_emitter::emit_reward_tag(tag)
 }
 
 /// Serialize a ModIR to JSON.

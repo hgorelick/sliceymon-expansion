@@ -3,6 +3,10 @@ pub mod structural_emitter;
 pub mod replica_item_emitter;
 pub mod monster_emitter;
 pub mod boss_emitter;
+pub mod fight_emitter;
+pub mod chain_emitter;
+pub mod reward_emitter;
+pub mod phase_emitter;
 pub mod derived;
 
 use std::collections::HashMap;
@@ -107,8 +111,28 @@ pub fn build(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<String, Co
         modifiers.push(structural_emitter::emit(s));
     }
 
-    // 18. Unknown structural (appended at end)
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::Unknown) {
+    // 18. Phase modifiers
+    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::PhaseModifier) {
+        modifiers.push(structural_emitter::emit(s));
+    }
+
+    // 19. Choosables
+    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::Choosable) {
+        modifiers.push(structural_emitter::emit(s));
+    }
+
+    // 20. Value modifiers
+    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::ValueModifier) {
+        modifiers.push(structural_emitter::emit(s));
+    }
+
+    // 21. Hidden modifiers
+    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::HiddenModifier) {
+        modifiers.push(structural_emitter::emit(s));
+    }
+
+    // 22. Fight modifiers
+    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::FightModifier) {
         modifiers.push(structural_emitter::emit(s));
     }
 

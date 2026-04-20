@@ -77,6 +77,29 @@ pub enum CompilerError {
         key: String,
     },
 
+    /// Chain entry parse error
+    ChainParseError {
+        content: String,
+        position: usize,
+        expected: String,
+        found: String,
+    },
+
+    /// Phase parse error
+    PhaseParseError {
+        phase_code: Option<char>,
+        content: String,
+        expected: String,
+        found: String,
+    },
+
+    /// Reward tag parse error
+    RewardParseError {
+        content: String,
+        expected: String,
+        found: String,
+    },
+
     /// IO error (CLI only)
     IoError(String),
 }
@@ -175,6 +198,31 @@ impl fmt::Display for CompilerError {
             }
             CompilerError::NotFound { type_name, key } => {
                 write!(f, "NotFound: {} '{}' does not exist", type_name, key)
+            }
+            CompilerError::ChainParseError { content, position, expected, found } => {
+                write!(
+                    f,
+                    "ChainParseError at position {}: expected \"{}\", found \"{}\"\n  content: \"{}\"",
+                    position, expected, found, content
+                )
+            }
+            CompilerError::PhaseParseError { phase_code, content, expected, found } => {
+                let code_str = match phase_code {
+                    Some(c) => format!(" (phase code '{}')", c),
+                    None => String::new(),
+                };
+                write!(
+                    f,
+                    "PhaseParseError{}: expected \"{}\", found \"{}\"\n  content: \"{}\"",
+                    code_str, expected, found, content
+                )
+            }
+            CompilerError::RewardParseError { content, expected, found } => {
+                write!(
+                    f,
+                    "RewardParseError: expected \"{}\", found \"{}\"\n  content: \"{}\"",
+                    expected, found, content
+                )
             }
             CompilerError::IoError(msg) => {
                 write!(f, "IoError: {}", msg)

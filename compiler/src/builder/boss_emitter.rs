@@ -1,5 +1,6 @@
 use crate::error::CompilerError;
-use crate::ir::{Boss, BossFormat};
+use crate::ir::{Boss, BossFormat, PhaseContent};
+use crate::builder::fight_emitter;
 
 /// Emit a Boss struct as a modifier string.
 /// Dispatches on format: Standard (ch.om), Event (ch.om(...)), or Encounter (ph.b+fight).
@@ -13,11 +14,15 @@ pub fn emit_boss(boss: &Boss) -> Result<String, CompilerError> {
 
 /// Emit an event boss: `ch.om{event_body}.mn.Name`
 ///
-/// The event_body contains the full event content (initial body + branches).
+/// The event body is extracted from the first Message phase's text.
 fn emit_event(boss: &Boss) -> Result<String, CompilerError> {
     let mut out = String::from("ch.om");
-    if let Some(ref body) = boss.event_body {
-        out.push_str(body);
+    if let Some(ref phases) = boss.event_phases {
+        if let Some(phase) = phases.first() {
+            if let PhaseContent::Message { ref text, .. } = phase.content {
+                out.push_str(text.as_str());
+            }
+        }
     }
     out.push_str(".mn.");
     out.push_str(&boss.name);
@@ -36,29 +41,41 @@ fn emit_standard(boss: &Boss) -> Result<String, CompilerError> {
         out.push_str(&level.to_string());
     }
 
-    for variant in &boss.variants {
-        out.push_str(".fight.(");
+    for fight in &boss.fights {
+        out.push_str(".fight.");
 
-        for (ui, unit) in variant.fight_units.iter().enumerate() {
+        // Per-unit wrap shape is preserved from source via `outer_paren` and
+        // `head_paren` flags. Source exhibits all three shapes:
+        //   (Unit.props)          — outer_paren=true
+        //   (Template.n.Name).props — head_paren=true (fight_emitter emits parens)
+        //   Template.props        — flat (no wrap)
+        for (ui, unit) in fight.enemies.iter().enumerate() {
             if ui > 0 {
                 out.push('+');
             }
-            emit_fight_unit(&mut out, unit);
+            if unit.outer_paren {
+                out.push('(');
+                fight_emitter::emit_fight_unit(&mut out, unit);
+                out.push(')');
+            } else {
+                // head_paren units emit their own `(T.n.N)`; flat units emit nothing extra.
+                fight_emitter::emit_fight_unit(&mut out, unit);
+            }
         }
-
-        out.push(')');
 
         // Variant name and trigger (for multi-variant bosses with labeled alternatives)
-        if !variant.name.is_empty() {
-            out.push_str(".mn.");
-            out.push_str(&variant.name);
+        if let Some(ref name) = fight.name {
+            if !name.is_empty() {
+                out.push_str(".mn.");
+                out.push_str(name);
+            }
         }
-        if let Some(ref trigger) = variant.trigger {
+        if let Some(ref trigger) = fight.trigger {
             out.push_str(trigger);
         }
     }
 
-    // Doc and modifier chain (after all variants)
+    // Doc and modifier chain (after all fights)
     if let Some(ref doc) = boss.doc {
         out.push_str(".doc.");
         out.push_str(doc);
@@ -91,12 +108,12 @@ fn emit_encounter(boss: &Boss) -> Result<String, CompilerError> {
     // Fight content (flat, not paren-wrapped)
     out.push_str(".fight.");
 
-    if let Some(variant) = boss.variants.first() {
-        for (ui, unit) in variant.fight_units.iter().enumerate() {
+    if let Some(fight) = boss.fights.first() {
+        for (ui, unit) in fight.enemies.iter().enumerate() {
             if ui > 0 {
                 out.push('+');
             }
-            emit_fight_unit(&mut out, unit);
+            fight_emitter::emit_fight_unit(&mut out, unit);
         }
     }
 
@@ -108,49 +125,10 @@ fn emit_encounter(boss: &Boss) -> Result<String, CompilerError> {
     Ok(out)
 }
 
-/// Emit a single fight unit's properties.
-fn emit_fight_unit(out: &mut String, unit: &crate::ir::BossFightUnit) {
-    out.push_str(&unit.template);
-
-    // Template override (.t.)
-    if let Some(ref t) = unit.template_override {
-        out.push_str(".t.");
-        out.push_str(t);
-    }
-
-    // Modifier chain (items, equipment, facades)
-    if let Some(ref chain) = unit.modifier_chain {
-        out.push_str(&chain.emit());
-    }
-
-    if let Some(hp) = unit.hp {
-        out.push_str(".hp.");
-        out.push_str(&hp.to_string());
-    }
-
-    if let Some(ref sd) = unit.sd {
-        out.push_str(".sd.");
-        out.push_str(&sd.emit());
-    }
-
-    if let Some(ref img) = unit.sprite_data {
-        out.push_str(".img.");
-        out.push_str(img);
-    }
-
-    if let Some(ref doc) = unit.doc {
-        out.push_str(".doc.");
-        out.push_str(doc);
-    }
-
-    out.push_str(".n.");
-    out.push_str(&unit.name);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{BossFightUnit, BossFightVariant, DiceFaces, Source};
+    use crate::ir::{FightUnit, FightDefinition, DiceFaces, Source};
 
     #[test]
     fn emit_single_variant_boss() {
@@ -159,24 +137,22 @@ mod tests {
             level: Some(4),
             format: BossFormat::Standard,
             encounter_id: None,
-            variants: vec![BossFightVariant {
-                name: String::new(),
-                trigger: None,
-                fight_units: vec![BossFightUnit {
+            fights: vec![FightDefinition {
+                level: None,
+                enemies: vec![FightUnit {
                     template: "Sniper".into(),
                     name: "Wooper".into(),
                     hp: Some(3),
                     sd: Some(DiceFaces::parse("0:0:0:0:0:0")),
-                    sprite_data: None,
-                    template_override: None,
-                    doc: None,
-                    modifier_chain: None,
+                    ..Default::default()
                 }],
+                name: None,
+                trigger: None,
             }],
             doc: None,
             modifier_chain: None,
             source: Source::Base,
-            event_body: None,
+            event_phases: None,
         };
         let out = emit_boss(&boss).unwrap();
         assert!(out.starts_with("ch.om4"), "Should start with ch.om4: {}", out);
@@ -192,24 +168,22 @@ mod tests {
             level: Some(12),
             format: BossFormat::Encounter,
             encounter_id: Some('X'),
-            variants: vec![BossFightVariant {
-                name: "TestEncounter".into(),
-                trigger: None,
-                fight_units: vec![BossFightUnit {
+            fights: vec![FightDefinition {
+                level: None,
+                enemies: vec![FightUnit {
                     template: "Basalt".into(),
                     name: "Necrozma".into(),
                     hp: Some(25),
-                    sd: None,
-                    sprite_data: None,
-                    template_override: None,
                     doc: Some("The Pillager".into()),
-                    modifier_chain: None,
+                    ..Default::default()
                 }],
+                name: Some("TestEncounter".into()),
+                trigger: None,
             }],
             doc: None,
             modifier_chain: None,
             source: Source::Base,
-            event_body: None,
+            event_phases: None,
         };
         let out = emit_boss(&boss).unwrap();
         assert!(out.starts_with("1.ph.bX;1;!m("), "Should start with encounter prefix: {}", out);
@@ -225,11 +199,11 @@ mod tests {
             level: Some(1),
             format: BossFormat::Standard,
             encounter_id: None,
-            variants: vec![],
+            fights: vec![],
             doc: None,
             modifier_chain: None,
             source: Source::Base,
-            event_body: None,
+            event_phases: None,
         };
         let out = emit_boss(&boss).unwrap();
         assert!(out.contains(".mn.Empty"), "Should contain name even with no variants");

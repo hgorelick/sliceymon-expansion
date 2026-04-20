@@ -63,7 +63,9 @@ fn parse_grouped(modifier: &str, _modifier_index: usize) -> Hero {
 
         let mut parsed_blocks = Vec::new();
         for bs in &block_strs {
-            let bs = bs.trim();
+            // Only strip leading whitespace — trailing whitespace may be part of
+            // a `.n. ` display name (heroes can be named " " or have trailing spaces).
+            let bs = bs.trim_start();
             if bs.is_empty() {
                 continue;
             }
@@ -94,6 +96,7 @@ fn try_parse_grouped_block(block: &str) -> Option<HeroBlock> {
     // 1. (replica.Template.col.X.hp.N.sd.FACES.img.DATA).speech.X.n.Name
     // 2. Bare template block: Template.n.Name.sd.FACES.img.DATA... (no wrapping parens)
     // 3. Plain name reference (no parens, no .sd.) — skip these
+    // 4. Community nested: (((replica.((TEMPLATE.props).i.CHAIN.n.Name).abilitydata.(X)).img.HEROIMG).doc.DOC)
     let (replica_content, outside_content, is_bare) = if let Some(open_pos) = block.find('(') {
         if let Some(close_pos) = util::find_matching_close_paren(block, open_pos) {
             (&block[open_pos + 1..close_pos], &block[close_pos + 1..], false)
@@ -107,50 +110,105 @@ fn try_parse_grouped_block(block: &str) -> Option<HeroBlock> {
         return None;
     };
 
-    // Unwrap nested parens: ((replica.X...)) -> replica.X...
-    let unwrapped = {
-        let mut s = replica_content;
-        while s.starts_with('(') && s.ends_with(')') {
-            s = &s[1..s.len()-1];
+    // Peel successive balanced `(INNER).post_props` wrap layers, collecting the
+    // post-close properties at each layer. This handles community's triple-nested
+    // format: (((INNERMOST).img.X).doc.Y) — each layer contributes its own props.
+    let mut outer_post_layers: Vec<String> = Vec::new();
+    let mut inner = replica_content;
+    loop {
+        // Strip symmetric outer wrap: "(X)" -> "X" (only when the opening `(`
+        // matches the FINAL `)`, so no props trail the wrap).
+        if inner.starts_with('(') && inner.ends_with(')') {
+            if let Some(close) = util::find_matching_close_paren(inner, 0) {
+                if close == inner.len() - 1 {
+                    inner = &inner[1..inner.len() - 1];
+                    continue;
+                }
+            }
         }
-        // Also handle leading ( without matching ) (asymmetric nesting)
-        while s.starts_with('(') {
-            s = &s[1..];
+        // Peel wrap with trailing properties: "(X).prop1.prop2" -> inner="X",
+        // collect ".prop1.prop2" for later extraction.
+        if inner.starts_with('(') {
+            if let Some(close) = util::find_matching_close_paren(inner, 0) {
+                if close < inner.len() - 1 {
+                    outer_post_layers.push(inner[close + 1..].to_string());
+                    inner = &inner[1..close];
+                    continue;
+                }
+            }
         }
-        s
-    };
+        break;
+    }
+    let unwrapped = inner;
 
-    let template = unwrapped
+    // Merge post-layer props so depth-0 extractors can find .img./.doc./etc.
+    let extra_outer: String = outer_post_layers.join("");
+    let outside_combined = format!("{}{}", outside_content, extra_outer);
+
+    // Template: after stripping "replica.", also peel a leading "(template-group)"
+    // used by community format (replica.(TEMPLATE.props)... instead of replica.TEMPLATE.props).
+    let after_replica = unwrapped
         .strip_prefix("replica.")
-        .or_else(|| unwrapped.strip_prefix("Replica."))
-        .and_then(|r| r.find('.').map(|end| r[..end].to_string()))
-        .or_else(|| {
-            // Non-replica template: first segment before '.' (e.g., "Sparky.n.Rotom" -> "Sparky")
+        .or_else(|| unwrapped.strip_prefix("Replica."));
+    let (template, template_flat) = match after_replica {
+        Some(r) => {
+            // Recursively peel leading (...) template-group wraps so props at
+            // any nesting depth become depth-0 in the flattened content.
+            // Handles:
+            //   replica.TEMPLATE.props                   (sliceymon)
+            //   replica.(TEMPLATE.props).rest            (community single-wrap)
+            //   replica.((TEMPLATE.inner).rest1).rest2   (community double-wrap)
+            let mut cur = r;
+            let mut collected_after = String::new();
+            while cur.starts_with('(') {
+                if let Some(close) = util::find_matching_close_paren(cur, 0) {
+                    let after = &cur[close + 1..];
+                    collected_after.push_str(after);
+                    cur = &cur[1..close];
+                } else {
+                    break;
+                }
+            }
+            let end = cur.find('.').unwrap_or(cur.len());
+            let t = cur[..end].to_string();
+            let flat = format!("{}{}", cur, collected_after);
+            (t, flat)
+        }
+        None => {
             let end = unwrapped.find('.').unwrap_or(unwrapped.len());
-            let name = &unwrapped[..end];
-            if name.is_empty() { None } else { Some(name.to_string()) }
-        })
-        .unwrap_or_default();
-
-    let tier = extract_tier_number(unwrapped);
-    let hp = util::extract_hp(unwrapped, true);
-    let sd = util::extract_sd(unwrapped, true)
+            let name = unwrapped[..end].to_string();
+            (name, unwrapped.to_string())
+        }
+    };
+    // Use template_flat for depth-0 extractions (handles community's
+    // replica.(TEMPLATE_GROUP) pattern where props live inside the group).
+    // outside_combined adds the post-close props from peeled layers.
+    // Community format can place .col./.hp./.tier./.sd. either inside the replica
+    // parens or as post-close properties on outside_combined (e.g., `(replica.zm).hp.5.col.g.tier.0`).
+    // Check both locations, preferring inside.
+    let tier = extract_tier_number(&template_flat)
+        .or_else(|| extract_tier_number(&outside_combined));
+    let hp = util::extract_hp(&template_flat, true)
+        .or_else(|| util::extract_hp(&outside_combined, true));
+    let sd = util::extract_sd(&template_flat, true)
+        .or_else(|| util::extract_sd(&outside_combined, true))
         .map(|s| crate::ir::DiceFaces::parse(&s))
         .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
-    let block_color = util::extract_color(unwrapped);
+    let block_color = util::extract_color(&template_flat)
+        .or_else(|| util::extract_color(&outside_combined));
 
-    let abilitydata = util::extract_nested_prop(unwrapped, ".abilitydata.")
-        .or_else(|| util::extract_nested_prop(outside_content, ".abilitydata."))
+    let abilitydata = util::extract_nested_prop(&template_flat, ".abilitydata.")
+        .or_else(|| util::extract_nested_prop(&outside_combined, ".abilitydata."))
         .map(|s| crate::ir::AbilityData::parse(&s));
-    let triggerhpdata = util::extract_nested_prop(unwrapped, ".triggerhpdata.")
-        .or_else(|| util::extract_nested_prop(outside_content, ".triggerhpdata."))
+    let triggerhpdata = util::extract_nested_prop(&template_flat, ".triggerhpdata.")
+        .or_else(|| util::extract_nested_prop(&outside_combined, ".triggerhpdata."))
         .map(|s| crate::ir::TriggerHpDef::parse(&s));
-    let hue = extract_depth0_simple_prop(unwrapped, ".hue.")
-        .or_else(|| extract_depth0_simple_prop(outside_content, ".hue."));
+    let hue = extract_depth0_simple_prop(&template_flat, ".hue.")
+        .or_else(|| extract_depth0_simple_prop(&outside_combined, ".hue."));
 
-    let img_data = util::extract_img_data(unwrapped)
-        .or_else(|| util::extract_img_data(outside_content));
-    let modifier_chain = util::extract_modifier_chain(unwrapped)
+    let img_data = util::extract_img_data(&template_flat)
+        .or_else(|| util::extract_img_data(&outside_combined));
+    let modifier_chain = util::extract_modifier_chain(&template_flat)
         .map(|s| crate::ir::ModifierChain::parse(&s));
     let facades = modifier_chain.as_ref()
         .map(|c| c.facades())
@@ -158,14 +216,20 @@ fn try_parse_grouped_block(block: &str) -> Option<HeroBlock> {
     let items_inside: Option<crate::ir::ModifierChain> = None;
 
     // For bare blocks, speech/name/doc are in replica_content (same level)
-    let speech = util::extract_simple_prop(outside_content, ".speech.");
+    let speech = util::extract_simple_prop(&outside_combined, ".speech.");
     let name = {
-        let n = extract_display_name(outside_content);
-        if n.is_empty() { extract_display_name(unwrapped) } else { n }
+        let n = extract_display_name(&outside_combined);
+        if n.is_empty() { extract_display_name(&template_flat) } else { n }
     };
-    let doc = util::extract_simple_prop(outside_content, ".doc.");
-    let items_outside = extract_items_outside(outside_content)
-        .map(|s| crate::ir::ModifierChain::parse(&s));
+    let doc = util::extract_simple_prop(&outside_combined, ".doc.");
+    // Bare blocks have replica_content == outside_content, so extract_items_outside
+    // would duplicate the entries already captured by modifier_chain. Skip it.
+    let items_outside = if is_bare {
+        None
+    } else {
+        extract_items_outside(&outside_combined)
+            .map(|s| crate::ir::ModifierChain::parse(&s))
+    };
 
     let sprite_name = name.clone();
 
@@ -567,12 +631,38 @@ fn extract_items_outside(outside: &str) -> Option<String> {
     let bytes = outside.as_bytes();
     let mut items: Vec<&str> = Vec::new();
     let mut i = 0;
+    let mut outer_depth: i32 = 0;
 
     while i < bytes.len() {
-        // Look for .i. or .sticker. at depth 0
-        if i + 3 <= bytes.len() && &outside[i..i + 3] == ".i." {
-            // Found start of an item chain entry. Scan forward, tracking paren depth,
-            // until we hit a non-item marker at depth 0 or end of string.
+        // Track paren depth in the outer scan so `.i.` inside a nested paren
+        // group (e.g., `.abilitydata.(Fey.sd....i.left.k.X.i.left.k.Y...)`)
+        // is NOT mistaken for a top-level item marker.
+        match bytes[i] {
+            b'(' => { outer_depth += 1; i += 1; continue; }
+            b')' => { outer_depth -= 1; i += 1; continue; }
+            _ => {}
+        }
+
+        // Stop scanning at the display-name marker `.n.` at depth 0 — anything
+        // after that is the block's name, not an item (handles heroes whose
+        // display name contains `.i.`, e.g., `.n.i.t.Barrel`).
+        if outer_depth == 0 && i + 3 <= bytes.len() && &outside[i..i + 3] == ".n." {
+            break;
+        }
+
+        // Only match `.i.` at depth 0.
+        if outer_depth == 0 && i + 3 <= bytes.len() && &outside[i..i + 3] == ".i." {
+            // Reject false matches: `.col.X.i.NEXT_PROP` — the `.i.` is really the
+            // `.` between the color value `X` and the next property, not a chain marker.
+            // Detect by checking whether the content after `.i.` starts with a
+            // non-item property marker.
+            let after = &outside[i + 2..]; // starts with the trailing `.`
+            let is_false = non_item_markers.iter().any(|m| after.starts_with(m));
+            if is_false {
+                i += 1;
+                continue;
+            }
+
             let item_start = i;
             i += 3; // skip ".i."
             let mut depth: i32 = 0;
@@ -584,6 +674,7 @@ fn extract_items_outside(outside: &str) -> Option<String> {
                         depth -= 1;
                         if depth < 0 {
                             // Hit a close paren that belongs to outer scope — stop before it
+                            outer_depth -= 1;
                             break;
                         }
                         i += 1;

@@ -36,7 +36,7 @@ pub struct DiceFaces {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum DiceFace {
     Blank,
-    Active { face_id: u16, pips: u8 },
+    Active { face_id: u16, pips: i16 },
 }
 
 impl DiceFaces {
@@ -46,9 +46,13 @@ impl DiceFaces {
             let entry = entry.trim();
             if entry == "0" || entry == "0-0" || entry.is_empty() {
                 DiceFace::Blank
-            } else if let Some((id_str, pips_str)) = entry.split_once('-') {
+            } else if let Some(dash_pos) = entry.find('-') {
+                // `face_id-pips` where pips may be negative (e.g. `13--1`)
+                // Split on FIRST dash — everything after is the signed pips value.
+                let (id_str, pips_with_dash) = entry.split_at(dash_pos);
+                let pips_str = &pips_with_dash[1..]; // skip the separator
                 let face_id = id_str.parse::<u16>().unwrap_or(0);
-                let pips = pips_str.parse::<u8>().unwrap_or(0);
+                let pips = pips_str.parse::<i16>().unwrap_or(0);
                 if face_id == 0 && pips == 0 {
                     DiceFace::Blank
                 } else {
@@ -71,6 +75,7 @@ impl DiceFaces {
     pub fn emit(&self) -> String {
         self.faces.iter().map(|f| match f {
             DiceFace::Blank => "0".to_string(),
+            // Negative pips render as `ID--N` because the signed value prints its own `-`.
             DiceFace::Active { face_id, pips } => format!("{}-{}", face_id, pips),
         }).collect::<Vec<_>>().join(":")
     }
@@ -101,25 +106,21 @@ pub struct ModifierChain {
 }
 
 /// A single segment within a modifier chain.
-/// Each segment corresponds to one `.i.` or `.sticker.` group from the chain string.
+/// Each segment corresponds to one `.i.` or `.sticker.` group, with typed sub-entries.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct ChainSegment {
-    pub kind: SegmentKind,
-    /// The content of this segment (everything after the `.i.`/`.sticker.` prefix,
-    /// up to the next segment boundary). Includes slot, items, `#`-separated modifiers.
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub enum SegmentKind {
+pub enum ChainSegment {
     /// `.i.` — item/equipment segment
-    Item,
+    Item {
+        sub_entries: Vec<ChainEntry>,
+    },
     /// `.sticker.` — sticker segment
-    Sticker,
+    Sticker {
+        sub_entries: Vec<ChainEntry>,
+    },
 }
 
 impl ModifierChain {
-    /// Parse a modifier chain string into segments.
+    /// Parse a modifier chain string into segments with typed entries.
     /// The input is the output of `util::extract_modifier_chain()` — a concatenation of
     /// `.i.` and `.sticker.` groups with no intervening non-chain content.
     pub fn parse(s: &str) -> Self {
@@ -129,10 +130,10 @@ impl ModifierChain {
 
         while i < bytes.len() {
             // Find the next segment start
-            let (kind, prefix_len) = if i + 3 <= bytes.len() && &s[i..i + 3] == ".i." {
-                (SegmentKind::Item, 3)
+            let (is_item, prefix_len) = if i + 3 <= bytes.len() && &s[i..i + 3] == ".i." {
+                (true, 3)
             } else if i + 9 <= bytes.len() && &s[i..i + 9] == ".sticker." {
-                (SegmentKind::Sticker, 9)
+                (false, 9)
             } else {
                 i += 1;
                 continue;
@@ -160,9 +161,14 @@ impl ModifierChain {
                 j += 1;
             }
 
-            let content = s[content_start..j].to_string();
+            let content = &s[content_start..j];
             if !content.is_empty() {
-                segments.push(ChainSegment { kind, content });
+                let sub_entries = crate::extractor::chain_parser::parse_chain_entries(content);
+                if is_item {
+                    segments.push(ChainSegment::Item { sub_entries });
+                } else {
+                    segments.push(ChainSegment::Sticker { sub_entries });
+                }
             }
             i = j;
         }
@@ -175,11 +181,16 @@ impl ModifierChain {
     pub fn emit(&self) -> String {
         let mut out = String::new();
         for seg in &self.segments {
-            match seg.kind {
-                SegmentKind::Item => out.push_str(".i."),
-                SegmentKind::Sticker => out.push_str(".sticker."),
+            match seg {
+                ChainSegment::Item { sub_entries } => {
+                    out.push_str(".i.");
+                    out.push_str(&crate::builder::chain_emitter::emit_chain_entries(sub_entries));
+                }
+                ChainSegment::Sticker { sub_entries } => {
+                    out.push_str(".sticker.");
+                    out.push_str(&crate::builder::chain_emitter::emit_chain_entries(sub_entries));
+                }
             }
-            out.push_str(&seg.content);
         }
         out
     }
@@ -212,9 +223,8 @@ mod modifier_chain_tests {
         let s = ".i.left.k.scared#facade.bas170:55.i.topbot.facade.eba3:0";
         let chain = ModifierChain::parse(s);
         assert_eq!(chain.segments.len(), 2);
-        assert_eq!(chain.segments[0].kind, SegmentKind::Item);
-        assert_eq!(chain.segments[0].content, "left.k.scared#facade.bas170:55");
-        assert_eq!(chain.segments[1].content, "topbot.facade.eba3:0");
+        assert!(matches!(&chain.segments[0], ChainSegment::Item { .. }));
+        assert!(matches!(&chain.segments[1], ChainSegment::Item { .. }));
         assert_eq!(chain.emit(), s);
     }
 
@@ -223,7 +233,7 @@ mod modifier_chain_tests {
         let s = ".sticker.k.dejavu#k.exert#sidesc.Add [pink]dejavu[cu] to target's sides this turn";
         let chain = ModifierChain::parse(s);
         assert_eq!(chain.segments.len(), 1);
-        assert_eq!(chain.segments[0].kind, SegmentKind::Sticker);
+        assert!(matches!(&chain.segments[0], ChainSegment::Sticker { .. }));
         assert_eq!(chain.emit(), s);
     }
 
@@ -233,7 +243,6 @@ mod modifier_chain_tests {
         let chain = ModifierChain::parse(s);
         // The .i. inside parens should NOT be a split point
         assert_eq!(chain.segments.len(), 2);
-        assert!(chain.segments[0].content.starts_with("(left.hat."));
         assert_eq!(chain.emit(), s);
     }
 
@@ -242,8 +251,8 @@ mod modifier_chain_tests {
         let s = ".i.left.k.pain.sticker.ritemx.dae9";
         let chain = ModifierChain::parse(s);
         assert_eq!(chain.segments.len(), 2);
-        assert_eq!(chain.segments[0].kind, SegmentKind::Item);
-        assert_eq!(chain.segments[1].kind, SegmentKind::Sticker);
+        assert!(matches!(&chain.segments[0], ChainSegment::Item { .. }));
+        assert!(matches!(&chain.segments[1], ChainSegment::Sticker { .. }));
         assert_eq!(chain.emit(), s);
     }
 
@@ -260,6 +269,27 @@ mod modifier_chain_tests {
         let facades = chain.facades();
         assert!(facades.contains(&"bas170:55".to_string()));
         assert!(facades.contains(&"eba3:0".to_string()));
+    }
+
+    #[test]
+    fn typed_entries_populated() {
+        let chain = ModifierChain::parse(".i.left.k.scared#facade.bas170:55");
+        if let ChainSegment::Item { sub_entries } = &chain.segments[0] {
+            assert_eq!(sub_entries.len(), 2);
+            assert!(matches!(&sub_entries[0], ChainEntry::Keyword { keyword, position }
+                if keyword == "scared" && position.as_deref() == Some("left")));
+            assert!(matches!(&sub_entries[1], ChainEntry::Facade { entity_code, parameter }
+                if entity_code == "bas170" && parameter == "55"));
+        } else {
+            panic!("Expected Item segment");
+        }
+    }
+
+    #[test]
+    fn parenthesized_entry_roundtrip() {
+        let s = ".i.(left.hat.(statue.sd.15-2))";
+        let chain = ModifierChain::parse(s);
+        assert_eq!(chain.emit(), s);
     }
 }
 
@@ -278,6 +308,10 @@ pub struct AbilityData {
     /// HSV color adjustment (e.g., "50:-20:0")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hsv: Option<String>,
+    /// Ability classification: spell (mana cost on side 5) or tactic (costs on sides 3/4/6).
+    /// Derived from dice face data, not parsed from text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ability_type: Option<AbilityType>,
 }
 
 impl AbilityData {
@@ -308,7 +342,7 @@ impl AbilityData {
 
         let hsv = crate::util::extract_simple_prop(inner, ".hsv.");
 
-        AbilityData { template, sd, img_data, name, modifier_chain, hsv }
+        AbilityData { template, sd, img_data, name, modifier_chain, hsv, ability_type: None }
     }
 
     /// Emit back to the .abilitydata.(...) format (including outer parens).
@@ -612,13 +646,12 @@ pub struct Boss {
     /// Single letter after ph.b (X, Y, B, L) — Encounter format only
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encounter_id: Option<char>,
-    /// Fight variants — one or more alternative fights for this encounter
-    pub variants: Vec<BossFightVariant>,
-    /// Event body — authored narrative text for Event format bosses.
-    /// Contains dialog text, selector options, and embedded fight/game mechanics.
-    /// This is free-form game content (like speech or dialog body), not unparsed data.
+    /// Fight definitions — one or more alternative fights for this encounter
+    pub fights: Vec<FightDefinition>,
+    /// Event phases — structured representation of event boss narrative content.
+    /// For round-trip safety, event body text is stored as a single Message phase.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub event_body: Option<String>,
+    pub event_phases: Option<Vec<Phase>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -627,38 +660,8 @@ pub struct Boss {
     pub source: Source,
 }
 
-/// A single fight variant within a boss encounter.
-/// Multi-variant encounters define alternatives the game selects from.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct BossFightVariant {
-    /// Variant label (e.g., "Quagsire", "Exeggutor"). Empty for single-variant encounters.
-    pub name: String,
-    /// Game trigger suffix (e.g., "@4m4"). None for the last variant.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub trigger: Option<String>,
-    /// Fight units in this variant
-    pub fight_units: Vec<BossFightUnit>,
-}
-
-/// A unit within a boss fight (parsed from +separated blocks inside .fight.(...))
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct BossFightUnit {
-    pub template: String,
-    pub name: String,
-    pub hp: Option<u16>,
-    pub sd: Option<DiceFaces>,
-    pub sprite_data: Option<String>,
-    /// Template override (the `.t.` property, e.g., "wisp", "Slate")
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub template_override: Option<String>,
-    /// Documentation text
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub doc: Option<String>,
-    /// Item/equipment chain applied to this unit (.i./.k./.facade. sequences).
-    /// Can contain nested structures like eggs: `.i.all.mid.hat.(egg.(Slimelet...))`
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub modifier_chain: Option<ModifierChain>,
-}
+// BossFightVariant and BossFightUnit have been replaced by FightDefinition and FightUnit
+// (defined below in the Fight Definitions section).
 
 // -- Structural Modifiers --
 
@@ -706,7 +709,11 @@ pub enum StructuralType {
     BossModifier,
     ArtCredits,
     PoolReplacement,
-    Unknown,
+    PhaseModifier,
+    Choosable,
+    ValueModifier,
+    HiddenModifier,
+    FightModifier,
 }
 
 /// Structural modifier content. Each variant stores a `body` field containing the full
@@ -767,8 +774,37 @@ pub enum StructuralContent {
     EndScreen {
         body: String,
     },
-    Unknown {
+    PhaseModifier {
         body: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        level_scope: Option<LevelScope>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        phase: Option<Phase>,
+    },
+    Choosable {
+        body: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        level_scope: Option<LevelScope>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tag: Option<RewardTag>,
+    },
+    ValueModifier {
+        body: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        level_scope: Option<LevelScope>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        value_ref: Option<ValueRef>,
+    },
+    HiddenModifier {
+        body: String,
+        modifier_type: HiddenModifierType,
+    },
+    FightModifier {
+        body: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        level_scope: Option<LevelScope>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fight: Option<FightDefinition>,
     },
 }
 
@@ -790,7 +826,11 @@ impl StructuralContent {
             StructuralType::LevelUpAction => Self::LevelUpAction { body },
             StructuralType::PoolReplacement => Self::PoolReplacement { body, hero_names: vec![] },
             StructuralType::EndScreen => Self::EndScreen { body },
-            StructuralType::Unknown => Self::Unknown { body },
+            StructuralType::PhaseModifier => Self::PhaseModifier { body, level_scope: None, phase: None },
+            StructuralType::Choosable => Self::Choosable { body, level_scope: None, tag: None },
+            StructuralType::ValueModifier => Self::ValueModifier { body, level_scope: None, value_ref: None },
+            StructuralType::HiddenModifier => Self::HiddenModifier { body, modifier_type: HiddenModifierType::Skip },
+            StructuralType::FightModifier => Self::FightModifier { body, level_scope: None, fight: None },
         }
     }
 
@@ -810,7 +850,11 @@ impl StructuralContent {
             Self::LevelUpAction { body } => body,
             Self::PoolReplacement { body, .. } => body,
             Self::EndScreen { body } => body,
-            Self::Unknown { body } => body,
+            Self::PhaseModifier { body, .. } => body,
+            Self::Choosable { body, .. } => body,
+            Self::ValueModifier { body, .. } => body,
+            Self::HiddenModifier { body, .. } => body,
+            Self::FightModifier { body, .. } => body,
         }
     }
 }
@@ -821,4 +865,615 @@ pub struct ItemPoolEntry {
     pub name: String,
     pub tier: Option<i8>,
     pub content: String,
+}
+
+// =========================================================================
+// New types for Textmod API integration (Chunk 2)
+// =========================================================================
+
+// -- Phase System --
+
+/// Phase — control flow unit for custom modes and events.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Phase {
+    pub phase_type: PhaseType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level_scope: Option<LevelScope>,
+    pub content: PhaseContent,
+}
+
+/// Phase type codes — the character after "ph." in the textmod.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum PhaseType {
+    SimpleChoice,   // ph.!
+    PlayerRolling,  // ph.0
+    Targeting,      // ph.1
+    LevelEnd,       // ph.2
+    EnemyRolling,   // ph.3
+    Message,        // ph.4
+    HeroChange,     // ph.5
+    Reset,          // ph.6
+    ItemCombine,    // ph.7
+    PositionSwap,   // ph.8
+    Challenge,      // ph.9
+    Boolean,        // ph.b
+    Choice,         // ph.c
+    Damage,         // ph.d
+    RunEnd,         // ph.e
+    Linked,         // ph.l
+    RandomReveal,   // ph.r
+    Seq,            // ph.s
+    Trade,          // ph.t
+    PhaseGenerator, // ph.g
+    Boolean2,       // ph.z
+}
+
+/// Phase content — variant-specific data for each phase type.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum PhaseContent {
+    SimpleChoice {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        rewards: Vec<RewardTag>,
+    },
+    Message {
+        text: RichText,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        button_text: Option<String>,
+    },
+    HeroChange {
+        hero_position: u8,
+        change_type: HeroChangeType,
+    },
+    Boolean {
+        value_name: String,
+        threshold: i32,
+        if_true: Box<Phase>,
+        if_false: Box<Phase>,
+    },
+    Linked {
+        phases: Vec<Phase>,
+    },
+    Seq {
+        message: RichText,
+        options: Vec<SeqOption>,
+    },
+    Trade {
+        rewards: Vec<RewardTag>,
+    },
+    Choice {
+        choice_type: ChoiceType,
+        rewards: Vec<RewardTag>,
+    },
+    LevelEnd {
+        phases: Vec<Phase>,
+    },
+    Challenge {
+        reward: Vec<RewardTag>,
+        extra_monsters: Vec<String>,
+    },
+    PositionSwap {
+        first: u8,
+        second: u8,
+    },
+    ItemCombine {
+        combine_type: String,
+    },
+    RandomReveal {
+        reward: RewardTag,
+    },
+    PhaseGenerator {
+        gen_type: PhaseGenType,
+    },
+    RunEnd,
+    Reset,
+    PlayerRolling,
+    Targeting,
+    EnemyRolling,
+    Damage,
+}
+
+/// An option in a SeqPhase.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SeqOption {
+    pub button_text: String,
+    pub phases: Vec<Phase>,
+}
+
+// -- Reward Tags --
+
+/// Choosable/SCPhase reward tag.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RewardTag {
+    pub tag_type: RewardTagType,
+    pub content: String,
+}
+
+/// Reward tag type — the single-letter prefix in reward strings.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum RewardTagType {
+    Modifier,     // m
+    Item,         // i
+    Levelup,      // l
+    Hero,         // g
+    Random,       // r — tier~amount~tag
+    RandomRange,  // q — tier1~tier2~amount~tag
+    Or,           // o — @4 delimiter
+    Enu,          // e
+    Value,        // v — variable system
+    Replace,      // p — pm(old)~(new)
+    Skip,         // s
+}
+
+// -- Level Scoping --
+
+/// Level/floor scoping prefix.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct LevelScope {
+    pub start: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interval: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u8>,
+}
+
+// -- Chain Entry Types --
+
+/// A single #-separated entry within an .i. or .sticker. segment.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum ChainEntry {
+    Hat {
+        entity: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        position: Option<String>,
+    },
+    Splice {
+        item: String,
+    },
+    Cast {
+        effect: String,
+    },
+    Enchant {
+        modifier: String,
+    },
+    Learn {
+        ability: String,
+    },
+    TogItem {
+        tog_type: TogType,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        position: Option<String>,
+    },
+    Keyword {
+        keyword: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        position: Option<String>,
+    },
+    Facade {
+        entity_code: String,
+        parameter: String,
+    },
+    Sidesc {
+        text: String,
+    },
+    /// Entity reference: r<type>.<hex_hash>[.part.<n>][.m.<n>]
+    EntityRef {
+        kind: RefKind,
+        hash: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        part: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        multiplier: Option<u8>,
+    },
+    Memory,
+    /// Bare game item reference (e.g., "Blindfold", "Eye of Horus", "Chainmail").
+    ItemRef {
+        name: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        position: Option<String>,
+    },
+    /// Parenthesized group of entries — preserves (...) wrapping for round-trip fidelity.
+    Parenthesized {
+        entries: Vec<ChainEntry>,
+    },
+}
+
+/// Entity reference type prefix.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum RefKind {
+    Item,     // ritemx
+    Modifier, // rmod
+    Monster,  // rmon
+}
+
+// -- Side Positions & Tog Types --
+
+/// Side position selector for dice faces.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum SidePosition {
+    Top,
+    Mid,
+    Bot,
+    Left,
+    Right,
+    TopBot,
+    Rightmost,
+    Right2,
+    All,
+}
+
+/// Tog item type — the specific toggle behavior.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum TogType {
+    Time,  // togtime
+    Targ,  // togtarg
+    Fri,   // togfri
+    Vis,   // togvis
+    Eft,   // togeft
+    Pip,   // togpip
+    Key,   // togkey
+    Unt,   // togunt
+    Res,   // togres
+    ResM,  // togresm
+    ResA,  // togresa
+    ResO,  // togreso
+    ResX,  // togresx
+    ResN,  // togresn
+    ResS,  // togress
+}
+
+// -- Value System --
+
+/// Value system variable reference.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct ValueRef {
+    pub name: String,
+    pub amount: i32,
+}
+
+// -- Rich Text --
+
+/// Rich text — a newtype preserving exact content with validation behavior.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct RichText(pub String);
+
+impl RichText {
+    pub fn new(s: impl Into<String>) -> Self {
+        RichText(s.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Check if this richtext contains any formatting tags.
+    pub fn has_tags(&self) -> bool {
+        self.0.contains('[')
+    }
+}
+
+impl fmt::Display for RichText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+// -- Fight Definitions (generalized beyond Boss context) --
+
+/// Fight definition — generalizable fight encounter (used by bosses, phases, etc.).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct FightDefinition {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<u8>,
+    pub enemies: Vec<FightUnit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<String>,
+}
+
+/// Unified fight unit — shared between bosses and general fights.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, Default)]
+pub struct FightUnit {
+    pub template: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hp: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sd: Option<DiceFaces>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sprite_data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_override: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modifier_chain: Option<ModifierChain>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<char>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hsv: Option<String>,
+    /// Nested fight units spawned inside this unit.
+    /// In source: `template.((child1+child2))` — double parens wrap a group.
+    ///            `template.(child)` — single paren wraps a transform.
+    /// Used by challenge-mode bosses for egg/spawn groups and egg transforms.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nested_units: Option<Vec<FightUnit>>,
+    /// When true, nested was encoded with a single `.(child)` paren in source;
+    /// emit uses single-paren too. Default (false) emits `.((child+child))`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub nested_single_paren: bool,
+    /// True when source encoded template+name as `(Template.n.Name).rest`.
+    /// Emit preserves this wrapping so re-paste matches source structure.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub head_paren: bool,
+    /// True when the whole unit is wrapped in outer parens: `(Template.props)`.
+    /// Mutually exclusive with `head_paren`. Flat units have neither set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub outer_paren: bool,
+    /// `.part.N` — part index for multi-part units. Appears on some fight units
+    /// (e.g. Troll.`.i.t.Sarcophagus.part.0`). Distinct from the `.part.1`
+    /// appending convention used on modifier lines.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part: Option<u16>,
+    /// Unit-level `.k.KEYWORD` segments that appear AFTER a `.t.X` template
+    /// override. Each entry is one bare keyword word (fully structured — not
+    /// raw syntax). Emit places them right after `.t.X`, matching source.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub post_override_keywords: Vec<String>,
+    /// Source-order list of property markers for this unit's body. Emit follows
+    /// this order so re-paste matches source structure. Empty → canonical order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub body_order: Vec<FightUnitMarker>,
+}
+
+/// Body property markers in source order for FightUnit re-emission.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum FightUnitMarker {
+    Nested,
+    Col,
+    Hsv,
+    /// One modifier-chain segment at source position. The `usize` indexes into
+    /// `FightUnit.modifier_chain.segments`. Each chain segment gets its own
+    /// entry so non-chain props (notably `.doc.`) can interleave in source
+    /// order — e.g. source `.i.x3.X.doc.Y.i.left2.Z` emits as
+    /// `[Chain(0), Doc, Chain(1)]`.
+    Chain(usize),
+    Hp,
+    Sd,
+    Name,
+    Doc,
+    Img,
+    TemplateOverride,
+    Part,
+}
+
+// -- Choice / Hero Change / Phase Generator Types --
+
+/// Choice phase type.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "type")]
+pub enum ChoiceType {
+    PointBuy { budget: i32 },
+    Number { count: u8 },
+    UpToNumber { max: u8 },
+    Optional,
+}
+
+/// Hero change type in HeroChangePhase.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum HeroChangeType {
+    RandomClass,    // 0
+    GeneratedHero,  // 1
+}
+
+/// Phase generator type.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum PhaseGenType {
+    Hero, // ph.gh
+    Item, // ph.gi
+}
+
+// -- Ability Type --
+
+/// Ability classification derived from which dice sides have data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum AbilityType {
+    Spell { mana_cost: u16 },
+    Tactic { cost_count: u8 },
+}
+
+// -- Entity Wrappers --
+
+/// Entity wrapper types (orb, vase, jinx, egg).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum EntityWrapper {
+    Orb { entity: String },
+    Vase { entity: String },
+    Jinx { modifier: String },
+    Egg { entity: String },
+}
+
+// -- Hidden Modifier Type --
+
+/// Known hidden modifier type.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum HiddenModifierType {
+    Skip,
+    Wish,
+    ClearParty,
+    Missing,
+    Temporary,
+    Hidden,
+    SkipAll,
+    AddFight,
+    Add10Fights,
+    Add100Fights,
+    MinusFight,
+    CursemodeLoopdiff,
+}
+
+// =========================================================================
+// Chunk 2 tests
+// =========================================================================
+
+#[cfg(test)]
+mod new_type_tests {
+    use super::*;
+
+    #[test]
+    fn test_phase_serialization_roundtrip() {
+        let phase = Phase {
+            phase_type: PhaseType::Message,
+            level_scope: None,
+            content: PhaseContent::Message {
+                text: RichText::new("Hello World"),
+                button_text: Some("OK".to_string()),
+            },
+        };
+        let json = serde_json::to_string(&phase).unwrap();
+        let back: Phase = serde_json::from_str(&json).unwrap();
+        assert_eq!(phase, back);
+    }
+
+    #[test]
+    fn test_phase_boolean_boxed_recursion() {
+        let inner1 = Phase {
+            phase_type: PhaseType::Message,
+            level_scope: None,
+            content: PhaseContent::Message {
+                text: RichText::new("win"),
+                button_text: None,
+            },
+        };
+        let inner2 = Phase {
+            phase_type: PhaseType::Linked,
+            level_scope: None,
+            content: PhaseContent::Linked {
+                phases: vec![inner1.clone()],
+            },
+        };
+        let boolean = Phase {
+            phase_type: PhaseType::Boolean,
+            level_scope: None,
+            content: PhaseContent::Boolean {
+                value_name: "score".to_string(),
+                threshold: 5,
+                if_true: Box::new(inner1),
+                if_false: Box::new(inner2),
+            },
+        };
+        let json = serde_json::to_string(&boolean).unwrap();
+        let back: Phase = serde_json::from_str(&json).unwrap();
+        assert_eq!(boolean, back);
+    }
+
+    #[test]
+    fn test_richtext_newtype() {
+        let rt = RichText::new("hello");
+        assert_eq!(rt.as_str(), "hello");
+        assert!(!rt.has_tags());
+
+        let tagged = RichText::new("[orange]hello[cu]");
+        assert!(tagged.has_tags());
+    }
+
+    #[test]
+    fn test_fight_unit_default_fields() {
+        let unit = FightUnit {
+            template: "Sniper".to_string(),
+            name: "Wooper".to_string(),
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&unit).unwrap();
+        let back: FightUnit = serde_json::from_str(&json).unwrap();
+        assert_eq!(unit, back);
+        // Optional fields should be absent in JSON
+        assert!(!json.contains("hp"));
+        assert!(!json.contains("color"));
+    }
+
+    #[test]
+    fn test_fight_definition_with_trigger() {
+        let fight = FightDefinition {
+            level: Some(8),
+            enemies: vec![FightUnit {
+                template: "Basalt".to_string(),
+                name: "Boss".to_string(),
+                hp: Some(10),
+                ..Default::default()
+            }],
+            name: Some("Floor8".to_string()),
+            trigger: Some("@4m4".to_string()),
+        };
+        let json = serde_json::to_string(&fight).unwrap();
+        let back: FightDefinition = serde_json::from_str(&json).unwrap();
+        assert_eq!(fight, back);
+    }
+
+    #[test]
+    fn test_chain_entry_variants_serialize() {
+        let entries: Vec<ChainEntry> = vec![
+            ChainEntry::Hat { entity: "Ace".to_string(), position: None },
+            ChainEntry::Splice { item: "Sword".to_string() },
+            ChainEntry::Cast { effect: "crush".to_string() },
+            ChainEntry::Enchant { modifier: "Power".to_string() },
+            ChainEntry::Learn { ability: "Fireball".to_string() },
+            ChainEntry::TogItem { tog_type: TogType::Res, position: None },
+            ChainEntry::Keyword { keyword: "scared".to_string(), position: Some("left".to_string()) },
+            ChainEntry::Facade { entity_code: "bas170".to_string(), parameter: "55".to_string() },
+            ChainEntry::Sidesc { text: "hello".to_string() },
+            ChainEntry::EntityRef { kind: RefKind::Item, hash: "dae9".to_string(), part: None, multiplier: None },
+            ChainEntry::Memory,
+            ChainEntry::ItemRef { name: "Blindfold".to_string(), position: None },
+            ChainEntry::Parenthesized { entries: vec![ChainEntry::Memory] },
+        ];
+        // Each variant should produce unique JSON
+        let jsons: Vec<String> = entries.iter()
+            .map(|e| serde_json::to_string(e).unwrap())
+            .collect();
+        for (i, a) in jsons.iter().enumerate() {
+            for (j, b) in jsons.iter().enumerate() {
+                if i != j {
+                    assert_ne!(a, b, "variants {} and {} produced identical JSON", i, j);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_level_scope_serialization() {
+        let scopes = vec![
+            LevelScope { start: 5, end: None, interval: None, offset: None },
+            LevelScope { start: 3, end: Some(7), interval: None, offset: None },
+            LevelScope { start: 0, end: None, interval: Some(2), offset: None },
+            LevelScope { start: 0, end: None, interval: Some(3), offset: Some(1) },
+        ];
+        for scope in &scopes {
+            let json = serde_json::to_string(scope).unwrap();
+            let back: LevelScope = serde_json::from_str(&json).unwrap();
+            assert_eq!(*scope, back);
+        }
+    }
+
+    #[test]
+    fn test_phase_type_all_variants_serialize() {
+        let variants = vec![
+            PhaseType::SimpleChoice, PhaseType::PlayerRolling, PhaseType::Targeting,
+            PhaseType::LevelEnd, PhaseType::EnemyRolling, PhaseType::Message,
+            PhaseType::HeroChange, PhaseType::Reset, PhaseType::ItemCombine,
+            PhaseType::PositionSwap, PhaseType::Challenge, PhaseType::Boolean,
+            PhaseType::Choice, PhaseType::Damage, PhaseType::RunEnd,
+            PhaseType::Linked, PhaseType::RandomReveal, PhaseType::Seq,
+            PhaseType::Trade, PhaseType::PhaseGenerator, PhaseType::Boolean2,
+        ];
+        assert_eq!(variants.len(), 21);
+        for v in &variants {
+            let json = serde_json::to_string(v).unwrap();
+            let back: PhaseType = serde_json::from_str(&json).unwrap();
+            assert_eq!(*v, back);
+        }
+    }
 }

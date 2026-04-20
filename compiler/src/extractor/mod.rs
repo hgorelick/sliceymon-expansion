@@ -4,7 +4,13 @@ pub mod hero_parser;
 pub mod replica_item_parser;
 pub mod monster_parser;
 pub mod boss_parser;
+pub mod fight_parser;
 pub mod structural_parser;
+pub mod chain_parser;
+pub mod level_scope_parser;
+pub mod phase_parser;
+pub mod reward_parser;
+pub mod richtext_parser;
 
 use crate::error::CompilerError;
 use crate::ir::*;
@@ -95,8 +101,20 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
             ModifierType::EndScreen => {
                 structural.push(make_structural(StructuralType::EndScreen, modifier.clone()));
             }
-            ModifierType::Unknown => {
-                structural.push(make_structural(StructuralType::Unknown, modifier.clone()));
+            ModifierType::PhaseModifier => {
+                structural.push(make_structural(StructuralType::PhaseModifier, modifier.clone()));
+            }
+            ModifierType::Choosable => {
+                structural.push(make_structural(StructuralType::Choosable, modifier.clone()));
+            }
+            ModifierType::ValueModifier => {
+                structural.push(make_structural(StructuralType::ValueModifier, modifier.clone()));
+            }
+            ModifierType::HiddenModifier => {
+                structural.push(make_structural(StructuralType::HiddenModifier, modifier.clone()));
+            }
+            ModifierType::FightModifier => {
+                structural.push(make_structural(StructuralType::FightModifier, modifier.clone()));
             }
         }
     }

@@ -43,8 +43,10 @@ fn emit_sliceymon(hero: &Hero, sprites: &HashMap<String, String>) -> Result<Stri
         }
         emitted_sliceymon += 1;
 
-        // Resolve sprite: sprite map > img_data > error
-        let resolved_img = resolve_sprite(sprites, block, &hero.internal_name, i)?;
+        // Resolve sprite: sprite map > explicit img_data. None means the source
+        // had no `.img.` property — we skip emitting it to preserve roundtrip.
+        let resolved_img = resolve_sprite(sprites, block);
+        let _ = i;
 
         if block.bare {
             // Bare block: Template.props... (no replica wrapper)
@@ -78,16 +80,19 @@ fn emit_sliceymon(hero: &Hero, sprites: &HashMap<String, String>) -> Result<Stri
             }
             out.push_str(".sd.");
             out.push_str(&block.sd.emit());
-            out.push_str(".img.");
-            out.push_str(&resolved_img);
+            if let Some(ref img) = resolved_img {
+                out.push_str(".img.");
+                out.push_str(img);
+            }
         } else {
             // Standard replica-wrapped block
             out.push_str("(replica.");
             out.push_str(&block.template);
 
-            // Color: use block color if set, otherwise hero color; skip if unknown
-            let c = block.color.unwrap_or(hero.color);
-            if c != '?' {
+            // Color: only emit if the block explicitly has a color.
+            // Falling back to hero.color would add .col. where the source had none
+            // (e.g., T1 Larvesta inherits Volcarona's 'o' implicitly at runtime).
+            if let Some(c) = block.color {
                 out.push_str(".col.");
                 out.push(c);
             }
@@ -124,9 +129,11 @@ fn emit_sliceymon(hero: &Hero, sprites: &HashMap<String, String>) -> Result<Stri
             out.push_str(".sd.");
             out.push_str(&block.sd.emit());
 
-            // IMG (sprite encoding)
-            out.push_str(".img.");
-            out.push_str(&resolved_img);
+            // IMG (sprite encoding) — optional
+            if let Some(ref img) = resolved_img {
+                out.push_str(".img.");
+                out.push_str(img);
+            }
 
             // Close replica block
             out.push(')');
@@ -199,16 +206,20 @@ fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String
         }
         emitted += 1;
 
-        // Resolve sprite: sprite map > img_data > error
-        let resolved_img = resolve_sprite(sprites, block, &hero.internal_name, i)?;
+        // Resolve sprite: sprite map > explicit img_data. None means the source
+        // had no `.img.` property — we skip emitting it to preserve roundtrip.
+        let resolved_img = resolve_sprite(sprites, block);
+        let _ = i;
 
-        // Open replica block
-        out.push_str("(replica.");
+        // Bare blocks emit as `TEMPLATE.props...` without the `(replica....)` wrapper.
+        // This preserves community's bare-block convention (e.g., `z1Q.n.Timebomb.sd.X.img.Y`).
+        if !block.bare {
+            out.push_str("(replica.");
+        }
         out.push_str(&block.template);
 
-        // Color
-        let c = block.color.unwrap_or(hero.color);
-        if c != '?' {
+        // Color: only emit if the block explicitly has a color.
+        if let Some(c) = block.color {
             out.push_str(".col.");
             out.push(c);
         }
@@ -245,12 +256,16 @@ fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String
         out.push_str(".sd.");
         out.push_str(&block.sd.emit());
 
-        // IMG
-        out.push_str(".img.");
-        out.push_str(&resolved_img);
+        // IMG — optional (skip when source had no explicit .img.)
+        if let Some(ref img) = resolved_img {
+            out.push_str(".img.");
+            out.push_str(img);
+        }
 
-        // Close replica
-        out.push(')');
+        // Close replica (only for non-bare blocks)
+        if !block.bare {
+            out.push(')');
+        }
 
         // Abilitydata
         if let Some(ref ability) = block.abilitydata {
@@ -296,26 +311,24 @@ fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String
 }
 
 /// Resolve sprite data for a hero block.
-/// Priority: sprite map > block.img_data > error.
+/// Priority: sprite map lookup > block.img_data > sprite_name as bare template name > error.
+/// Resolve sprite data for emission. Returns:
+/// - `Some(data)` when a sprite map entry matches the sprite_name, or the block
+///   has explicit `img_data` from source (including bare `.img.TemplateName`
+///   shorthand like `.img.Mage` from Thunder's guide).
+/// - `None` when neither is available — the source had no `.img.` property,
+///   so the emitter should skip emitting `.img.` entirely. This preserves
+///   roundtrip for blocks where the game uses a default (usually template) sprite.
 fn resolve_sprite(
     sprites: &HashMap<String, String>,
     block: &crate::ir::HeroBlock,
-    hero_name: &str,
-    tier_index: usize,
-) -> Result<String, CompilerError> {
+) -> Option<String> {
     if !block.sprite_name.is_empty() {
         if let Some(data) = sprites.get(&block.sprite_name) {
-            return Ok(data.clone());
+            return Some(data.clone());
         }
     }
-    if let Some(ref data) = block.img_data {
-        return Ok(data.clone());
-    }
-    Err(CompilerError::SpriteNotFound {
-        sprite_name: block.sprite_name.clone(),
-        hero_name: hero_name.to_string(),
-        tier_index,
-    })
+    block.img_data.clone()
 }
 
 /// Check if a block is a degenerate parser output that cannot be emitted.

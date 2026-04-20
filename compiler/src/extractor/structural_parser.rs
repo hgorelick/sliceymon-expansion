@@ -24,7 +24,22 @@ pub fn parse_structural_content(stype: &StructuralType, raw: &str) -> Structural
         StructuralType::LevelUpAction => parse_levelupaction(raw),
         StructuralType::PoolReplacement => parse_poolreplacement(raw),
         StructuralType::EndScreen => parse_endscreen(raw),
-        StructuralType::Unknown => StructuralContent::Unknown { body: raw.to_string() },
+        StructuralType::PhaseModifier => StructuralContent::PhaseModifier {
+            body: raw.to_string(), level_scope: None, phase: None,
+        },
+        StructuralType::Choosable => StructuralContent::Choosable {
+            body: raw.to_string(), level_scope: None, tag: None,
+        },
+        StructuralType::ValueModifier => StructuralContent::ValueModifier {
+            body: raw.to_string(), level_scope: None, value_ref: None,
+        },
+        StructuralType::HiddenModifier => StructuralContent::HiddenModifier {
+            body: raw.to_string(),
+            modifier_type: crate::ir::HiddenModifierType::Skip, // placeholder until Chunk 7
+        },
+        StructuralType::FightModifier => StructuralContent::FightModifier {
+            body: raw.to_string(), level_scope: None, fight: None,
+        },
     }
 }
 
@@ -273,16 +288,6 @@ fn extract_options(raw: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn structural_unknown_has_body() {
-        let content = parse_structural_content(&StructuralType::Unknown, "anything");
-        if let StructuralContent::Unknown { body } = content {
-            assert_eq!(body, "anything");
-        } else {
-            panic!("Expected Unknown");
-        }
-    }
 
     #[test]
     fn structural_name_extracted() {

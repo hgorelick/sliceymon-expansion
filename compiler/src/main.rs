@@ -7,7 +7,7 @@ use textmod_compiler::error::CompilerError;
 
 #[derive(Parser)]
 #[command(name = "textmod-compiler")]
-#[command(about = "Slice & Dice textmod compiler — extract, build, and validate textmods")]
+#[command(about = "Slice & Dice textmod compiler — extract, build, and cross-check textmods")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -34,8 +34,8 @@ enum Commands {
         #[arg(long)]
         overlay: Option<PathBuf>,
     },
-    /// Validate a textmod against structural rules
-    Validate {
+    /// Check a textmod: re-extract (structural) + cross-reference rules, optionally round-trip
+    Check {
         /// Path to the textmod file
         input: PathBuf,
         /// Also run round-trip IR comparison (extract -> build -> extract)
@@ -97,34 +97,25 @@ fn main() -> Result<(), CompilerError> {
             fs::write(&output, textmod)?;
             println!("Built textmod written to {}", output.display());
         }
-        Commands::Validate { input, round_trip } => {
+        Commands::Check { input, round_trip } => {
             let textmod = fs::read_to_string(&input)?;
 
-            // Structural validation
-            let report = textmod_compiler::validate(&textmod)?;
-            print!("{}", report);
-
-            if !report.is_ok() {
-                return Err(CompilerError::ValidationError {
-                    message: format!(
-                        "{} errors, {} warnings",
-                        report.errors.len(),
-                        report.warnings.len()
-                    ),
-                });
-            }
+            // Structural check: extraction succeeds = structurally valid
+            let ir = textmod_compiler::extract(&textmod)?;
+            println!("Structural check: OK (extraction succeeded)");
 
             // Cross-reference validation (operates on structured IR)
-            if let Ok(ir) = textmod_compiler::extract(&textmod) {
-                let xref_report = textmod_compiler::validate_cross_references(&ir);
-                if !xref_report.errors.is_empty() {
-                    println!("Cross-reference validation: {} errors", xref_report.errors.len());
-                    for finding in &xref_report.errors {
-                        println!("  ERROR [{}]: {}", finding.rule_id, finding.message);
-                    }
-                } else {
-                    println!("Cross-reference validation: OK");
-                }
+            let xref_report = textmod_compiler::check_references(&ir);
+            print!("{}", xref_report);
+
+            if !xref_report.is_ok() {
+                return Err(CompilerError::ValidationError {
+                    message: format!(
+                        "{} cross-reference errors, {} warnings",
+                        xref_report.errors.len(),
+                        xref_report.warnings.len()
+                    ),
+                });
             }
 
             // Optional round-trip IR comparison

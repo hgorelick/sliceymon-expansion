@@ -60,12 +60,10 @@ pub fn merge(mut base: ModIR, overlay: ModIR) -> Result<ModIR, CompilerError> {
         }
     }
 
-    // Structural: replace by (modifier_type, name) pair, append Unknown
+    // Structural: replace by (modifier_type, name) pair, append otherwise.
     for mut s in overlay.structural {
         s.source = Source::Overlay;
-        if s.modifier_type == crate::ir::StructuralType::Unknown {
-            base.structural.push(s);
-        } else if let Some(pos) = base
+        if let Some(pos) = base
             .structural
             .iter()
             .position(|bs| bs.modifier_type == s.modifier_type && bs.name == s.name)

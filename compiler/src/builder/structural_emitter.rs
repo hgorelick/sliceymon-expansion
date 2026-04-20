@@ -19,7 +19,11 @@ pub fn emit(s: &StructuralModifier) -> String {
         StructuralContent::LevelUpAction { body } => body.clone(),
         StructuralContent::PoolReplacement { body, .. } => body.clone(),
         StructuralContent::EndScreen { body } => body.clone(),
-        StructuralContent::Unknown { body } => body.clone(),
+        StructuralContent::PhaseModifier { body, .. } => body.clone(),
+        StructuralContent::Choosable { body, .. } => body.clone(),
+        StructuralContent::ValueModifier { body, .. } => body.clone(),
+        StructuralContent::HiddenModifier { body, .. } => body.clone(),
+        StructuralContent::FightModifier { body, .. } => body.clone(),
     }
 }
 
@@ -43,15 +47,4 @@ mod tests {
         assert_eq!(emit(&s), "1.ph.4 Hello.mn.Intro");
     }
 
-    #[test]
-    fn structural_emitter_unknown() {
-        let s = StructuralModifier {
-            modifier_type: StructuralType::Unknown,
-            name: None,
-            content: StructuralContent::Unknown { body: "some unknown content".into() },
-            derived: false,
-            source: Source::Base,
-        };
-        assert_eq!(emit(&s), "some unknown content");
-    }
 }
