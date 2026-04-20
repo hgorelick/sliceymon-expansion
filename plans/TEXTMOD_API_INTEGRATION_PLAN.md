@@ -1819,7 +1819,6 @@ Run these checks against the actual codebase:
 - [ ] JSON Schema covers all new types (Phase, ChainEntry, FightDefinition, RewardTag, LevelScope, etc.)
 - [ ] Phase recursion depth bounded at `MAX_PHASE_DEPTH` (10) — tested with deeply nested input
 - [ ] Full test suite completes in < 30 seconds
-- [ ] HANDOFF.md updated with final state
 
 ---
 
