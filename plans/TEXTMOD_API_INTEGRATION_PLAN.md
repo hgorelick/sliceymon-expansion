@@ -5,13 +5,14 @@
 ### Source Material
 
 - **Thunder's Undocumented Textmod Guide (v3.2)** — community reference documenting undocumented/advanced textmod APIs
-- **Location**: `reference/UndocumentedTextmodGuide_V3.2_.html` (local copy -- already present in the repo)
+- **Authoritative copy**: `reference/textmod_guide.md` (markdown conversion of the v3.2 HTML; this is the working spec)
+- **Original HTML**: `reference/UndocumentedTextmodGuide_V3.2_.html` (preserved for fidelity audits)
 - **Online**: [Google Doc](https://docs.google.com/document/d/1JUUr5qgPKS1AhcZOwHR8P-DMQID_-BelTvt-i99aicg)
 - **tann.fun resource page**: https://tann.fun/games/dice/textmod/
 
 ### Prerequisite
 
-The guide file `reference/UndocumentedTextmodGuide_V3.2_.html` is already present in the repo. No download needed.
+Both `reference/textmod_guide.md` (the working spec) and `reference/UndocumentedTextmodGuide_V3.2_.html` (the original) are already in the repo. Read the markdown.
 
 ### Problem Statement
 
@@ -875,7 +876,7 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 **Scope**: Establish source-of-truth constant tables derived from Thunder's guide. These are the "dictionaries" that validators and parsers reference.
 
 **Read First**:
-- `reference/UndocumentedTextmodGuide_V3.2_.html` — primary source for all constants
+- `reference/textmod_guide.md` — primary source for all constants
 - `compiler/src/lib.rs` — to see where to declare the new module
 
 **Files** (2 files):
@@ -1220,7 +1221,7 @@ Files touched by multiple chunks. Implementers must coordinate on these:
 - `compiler/src/ir/mod.rs` -- `Phase`, `PhaseType`, `PhaseContent` types (from Chunk 2)
 - `compiler/src/constants.rs` -- phase type codes, delimiter table
 - `compiler/src/extractor/level_scope_parser.rs` -- LevelScope parser (from Chunk 5)
-- `reference/UndocumentedTextmodGuide_V3.2_.html` -- phase syntax documentation
+- `reference/textmod_guide.md` -- phase syntax documentation
 
 **Files** (2 files):
 - `compiler/src/extractor/phase_parser.rs` (NEW)
@@ -1852,8 +1853,8 @@ These are NOT excluded due to effort -- they're excluded because they require di
 |------|-----------------|-----------------|
 | Web/mobile UI components | This plan covers the backend IR/pipeline only | Frontend plan (future) |
 | Punpun's hero creation guide integration | Separate resource, separate plan | `plans/HERO_GUIDE_INTEGRATION.md` |
-| Community mode database scraping | External data source, not compiler concern | Tools/scripts |
-| tann.fun image converter comparison | Sprite pipeline concern, not IR/parser | `tools/` comparison |
+| Community mode database scraping | External data source, not compiler concern | Separate plan if needed |
+| tann.fun image converter comparison | Sprite pipeline concern, not IR/parser | Separate plan if needed (legacy JS comparison archived under `archive/pre-guide/tools/`) |
 | Face ID semantic database | Maps face IDs to game mechanics -- useful but large | `plans/FACE_ID_DATABASE.md` |
 | Full keyword catalog | Requires game data mining beyond Thunder's guide | Reference data task |
 

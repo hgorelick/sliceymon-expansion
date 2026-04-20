@@ -124,7 +124,7 @@ The `dice!` macro supports:
 
 ### S5. Typed Face ID table
 
-A `FaceId` module (not enum — enums with ~80 variants are awkward) exposing named constants sourced from `SLICEYMON_AUDIT.md`. Grouped by mechanic:
+A `FaceId` module (not enum — enums with ~80 variants are awkward) exposing named constants derived from `reference/textmod_guide.md` (semantics) and corroborated by every `.sd.` occurrence in `working-mods/*.txt` (corpus). Grouped by mechanic:
 
 ```rust
 pub mod face_id {
@@ -151,11 +151,11 @@ dice![DAMAGE-1, SHIELD-2, _, _, DAMAGE-1, _]
 
 Macro accepts identifiers resolving to `u16` as well as integer literals — `dice![34-1]` and `dice![DAMAGE-1]` both work.
 
-**Source of truth**: `SLICEYMON_AUDIT.md` — every constant in the file must have an audit citation line number or section anchor in a doc comment.
+**Source of truth**: `reference/textmod_guide.md` (face-mechanic semantics) + `working-mods/*.txt` (corpus of actual usage). Every constant doc-comment cites either (a) the guide section that defines the face mechanic, or (b) a working-mods unit where the face appears in `.sd.` (template name + line). A unit test enforces that every Face ID constant appears in ≥1 working mod's `.sd.` field OR has an explicit guide-section citation.
 
 ### S6. Sprite lookup
 
-`tools/sprite_encodings.json` is the authoritative sprite source. Add a compile-time lookup table via `include_str!`:
+The four mods in `working-mods/` are the authoritative sprite source — every `.img.` payload in their hero, replica, monster, and boss lines, keyed by the `.mn.`/`.n.` name on the same line. A `build.rs` extracts and emits a compile-time lookup table:
 
 ```rust
 // compiler/src/sprite.rs
@@ -251,43 +251,45 @@ Verification: a test suite that builds IR via the authoring layer, emits it, re-
 ---
 
 ### Chunk 3: Face ID constants [PARALLEL GROUP A] [CRITICAL CHECKPOINT]
-**Scope**: Typed `face_id::*` constants sourced from `SLICEYMON_AUDIT.md`.
-**Files**: `compiler/src/ir/face_id.rs` (new), `compiler/src/ir/mod.rs` (add `pub mod face_id`)
-**Dependencies**: None (reads audit, writes new module)
+**Scope**: Typed `face_id::*` constants derived from `reference/textmod_guide.md` (semantics) and `working-mods/*.txt` (corpus of actual usage).
+**Files**: `compiler/src/ir/face_id.rs` (generated), `compiler/src/ir/mod.rs` (add `pub mod face_id`), `compiler/build.rs` or `examples/derive_face_ids.rs` (the generator)
+**Dependencies**: None
 **Parallel with**: Chunks 2, 4
 
 **Requirements**:
-- Read `SLICEYMON_AUDIT.md` start-to-end; emit one `pub const` per documented Face ID.
-- Group by mechanic with section comments (Damage, Shield, Heal, Status, Combo, Utility, etc.).
-- Each constant gets a doc comment citing its audit source line/section.
+- Generator harvests every distinct Face ID from `.sd.` fields across the four working mods using the existing extractor; emits one `pub const` per ID.
+- Each constant's doc-comment cites either (a) the guide section that defines its mechanic, or (b) the template-unit line(s) in working mods where it appears (if the guide is silent on that ID).
+- Group by mechanic with section comments (Damage, Shield, Heal, Status, Combo, Utility, etc.) — categorization comes from the guide; uncategorized IDs go in an `// UNCLASSIFIED — appears in corpus, no guide entry` section.
 - Constants are `u16` to match `DiceFace::Active::face_id`.
-- No values NOT documented in the audit may appear. If the audit is ambiguous, flag it in a `// TODO(audit):` comment and STOP — this is a critical checkpoint.
+- Naming convention: derive from guide's mechanic name where possible; fall back to `FACE_<id>` for unclassified.
 
 **Verification**:
-- [ ] Every constant has an audit citation.
+- [ ] Every constant has either a guide-section citation or a working-mods corpus citation.
 - [ ] `cargo doc` renders cleanly.
-- [ ] A grep of the audit for Face ID values matches the constants 1:1 (no missing, no invented).
+- [ ] Unit test: every constant appears in ≥1 working mod's `.sd.` field OR has an explicit guide-section citation.
+- [ ] No values appear that are NOT in either source.
 - [ ] Checkpoint: present the full constant list for user review before proceeding.
 
 ---
 
 ### Chunk 4: Sprite lookup table [PARALLEL GROUP A]
-**Scope**: Compile-time lookup from `tools/sprite_encodings.json`.
-**Files**: `compiler/src/sprite.rs` (new), `compiler/src/lib.rs` (re-export)
+**Scope**: Compile-time lookup harvested from `working-mods/*.txt`.
+**Files**: `compiler/src/sprite.rs` (generated), `compiler/src/lib.rs` (re-export), `compiler/build.rs` (generator)
 **Dependencies**: None
 **Parallel with**: Chunks 2, 3
 
 **Requirements**:
-- Load `tools/sprite_encodings.json` via `include_str!` at compile time.
-- Expose `pub fn lookup(name: &str) -> Option<&'static str>` and `pub fn lookup_expect(name: &str) -> &'static str`.
-- Use a `once_cell::sync::Lazy<HashMap>` OR a `phf` map for O(1) lookup. Prefer `phf` if it's already a dep; else `once_cell` (likely already transitive).
-- `lookup_expect` panic message: `"unknown sprite: '{name}' — check tools/sprite_encodings.json"`.
+- `build.rs` runs the extractor over each file in `working-mods/`, collects every `.img.` payload keyed by the entity's `.mn.` (or `.n.` if `.mn.` absent) name, deduplicates by name (last-write-wins per mod-priority order: sliceymon > pansaer > punpuns > community).
+- Emits `compiler/src/sprite.rs` containing a `phf::Map<&'static str, &'static str>` (or `once_cell` HashMap if `phf` not already present) and the `lookup` / `lookup_expect` functions.
+- `lookup_expect` panic message: `"unknown sprite: '{name}' — check working-mods/*.txt for entities exposing this name in .mn. or .n."`.
+- Generator is deterministic — re-running on unchanged inputs produces byte-identical `sprite.rs`.
 
 **Verification**:
-- [ ] `lookup("pikachu")` returns the expected encoding (verify against the JSON file directly).
+- [ ] `lookup("Charmander")` returns the `.img.` payload of the Charmander entity in `working-mods/sliceymon.txt`.
 - [ ] `lookup("nonexistent")` returns `None`.
 - [ ] `lookup_expect` panics with an informative message on missing names.
-- [ ] The `.img.` data returned matches the current `.img.` bytes in `textmod_expanded.txt` for at least 3 sprites.
+- [ ] At least 3 sample entities (one each from sliceymon/pansaer/community) byte-match their working-mod `.img.` field.
+- [ ] Re-running `build.rs` on unchanged inputs produces an unchanged `sprite.rs` (no spurious diff).
 
 ---
 
