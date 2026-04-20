@@ -27,11 +27,11 @@ use crate::ir::{RewardTag, RewardTagType};
 /// storing the full original string for lossless round-trip.
 pub fn parse_reward_tag(s: &str) -> Result<RewardTag, CompilerError> {
     if s.is_empty() {
-        return Err(CompilerError::RewardParseError {
-            content: s.to_string(),
-            expected: "non-empty reward tag string".to_string(),
-            found: "empty string".to_string(),
-        });
+        return Err(CompilerError::reward_parse(
+            s.to_string(),
+            "non-empty reward tag string",
+            "empty string",
+        ));
     }
 
     let first = s.chars().next().unwrap();
@@ -49,11 +49,11 @@ pub fn parse_reward_tag(s: &str) -> Result<RewardTag, CompilerError> {
         'p' => RewardTagType::Replace,
         's' => RewardTagType::Skip,
         _ => {
-            return Err(CompilerError::RewardParseError {
-                content: s.to_string(),
-                expected: "reward tag letter (m, i, l, g, r, q, o, e, v, p, s)".to_string(),
-                found: format!("'{}'", first),
-            });
+            return Err(CompilerError::reward_parse(
+                s.to_string(),
+                "reward tag letter (m, i, l, g, r, q, o, e, v, p, s)",
+                format!("'{}'", first),
+            ));
         }
     };
 

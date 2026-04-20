@@ -17,10 +17,10 @@ pub fn emit(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String, Co
 /// Emit a Sliceymon-format hero (ph.b prefix, !mheropool.).
 fn emit_sliceymon(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
     if hero.blocks.is_empty() {
-        return Err(CompilerError::BuildError {
-            component: format!("hero:{}", hero.internal_name),
-            message: "hero has no blocks".to_string(),
-        });
+        return Err(CompilerError::build(
+            format!("hero:{}", hero.internal_name),
+            "hero has no blocks",
+        ));
     }
 
     let mut out = String::new();
@@ -183,10 +183,10 @@ fn emit_sliceymon(hero: &Hero, sprites: &HashMap<String, String>) -> Result<Stri
 /// Emit a grouped-format hero (pansaer/punpuns/community: heropool.Name+...replica blocks).
 fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
     if hero.blocks.is_empty() {
-        return Err(CompilerError::BuildError {
-            component: format!("hero:{}", hero.internal_name),
-            message: "hero has no blocks".to_string(),
-        });
+        return Err(CompilerError::build(
+            format!("hero:{}", hero.internal_name),
+            "hero has no blocks",
+        ));
     }
 
     let mut out = String::new();

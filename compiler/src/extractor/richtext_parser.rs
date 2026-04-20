@@ -15,7 +15,7 @@ use crate::ir::RichText;
 /// Parse a richtext string, validating bracket balance.
 ///
 /// Returns `Ok(RichText)` if brackets are balanced, or
-/// `Err(CompilerError::PhaseParseError)` if they are not.
+/// `Err(CompilerError)` with `ErrorKind::PhaseParse` if they are not.
 pub fn parse_richtext(input: &str) -> Result<RichText, CompilerError> {
     let mut depth: i32 = 0;
     for (i, ch) in input.chars().enumerate() {
@@ -24,15 +24,15 @@ pub fn parse_richtext(input: &str) -> Result<RichText, CompilerError> {
             ']' => {
                 depth -= 1;
                 if depth < 0 {
-                    return Err(CompilerError::PhaseParseError {
-                        phase_code: None,
-                        content: input.to_string(),
-                        expected: "balanced brackets".to_string(),
-                        found: format!(
+                    return Err(CompilerError::phase_parse(
+                        None,
+                        input.to_string(),
+                        "balanced brackets",
+                        format!(
                             "unexpected closing ']' at position {} (no matching '[')",
                             i
                         ),
-                    });
+                    ));
                 }
             }
             _ => {}
@@ -40,15 +40,15 @@ pub fn parse_richtext(input: &str) -> Result<RichText, CompilerError> {
     }
 
     if depth != 0 {
-        return Err(CompilerError::PhaseParseError {
-            phase_code: None,
-            content: input.to_string(),
-            expected: "balanced brackets".to_string(),
-            found: format!(
+        return Err(CompilerError::phase_parse(
+            None,
+            input.to_string(),
+            "balanced brackets",
+            format!(
                 "{} unclosed '[' bracket(s) at end of string",
                 depth
             ),
-        });
+        ));
     }
 
     Ok(RichText::new(input))
@@ -79,10 +79,10 @@ mod tests {
         let result = parse_richtext("[orangehello");
         assert!(result.is_err());
         match result {
-            Err(CompilerError::PhaseParseError { expected, .. }) => {
+            Err(CompilerError { kind: crate::error::ErrorKind::PhaseParse { expected, .. }, .. }) => {
                 assert_eq!(expected, "balanced brackets");
             }
-            _ => panic!("expected PhaseParseError"),
+            _ => panic!("expected PhaseParse error"),
         }
 
         // Extra closing bracket

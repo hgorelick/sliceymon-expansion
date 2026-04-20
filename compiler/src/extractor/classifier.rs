@@ -275,9 +275,9 @@ pub fn classify(modifier: &str, modifier_index: usize) -> Result<ModifierType, C
     // means either (a) add a classifier rule for a documented construct, or
     // (b) add a new ModifierType variant for a new construct found in a mod.
     let preview: String = modifier.chars().take(120).collect();
-    Err(CompilerError::ClassifyError {
+    Err(CompilerError::classify(
         modifier_index,
         preview,
-        message: "no classifier pattern matched this modifier".to_string(),
-    })
+        "no classifier pattern matched this modifier",
+    ))
 }

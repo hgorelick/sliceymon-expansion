@@ -14,32 +14,34 @@ pub fn parse_phase(input: &str) -> Result<Phase, CompilerError> {
 
 fn parse_phase_at_depth(input: &str, depth: usize) -> Result<Phase, CompilerError> {
     if depth > MAX_PHASE_DEPTH {
-        return Err(CompilerError::PhaseParseError {
-            phase_code: None,
-            content: input.to_string(),
-            expected: format!("phase nesting depth <= {}", MAX_PHASE_DEPTH),
-            found: format!("depth {}", depth),
-        });
+        return Err(CompilerError::phase_parse(
+            None,
+            input.to_string(),
+            format!("phase nesting depth <= {}", MAX_PHASE_DEPTH),
+            format!("depth {}", depth),
+        ));
     }
 
     // Strip level scope prefix
     let (level_scope, rest) = crate::extractor::level_scope_parser::parse_level_scope(input);
 
     // Expect "ph." prefix
-    let after_ph = rest.strip_prefix("ph.").ok_or_else(|| CompilerError::PhaseParseError {
-        phase_code: None,
-        content: input.to_string(),
-        expected: "ph.".to_string(),
-        found: if rest.len() > 20 { rest[..20].to_string() } else { rest.to_string() },
+    let after_ph = rest.strip_prefix("ph.").ok_or_else(|| {
+        CompilerError::phase_parse(
+            None,
+            input.to_string(),
+            "ph.",
+            if rest.len() > 20 { rest[..20].to_string() } else { rest.to_string() },
+        )
     })?;
 
     if after_ph.is_empty() {
-        return Err(CompilerError::PhaseParseError {
-            phase_code: None,
-            content: input.to_string(),
-            expected: "phase type code after ph.".to_string(),
-            found: "empty string".to_string(),
-        });
+        return Err(CompilerError::phase_parse(
+            None,
+            input.to_string(),
+            "phase type code after ph.",
+            "empty string",
+        ));
     }
 
     // Extract phase code (first char after ph.)
@@ -69,12 +71,12 @@ fn parse_phase_at_depth(input: &str, depth: usize) -> Result<Phase, CompilerErro
         't' => (PhaseType::Trade, parse_trade(content_str)?),
         'z' => (PhaseType::Boolean2, parse_boolean2(content_str, depth)?),
         _ => {
-            return Err(CompilerError::PhaseParseError {
-                phase_code: Some(code),
-                content: input.to_string(),
-                expected: "known phase code (!, 0-9, b-g, l, r, s, t, z)".to_string(),
-                found: format!("'{}'", code),
-            });
+            return Err(CompilerError::phase_parse(
+                Some(code),
+                input.to_string(),
+                "known phase code (!, 0-9, b-g, l, r, s, t, z)",
+                format!("'{}'", code),
+            ));
         }
     };
 
@@ -150,12 +152,12 @@ fn parse_boolean(content: &str, depth: usize) -> Result<PhaseContent, CompilerEr
     // ph.bVALUE;THRESHOLD;PHASE_TRUE@2PHASE_FALSE
     let parts = split_semicolons(content);
     if parts.len() < 3 {
-        return Err(CompilerError::PhaseParseError {
-            phase_code: Some('b'),
-            content: content.to_string(),
-            expected: "value;threshold;phases".to_string(),
-            found: format!("{} semicolon-separated parts", parts.len()),
-        });
+        return Err(CompilerError::phase_parse(
+            Some('b'),
+            content.to_string(),
+            "value;threshold;phases",
+            format!("{} semicolon-separated parts", parts.len()),
+        ));
     }
     let value_name = parts[0].to_string();
     let threshold = parts[1].parse::<i32>().unwrap_or(0);
@@ -180,12 +182,12 @@ fn parse_boolean2(content: &str, depth: usize) -> Result<PhaseContent, CompilerE
     // ph.z — same as Boolean but uses @6/@7 instead of ;/@2
     let parts = split_at_depth0(content, "@6");
     if parts.len() < 2 {
-        return Err(CompilerError::PhaseParseError {
-            phase_code: Some('z'),
-            content: content.to_string(),
-            expected: "value@6threshold@6phases with @7 branch".to_string(),
-            found: format!("{} @6-separated parts", parts.len()),
-        });
+        return Err(CompilerError::phase_parse(
+            Some('z'),
+            content.to_string(),
+            "value@6threshold@6phases with @7 branch",
+            format!("{} @6-separated parts", parts.len()),
+        ));
     }
     let value_name = parts[0].to_string();
     let rest = parts[1..].join("@6");
@@ -500,7 +502,7 @@ mod tests {
     fn test_parse_unknown_phase_code_errors() {
         let result = parse_phase("ph.qsomething");
         assert!(result.is_err());
-        if let Err(CompilerError::PhaseParseError { phase_code, .. }) = result {
+        if let Err(CompilerError { kind: crate::error::ErrorKind::PhaseParse { phase_code, .. }, .. }) = result {
             assert_eq!(phase_code, Some('q'));
         }
     }

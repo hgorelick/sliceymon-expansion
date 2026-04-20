@@ -296,13 +296,15 @@ fn extract_internal_name(modifier: &str) -> Option<String> {
 fn try_parse_sliceymon(modifier: &str, modifier_index: usize) -> Result<Hero, CompilerError> {
     let internal_name = extract_internal_name(modifier).unwrap_or_default();
 
-    let hp_marker = find_heropool_marker(modifier).ok_or_else(|| CompilerError::HeroParseError {
-        modifier_index,
-        hero_name: internal_name.clone(),
-        tier_index: None,
-        position: 0,
-        expected: "heropool.".to_string(),
-        found: modifier[..modifier.len().min(40)].to_string(),
+    let hp_marker = find_heropool_marker(modifier).ok_or_else(|| {
+        CompilerError::hero_parse(
+            modifier_index,
+            internal_name.clone(),
+            None,
+            0,
+            "heropool.",
+            modifier[..modifier.len().min(40)].to_string(),
+        )
     })?;
 
     let content_start = hp_marker + "heropool.".len();
@@ -311,14 +313,14 @@ fn try_parse_sliceymon(modifier: &str, modifier_index: usize) -> Result<Hero, Co
     let mut tier_strs = util::split_at_depth0(heropool_content, '+');
 
     if tier_strs.is_empty() {
-        return Err(CompilerError::HeroParseError {
+        return Err(CompilerError::hero_parse(
             modifier_index,
-            hero_name: internal_name.clone(),
-            tier_index: None,
-            position: content_start,
-            expected: "at least one tier block".to_string(),
-            found: "empty heropool content".to_string(),
-        });
+            internal_name.clone(),
+            None,
+            content_start,
+            "at least one tier block",
+            "empty heropool content",
+        ));
     }
 
     // Separate suffix from last tier
@@ -458,26 +460,22 @@ fn parse_tier_block(
 
     let (replica_content, outside_content, is_bare) = if let Some(open_pos) = block.find('(') {
         let close_pos = util::find_matching_close_paren(block, open_pos).ok_or_else(|| {
-            CompilerError::ParenError {
-                modifier_index,
-                position: open_pos,
-                depth: 1,
-                context: block[open_pos..block.len().min(open_pos + 40)].to_string(),
-            }
+            CompilerError::paren(modifier_index, open_pos, 1)
+                .with_context(block[open_pos..block.len().min(open_pos + 40)].to_string())
         })?;
         (&block[open_pos + 1..close_pos], &block[close_pos + 1..], false)
     } else if block.contains(".sd.") || block.contains(".img.") {
         // Bare tier block — all content at same level
         (block, block, true)
     } else {
-        return Err(CompilerError::HeroParseError {
+        return Err(CompilerError::hero_parse(
             modifier_index,
-            hero_name: hero_name.to_string(),
-            tier_index: Some(tier_index),
-            position: 0,
-            expected: "opening '(' or bare block with .sd./.img.".to_string(),
-            found: block[..block.len().min(40)].to_string(),
-        });
+            hero_name.to_string(),
+            Some(tier_index),
+            0,
+            "opening '(' or bare block with .sd./.img.",
+            block[..block.len().min(40)].to_string(),
+        ));
     };
 
     // Parse replica content using util functions

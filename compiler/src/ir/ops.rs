@@ -30,19 +30,19 @@ impl ModIR {
     pub fn add_hero(&mut self, hero: Hero) -> Result<(), CompilerError> {
         // Check cross-category name uniqueness
         if let Some(category) = self.find_name_category(&hero.mn_name) {
-            return Err(CompilerError::DuplicateName {
-                name: hero.mn_name.clone(),
-                existing_category: category.to_string(),
-                new_category: "hero".to_string(),
-            });
+            return Err(CompilerError::duplicate_name(
+                hero.mn_name.clone(),
+                category.to_string(),
+                "hero",
+            ));
         }
 
         // Check color uniqueness
         if let Some(existing) = self.heroes.iter().find(|h| h.color == hero.color) {
-            return Err(CompilerError::DuplicateColor {
-                color: hero.color,
-                existing_hero: existing.mn_name.clone(),
-            });
+            return Err(CompilerError::duplicate_color(
+                hero.color,
+                existing.mn_name.clone(),
+            ));
         }
 
         let mut hero = hero;
@@ -57,10 +57,7 @@ impl ModIR {
         let pos = self.heroes.iter().position(|h| h.mn_name.to_lowercase() == lower);
         match pos {
             Some(i) => { self.heroes.remove(i); Ok(()) }
-            None => Err(CompilerError::NotFound {
-                type_name: "hero".to_string(),
-                key: mn_name.to_string(),
-            }),
+            None => Err(CompilerError::not_found("hero", mn_name.to_string())),
         }
     }
 
@@ -76,29 +73,26 @@ impl ModIR {
                     .find(|(j, h)| *j != i && h.color == hero.color)
                     .map(|(_, h)| h)
                 {
-                    return Err(CompilerError::DuplicateColor {
-                        color: hero.color,
-                        existing_hero: existing.mn_name.clone(),
-                    });
+                    return Err(CompilerError::duplicate_color(
+                        hero.color,
+                        existing.mn_name.clone(),
+                    ));
                 }
                 self.heroes[i] = hero;
                 Ok(())
             }
-            None => Err(CompilerError::NotFound {
-                type_name: "hero".to_string(),
-                key: hero.mn_name.clone(),
-            }),
+            None => Err(CompilerError::not_found("hero", hero.mn_name.clone())),
         }
     }
 
     /// Add a replica item. Checks cross-category name uniqueness.
     pub fn add_replica_item(&mut self, item: ReplicaItem) -> Result<(), CompilerError> {
         if let Some(category) = self.find_name_category(&item.name) {
-            return Err(CompilerError::DuplicateName {
-                name: item.name.clone(),
-                existing_category: category.to_string(),
-                new_category: "replica item".to_string(),
-            });
+            return Err(CompilerError::duplicate_name(
+                item.name.clone(),
+                category.to_string(),
+                "replica item",
+            ));
         }
         let mut item = item;
         item.source = Source::Custom;
@@ -112,21 +106,18 @@ impl ModIR {
         let pos = self.replica_items.iter().position(|r| r.name.to_lowercase() == lower);
         match pos {
             Some(i) => { self.replica_items.remove(i); Ok(()) }
-            None => Err(CompilerError::NotFound {
-                type_name: "replica item".to_string(),
-                key: name.to_string(),
-            }),
+            None => Err(CompilerError::not_found("replica item", name.to_string())),
         }
     }
 
     /// Add a monster. Checks cross-category name uniqueness.
     pub fn add_monster(&mut self, monster: Monster) -> Result<(), CompilerError> {
         if let Some(category) = self.find_name_category(&monster.name) {
-            return Err(CompilerError::DuplicateName {
-                name: monster.name.clone(),
-                existing_category: category.to_string(),
-                new_category: "monster".to_string(),
-            });
+            return Err(CompilerError::duplicate_name(
+                monster.name.clone(),
+                category.to_string(),
+                "monster",
+            ));
         }
         let mut monster = monster;
         monster.source = Source::Custom;
@@ -140,21 +131,18 @@ impl ModIR {
         let pos = self.monsters.iter().position(|m| m.name.to_lowercase() == lower);
         match pos {
             Some(i) => { self.monsters.remove(i); Ok(()) }
-            None => Err(CompilerError::NotFound {
-                type_name: "monster".to_string(),
-                key: name.to_string(),
-            }),
+            None => Err(CompilerError::not_found("monster", name.to_string())),
         }
     }
 
     /// Add a boss. Checks cross-category name uniqueness.
     pub fn add_boss(&mut self, boss: Boss) -> Result<(), CompilerError> {
         if let Some(category) = self.find_name_category(&boss.name) {
-            return Err(CompilerError::DuplicateName {
-                name: boss.name.clone(),
-                existing_category: category.to_string(),
-                new_category: "boss".to_string(),
-            });
+            return Err(CompilerError::duplicate_name(
+                boss.name.clone(),
+                category.to_string(),
+                "boss",
+            ));
         }
         let mut boss = boss;
         boss.source = Source::Custom;
@@ -168,10 +156,7 @@ impl ModIR {
         let pos = self.bosses.iter().position(|b| b.name.to_lowercase() == lower);
         match pos {
             Some(i) => { self.bosses.remove(i); Ok(()) }
-            None => Err(CompilerError::NotFound {
-                type_name: "boss".to_string(),
-                key: name.to_string(),
-            }),
+            None => Err(CompilerError::not_found("boss", name.to_string())),
         }
     }
 }

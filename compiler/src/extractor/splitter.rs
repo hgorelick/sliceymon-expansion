@@ -18,13 +18,13 @@ pub fn split_modifiers(text: &str) -> Result<Vec<String>, CompilerError> {
             b')' => {
                 depth -= 1;
                 if depth < 0 {
-                    return Err(CompilerError::SplitError {
-                        raw_position: pos,
-                        message: format!(
+                    return Err(CompilerError::split(
+                        pos,
+                        format!(
                             "Unmatched closing parenthesis at position {} (depth went to {})",
                             pos, depth
                         ),
-                    });
+                    ));
                 }
             }
             b',' if depth == 0 => {
