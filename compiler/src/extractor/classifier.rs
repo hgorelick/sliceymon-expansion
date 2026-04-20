@@ -88,7 +88,7 @@ pub fn detect_hero_format(modifier: &str) -> HeroFormat {
 ///
 /// Classification patterns (order matters -- first match wins).
 /// The logic below must handle all mod formats (pansaer, punpuns, sliceymon, community).
-/// Unrecognized patterns produce `ClassifyError` rather than a silent Unknown —
+/// Unrecognized patterns produce `ErrorKind::Classify` rather than a silent Unknown —
 /// this surfaces new constructs so they can be explicitly added via a typed variant.
 pub fn classify(modifier: &str, modifier_index: usize) -> Result<ModifierType, CompilerError> {
     // PoolReplacement: starts with "((" and contains "heropool."
