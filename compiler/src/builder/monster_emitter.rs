@@ -49,9 +49,11 @@ pub fn emit_monster(monster: &Monster) -> Result<String, CompilerError> {
         out.push_str(balance);
     }
 
-    if let Some(ref img) = monster.img_data {
-        out.push_str(".img.");
-        out.push_str(img);
+    if let Some(ref s) = monster.sprite {
+        if !s.img_data().is_empty() {
+            out.push_str(".img.");
+            out.push_str(s.img_data());
+        }
     }
 
     if let Some(ref doc) = monster.doc {
@@ -79,12 +81,11 @@ mod tests {
             floor_range: "1-3".into(),
             hp: Some(3),
             sd: Some(DiceFaces::parse("0:0:0:0:0:0")),
-            sprite_name: Some("Wooper".into()),
+            sprite: Some(crate::authoring::SpriteId::owned("Wooper", "")),
             color: None,
             doc: None,
             modifier_chain: None,
             balance: None,
-            img_data: None,
             source: Source::Base,
         };
         let output = emit_monster(&mon).unwrap();
@@ -99,12 +100,11 @@ mod tests {
             floor_range: "1-3".into(),
             hp: Some(3),
             sd: Some(DiceFaces::parse("0:0:0:0:0:0")),
-            sprite_name: Some("Wooper".into()),
+            sprite: Some(crate::authoring::SpriteId::owned("Wooper", "")),
             color: Some('b'),
             doc: None,
             modifier_chain: None,
             balance: None,
-            img_data: None,
             source: Source::Base,
         };
         let output = emit_monster(&mon).unwrap();

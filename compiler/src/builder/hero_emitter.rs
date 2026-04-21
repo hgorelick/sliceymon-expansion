@@ -310,31 +310,32 @@ fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String
     Ok(out)
 }
 
-/// Resolve sprite data for a hero block.
-/// Priority: sprite map lookup > block.img_data > sprite_name as bare template name > error.
-/// Resolve sprite data for emission. Returns:
-/// - `Some(data)` when a sprite map entry matches the sprite_name, or the block
-///   has explicit `img_data` from source (including bare `.img.TemplateName`
-///   shorthand like `.img.Mage` from Thunder's guide).
-/// - `None` when neither is available — the source had no `.img.` property,
-///   so the emitter should skip emitting `.img.` entirely. This preserves
-///   roundtrip for blocks where the game uses a default (usually template) sprite.
+/// Resolve sprite data for emission. Post-§F4, every `HeroBlock.sprite` is a
+/// complete `SpriteId` carrying its own `img_data`. The legacy `sprites` map
+/// (retained by the signature until Chunk 3c drops it) still wins when present
+/// so a caller-supplied override during merge/overlay flows remains authoritative.
+/// An empty `img_data()` means the source had no `.img.` at all (e.g. an inherited
+/// block), so we return `None` to suppress emission and preserve roundtrip.
 fn resolve_sprite(
     sprites: &HashMap<String, String>,
     block: &crate::ir::HeroBlock,
 ) -> Option<String> {
-    if !block.sprite_name.is_empty() {
-        if let Some(data) = sprites.get(&block.sprite_name) {
+    let sprite_name = block.sprite.name();
+    if !sprite_name.is_empty() {
+        if let Some(data) = sprites.get(sprite_name) {
             return Some(data.clone());
         }
     }
-    block.img_data.clone()
+    let img = block.sprite.img_data();
+    if img.is_empty() { None } else { Some(img.to_string()) }
 }
 
 /// Check if a block is a degenerate parser output that cannot be emitted.
 /// These are vanilla reference names in grouped format that got parsed as empty blocks.
 fn is_degenerate_block(block: &crate::ir::HeroBlock) -> bool {
-    block.template.is_empty() && block.name.is_empty() && block.img_data.is_none()
+    block.template.is_empty()
+        && block.name.is_empty()
+        && block.sprite.img_data().is_empty()
 }
 
 /// Check that emitted output has balanced parentheses.

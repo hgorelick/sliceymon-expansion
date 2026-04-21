@@ -231,7 +231,11 @@ fn try_parse_grouped_block(block: &str) -> Option<HeroBlock> {
             .map(|s| crate::ir::ModifierChain::parse(&s))
     };
 
-    let sprite_name = name.clone();
+    let sprite = crate::authoring::SpriteId::lookup(&name)
+        .cloned()
+        .unwrap_or_else(|| {
+            crate::authoring::SpriteId::owned(name.clone(), img_data.clone().unwrap_or_default())
+        });
 
     Some(HeroBlock {
         template,
@@ -240,7 +244,7 @@ fn try_parse_grouped_block(block: &str) -> Option<HeroBlock> {
         sd,
         bare: is_bare,
         color: block_color,
-        sprite_name,
+        sprite,
         speech: speech.unwrap_or_default(),
         name,
         doc,
@@ -251,7 +255,6 @@ fn try_parse_grouped_block(block: &str) -> Option<HeroBlock> {
         facades,
         items_inside,
         items_outside,
-        img_data,
     })
 }
 
@@ -540,7 +543,11 @@ fn parse_tier_block(
     let items_outside = extract_items_outside(outside_content)
         .map(|s| crate::ir::ModifierChain::parse(&s));
 
-    let sprite_name = name.clone();
+    let sprite = crate::authoring::SpriteId::lookup(&name)
+        .cloned()
+        .unwrap_or_else(|| {
+            crate::authoring::SpriteId::owned(name.clone(), img_data.clone().unwrap_or_default())
+        });
 
     Ok(HeroBlock {
         template,
@@ -549,7 +556,7 @@ fn parse_tier_block(
         sd,
         bare: is_bare,
         color: block_color,
-        sprite_name,
+        sprite,
         speech: speech.unwrap_or_default(),
         name,
         doc,
@@ -560,7 +567,6 @@ fn parse_tier_block(
         facades,
         items_inside,
         items_outside,
-        img_data,
     })
 }
 

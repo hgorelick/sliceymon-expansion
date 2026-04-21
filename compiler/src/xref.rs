@@ -678,7 +678,7 @@ mod tests {
             template: "Slime".to_string(),
             hp: Some(4),
             sd: DiceFaces { faces: vec![DiceFace::Blank] },
-            sprite_name: name.to_lowercase(),
+            sprite: crate::authoring::SpriteId::owned(name.to_lowercase(), ""),
             color: None,
             tier: None,
             doc: None,
@@ -687,7 +687,6 @@ mod tests {
             item_modifiers: None,
             sticker: None,
             toggle_flags: None,
-            img_data: None,
             source: Source::Custom,
         }
     }
@@ -816,12 +815,11 @@ mod tests {
             floor_range: "1-3".to_string(),
             hp: Some(4),
             sd: None,
-            sprite_name: None,
+            sprite: None,
             color: None,
             doc: None,
             modifier_chain: None,
             balance: None,
-            img_data: None,
             source: Source::Custom,
         });
 
@@ -979,7 +977,7 @@ mod tests {
             },
             bare: false,
             color: None,
-            sprite_name: "pikachu".to_string(),
+            sprite: crate::authoring::SpriteId::owned("pikachu", ""),
             speech: String::new(),
             name: "Pikachu".to_string(),
             doc: None,
@@ -990,7 +988,6 @@ mod tests {
             facades: vec![],
             items_inside: None,
             items_outside: None,
-            img_data: None,
         });
         ir.heroes.push(hero);
 
@@ -1030,7 +1027,7 @@ mod tests {
                     pips: Pips::new(1),
                 }],
             },
-            sprite_name: "unknown".to_string(),
+            sprite: crate::authoring::SpriteId::owned("unknown", ""),
             color: None,
             tier: None,
             doc: None,
@@ -1039,7 +1036,6 @@ mod tests {
             item_modifiers: None,
             sticker: None,
             toggle_flags: None,
-            img_data: None,
             source: Source::Custom,
         });
 
@@ -1083,14 +1079,14 @@ mod tests {
             sd: unknown_faces(9001),
             bare: false,
             color: None,
-            sprite_name: "pikachu".to_string(),
+            sprite: crate::authoring::SpriteId::owned("pikachu", ""),
             speech: String::new(),
             name: "Pikachu".to_string(),
             doc: None,
             abilitydata: Some(AbilityData {
                 template: "Statue".to_string(),
                 sd: unknown_faces(9002),
-                img_data: None,
+                sprite: None,
                 name: "Infuse".to_string(),
                 modifier_chain: None,
                 hsv: None,
@@ -1102,7 +1098,7 @@ mod tests {
                 sd: Some(unknown_faces(9003)),
                 color: None,
                 modifier_chain: None,
-                img_data: None,
+                sprite: None,
                 name: None,
                 tier: None,
                 part: None,
@@ -1112,7 +1108,6 @@ mod tests {
             facades: vec![],
             items_inside: None,
             items_outside: None,
-            img_data: None,
         });
         ir.heroes.push(hero);
 
@@ -1123,12 +1118,11 @@ mod tests {
             floor_range: "1-3".to_string(),
             hp: Some(3),
             sd: Some(unknown_faces(9004)),
-            sprite_name: None,
+            sprite: None,
             color: None,
             doc: None,
             modifier_chain: None,
             balance: None,
-            img_data: None,
             source: Source::Custom,
         });
 
@@ -1192,7 +1186,7 @@ mod tests {
                     pips: Pips::new(2),
                 }],
             },
-            sprite_name: "known".to_string(),
+            sprite: crate::authoring::SpriteId::owned("known", ""),
             color: None,
             tier: None,
             doc: None,
@@ -1201,7 +1195,6 @@ mod tests {
             item_modifiers: None,
             sticker: None,
             toggle_flags: None,
-            img_data: None,
             source: Source::Custom,
         });
 

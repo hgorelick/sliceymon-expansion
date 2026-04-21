@@ -12,9 +12,19 @@ pub fn parse_monster(modifier: &str, _modifier_index: usize) -> Monster {
     let modifier_chain = util::extract_modifier_chain(modifier)
         .map(|s| crate::ir::ModifierChain::parse(&s));
 
-    // sprite_name: use name as key for sprite lookup
-    let sprite_name = if name.is_empty() { None } else { Some(name.clone()) };
+    // Registry-or-owned sprite (§F4). `None` only when we have no name to key it by.
     let img_data = util::extract_img_data(modifier);
+    let sprite = if name.is_empty() {
+        None
+    } else {
+        Some(
+            crate::authoring::SpriteId::lookup(&name)
+                .cloned()
+                .unwrap_or_else(|| {
+                    crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default())
+                }),
+        )
+    };
 
     Monster {
         name,
@@ -22,12 +32,11 @@ pub fn parse_monster(modifier: &str, _modifier_index: usize) -> Monster {
         floor_range,
         hp: util::extract_hp(modifier, true),
         sd: util::extract_sd(modifier, true).map(|s| crate::ir::DiceFaces::parse(&s)),
-        sprite_name,
+        sprite,
         color,
         doc,
         modifier_chain,
         balance: extract_balance(modifier),
-        img_data,
         source: Source::Base,
     }
 }
