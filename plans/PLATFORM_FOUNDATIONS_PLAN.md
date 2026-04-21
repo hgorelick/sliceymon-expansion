@@ -601,7 +601,7 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 **Requirements**:
 - Add `phf` runtime + `phf_codegen` build-deps.
 - Author `SpriteId { name: Cow<'static, str>, img_data: Cow<'static, str> }` per §F4 — with `lookup`, `owned`, `try_registered`, `name()`, `img_data()` accessors.
-- Extend `build.rs` to emit `sprite_registry.rs` as a `phf::Map<&'static str, SpriteId>` literal. Mod-priority last-write-wins.
+- Extend `build.rs` to emit `sprite_registry.rs` as a `phf::Map<&'static str, SpriteId>` literal. Mod-priority: first-write-wins over forward iteration of `WORKING_MOD_ORDER = [sliceymon, pansaer, punpuns, community]`, so sliceymon sprites take precedence on name collisions.
 - Serde via `SpriteIdSerde` helper — flat `{name, img_data}` JSON.
 - Do NOT change any IR field types yet; IR still uses `sprite_name`/`img_data` strings.
 

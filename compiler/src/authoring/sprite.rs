@@ -136,14 +136,40 @@ mod tests {
 
     #[test]
     fn sprite_lookup_agumon() {
-        // The plan's spec test was `sprite_lookup_charmander`; the
-        // Charmander -> Agumon swap is a real Sliceymon+ authoring change,
-        // and Agumon is already present in working-mods/sliceymon.txt, so we
-        // can pin the test to the final name directly.
+        // Plan spec (PLATFORM_FOUNDATIONS_PLAN.md §Chunk 3a): `img_data()` must
+        // match `working-mods/sliceymon.txt` byte-for-byte. `Charmander` in the
+        // original plan was swapped to `Agumon` (real Sliceymon+ authoring
+        // change already present in sliceymon.txt at build time). Load the mod
+        // source via `include_str!` and extract Agumon's `.img.` payload at
+        // test time — that way a harvester regression in `scan_entity_sprites`
+        // would fail this test, not silently relax it.
+        let source = include_str!("../../../working-mods/sliceymon.txt");
+        let needle = ".n.Agumon";
+        let n_pos = source.find(needle).expect("Agumon entity present in sliceymon.txt");
+        // Walk backwards to the nearest preceding `.img.` on the same line —
+        // the harvester's paired-name rule pins the sprite to its enclosing
+        // `(replica...img.DATA)` group.
+        let line_start = source[..n_pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let img_tag = source[line_start..n_pos]
+            .rfind(".img.")
+            .expect(".img. precedes .n.Agumon on sliceymon.txt:53");
+        let img_start = line_start + img_tag + ".img.".len();
+        // Payload terminates at `)` (paren-wrapped group) or the next `.X.` marker.
+        let img_end = source[img_start..]
+            .find(|c: char| c == ')' || c == '(')
+            .map(|o| img_start + o)
+            .expect("Agumon `.img.` payload closes with `)` on its line");
+        let expected = &source[img_start..img_end];
+        assert!(!expected.is_empty(), "test scaffolding bug: empty expected payload");
+
         let s = SpriteId::lookup("Agumon")
             .expect("Agumon should be harvested from sliceymon.txt");
         assert_eq!(s.name(), "Agumon");
-        assert!(!s.img_data().is_empty());
+        assert_eq!(
+            s.img_data(),
+            expected,
+            "registry img_data must match sliceymon.txt byte-for-byte",
+        );
     }
 
     #[test]

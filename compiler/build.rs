@@ -274,9 +274,11 @@ fn harvest_sprites(mods: &[(&'static str, String)]) -> BTreeMap<String, SpriteEn
     for (mod_name, contents) in mods {
         for (line_idx, line) in contents.lines().enumerate() {
             for (name, img) in scan_entity_sprites(line) {
-                // First-write-wins in WORKING_MOD_ORDER. `sliceymon` iterates
-                // first, so its sprites stick — matching the plan's "priority
-                // order" rule. Later mods that reuse the same name are skipped.
+                // First-write-wins in WORKING_MOD_ORDER. Because `sliceymon`
+                // iterates first, its sprites stick — the plan's "mod-priority
+                // last-write-wins" phrasing refers to the priority outcome, not
+                // iteration direction: equivalent here under forward iteration
+                // + first-write. Later mods reusing the same name are skipped.
                 sprites.entry(name).or_insert_with(|| SpriteEntry {
                     img_data: img,
                     first_seen: ((*mod_name).to_string(), line_idx + 1),
@@ -358,7 +360,7 @@ fn scan_entity_sprites(line: &str) -> Vec<(String, String)> {
                 continue;
             }
             let hops = (*idepth - *ndepth) as u32;
-            let dist = if *npos >= *ipos { *npos - *ipos } else { *ipos - *npos };
+            let dist = (*npos).abs_diff(*ipos);
             let replace = match &best {
                 None => true,
                 Some((bh, bd, _, bmn)) => {
