@@ -437,9 +437,9 @@ File-level conflict matrix (every chunk's primary writes):
 **True dependency graph (after the conflict matrix):**
 
 ```
-Chunk 0 (CompilerError)
-  ├── Chunk 1 (Default + ::new + authoring skeleton)
-  │     └── Chunk 2 (FaceId/Pips + IR flip)            [shares ir/mod.rs + build.rs + authoring/mod.rs with 3a]
+Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
+  ├── Chunk 1 (Default + ::new + authoring skeleton)  ✅ COMPLETE (2026-04-21)
+  │     └── Chunk 2 (FaceId/Pips + IR flip)            ← START HERE  [shares ir/mod.rs + build.rs + authoring/mod.rs with 3a]
   │           └── Chunk 3a (SpriteId + registry)        [extends build.rs; new authoring submod]
   │                 └── Chunk 3b (IR field consolidation) [rewrites 6 IR types + their parsers/emitters]
   │                       └── Chunk 3c (drop HashMap from public API)
@@ -463,23 +463,33 @@ The original plan's "parallel groups A/B/C" are false — Chunk 2 and Chunk 3 bo
 
 ---
 
-### Chunk 0: `CompilerError` structured-error refactor [PREREQUISITE]
+### Chunk 0: `CompilerError` structured-error refactor [PREREQUISITE] — ✅ COMPLETE (merged 2026-04-21)
 **Spec**: §F0
 **Files**: `compiler/src/error.rs`, every construction site across `compiler/src/extractor/*.rs`, `compiler/src/builder/*.rs`, `compiler/src/ir/ops.rs`, `compiler/src/ir/merge.rs` (sig retains `Result<_, CompilerError>`), `compiler/src/xref.rs` (only `Finding` sites — `Finding.field_path` / `.suggestion` already exist).
 **Dependencies**: None. Blocks every subsequent chunk.
 
-**Requirements**:
-- Replace `CompilerError` enum with `{ kind: ErrorKind, field_path: Option<String>, suggestion: Option<String>, context: Option<String> }` struct per §F0.
-- Add constructor helpers and update `Display` impl to print `field_path` / `suggestion` tail.
-- Update every `CompilerError::{Variant}` construction site to the new shape (`CompilerError { kind: ErrorKind::Variant { .. }, field_path: ..., suggestion: ..., context: None }`).
-- Add new `ErrorKind` variants `FaceIdInvalid`, `DerivedStructuralAuthored` (used by later chunks — introducing them here prevents adding them piecemeal). No `ReplicaItemKindMismatch` variant is added: §F7's `ReplicaItemContainer` enum makes the former Capture/Legendary invariants unrepresentable at the type level.
+**Delivered** (merged via PR #1, branch `refactor/structured-errors-and-spec`):
+- `compiler/src/error.rs` — `CompilerError { kind: Box<ErrorKind>, field_path, suggestion, context }` struct replaces the old enum-of-variants. 18 `ErrorKind` variants landed: `Split`, `Classify`, `HeroParse`, `Paren`, `Build`, `MergeConflict`, `SpriteNotFound`, `FaceIdInvalid`, `DerivedStructuralAuthored`, `Validation`, `DuplicateName`, `DuplicateColor`, `NotFound`, `ChainParse`, `PhaseParse`, `RewardParse`, `Io { kind, message }`, `Json { line, column, message }`. `Box<ErrorKind>` keeps `Result<T, CompilerError>` small (clippy::result_large_err).
+- 18 constructor helpers; `.with_field_path(..)` / `.with_suggestion(..)` / `.with_context(..)` builders; `Display` impl prints field-path/suggestion/context tails.
+- `From<io::Error>` preserves `io::ErrorKind`; `From<serde_json::Error>` preserves line/column.
+- Constructor-site migrations landed in: `splitter`, `classifier`, `hero_parser`, `phase_parser`, `reward_parser`, `richtext_parser`, `hero_emitter`, `phase_emitter`, `ir/ops`, `main`.
+- `compiler/src/main.rs` — three redundant `.map_err(...)` sites dropped; plain `?` routes via `From` impls.
+- `compiler/src/extractor/fight_parser.rs` — dead `in_chain` variable removed.
+- `compiler/src/ir/merge.rs` — verified no-op: function is `Ok`-only, signature retains `Result<_, CompilerError>` per API contract, zero `CompilerError` construction sites to migrate.
+- `compiler/src/xref.rs` — verified clean: produces `Finding`s only, no `CompilerError` construction. All 8 `Finding` construction sites populate both `field_path` and `suggestion`; messages carry only semantic detail (no buried structured info to lift).
 
-**Verification — specific tests**:
-- [ ] `error::test_display_includes_field_path` — construct each `ErrorKind` variant, assert `Display` output contains `field_path: "..."` line when set.
-- [ ] `error::test_display_includes_suggestion` — same for `suggestion`.
-- [ ] `error::test_existing_variants_migrate_cleanly` — every `ErrorKind::*` variant constructable via its matching helper.
-- [ ] All 4 working mods IR-equal roundtrip (no regression).
-- [ ] `cargo test` passes.
+**Tests landed**:
+- `error::test_display_includes_field_path`
+- `error::test_display_includes_suggestion`
+- `error::test_existing_variants_migrate_cleanly`
+- `error::test_with_context_appears_in_display`
+- 4 per-mod roundtrip baselines in `compiler/tests/baselines/roundtrip/<mod>.baseline` (heroes clean on all 4; replica items clean; monsters clean; bosses drift on all 4 — tracked by `PIPELINE_FIDELITY_PLAN.md`, out of scope here).
+- Gate state at merge: `cargo build` 0 warnings, `cargo clippy` 10 lib warnings (down from 14), `cargo test` 257 pass (+4 roundtrip baselines).
+
+**Follow-ups for subsequent chunks**:
+- `ErrorKind::FaceIdInvalid` and `ErrorKind::DerivedStructuralAuthored` already exist — Chunk 2 (F3) and Chunk 5 (F6) wire them up; do not re-add.
+- `Finding.field_path` currently uses `heroes[<name>].color` / `hero[<name>].mn_name` style paths (names as subscripts). Chunk 4 (F5) and later chunks that tighten xref rules may switch these to index-based paths if needed; Chunk 0 deliberately did not normalize path format.
+- No `ReplicaItemKindMismatch` variant — Chunk 6 (F7)'s `ReplicaItemContainer` enum makes the former Capture/Legendary invariants unrepresentable, so no runtime variant is needed.
 
 ---
 
