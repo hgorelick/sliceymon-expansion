@@ -13,7 +13,6 @@
 //!
 //! and commit the updated files under tests/baselines/roundtrip/.
 
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -85,8 +84,7 @@ fn summarize(text: &str) -> String {
         Ok(ir) => ir,
         Err(e) => return format!("phase: extract1\nresult: err\nerror: {}\n", e),
     };
-    let sprites: HashMap<String, String> = HashMap::new();
-    let built = match build_complete(&ir, &sprites) {
+    let built = match build_complete(&ir) {
         Ok(t) => t,
         Err(e) => return format!("phase: build\nresult: err\nerror: {}\n", e),
     };

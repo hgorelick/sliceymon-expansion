@@ -654,10 +654,10 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 - Update `main.rs` CLI and every test/example that passes a sprite map.
 
 **Verification — specific tests**:
-- [ ] `lib::build_no_sprites_path_b` — build an IR constructed entirely in-memory (Path B) with no sprite map, emits a valid textmod.
-- [ ] `lib::build_roundtrip_sliceymon_no_sprites` — roundtrip sliceymon without passing a sprite HashMap.
-- [ ] `lib::build_hero_signature` — `build_hero(&hero)` compiles (no HashMap arg).
-- [ ] All 4 working mods IR-equal roundtrip.
+- [x] `build_no_sprites_path_b` — Path B ModIR with an in-memory hero builds via `build_complete(&ir)`; ASCII textmod carries the sprite's `img_data` from `HeroBlock.sprite`.
+- [x] `build_roundtrip_sliceymon_no_sprites` — `extract → build(&ir) → extract` on `working-mods/sliceymon.txt` yields IR-equal `heroes`, `replica_items`, and `monsters` without passing a sprite map.
+- [x] `build_hero_signature` — `build_hero(&hero)` compiles with a single argument; `lib.rs` no longer imports `HashMap`.
+- [x] All 4 working mods IR-equal roundtrip (`tests/roundtrip_baseline.rs` passes unchanged after the signature flip).
 
 ---
 

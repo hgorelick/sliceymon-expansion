@@ -300,8 +300,6 @@ fn test_chain_sticker_segment() {
 
 #[test]
 fn test_validate_hero_minimal() {
-    use std::collections::HashMap;
-
     let hero = Hero {
         internal_name: "test".into(),
         mn_name: "Test".into(),
@@ -330,8 +328,7 @@ fn test_validate_hero_minimal() {
         source: Source::Base,
     };
 
-    let sprites: HashMap<String, String> = [("test".into(), "testimg".into())].into();
-    let report = validate_hero(&hero, &sprites);
+    let report = validate_hero(&hero);
     assert!(report.errors.is_empty(), "Minimal hero should validate: {:?}", report.errors);
 }
 
@@ -421,4 +418,93 @@ fn extract_preserves_replica_item_img_data_on_registry_name_collision() {
     let item = replica_item_parser::parse_simple(modifier, 0);
     assert_eq!(item.sprite.name(), "Pikachu");
     assert_eq!(item.sprite.img_data(), "TRIBUNAL_NOVEL_IMG");
+}
+
+// ---------------------------------------------------------------------------
+// Chunk 3c: `sprites: &HashMap` dropped from the public API
+// ---------------------------------------------------------------------------
+
+fn minimal_path_b_hero() -> Hero {
+    Hero {
+        internal_name: "pb".into(),
+        mn_name: "PathB".into(),
+        color: 'a',
+        format: HeroFormat::Sliceymon,
+        blocks: vec![HeroBlock {
+            template: "Lost".into(),
+            tier: Some(1),
+            hp: Some(5),
+            sd: DiceFaces::parse("0:0:0:0:0:0"),
+            color: None,
+            sprite: SpriteId::owned("PathB", "PATHB_IMG"),
+            speech: "!".into(),
+            name: "PathB".into(),
+            doc: None,
+            abilitydata: None,
+            triggerhpdata: None,
+            hue: None,
+            modifier_chain: None,
+            facades: vec![],
+            items_inside: None,
+            items_outside: None,
+            bare: false,
+        }],
+        removed: false,
+        source: Source::Base,
+    }
+}
+
+#[test]
+fn build_no_sprites_path_b() {
+    // Path B: ModIR constructed in-memory, no sprite HashMap passed anywhere.
+    let mut ir = ModIR::empty();
+    ir.heroes.push(minimal_path_b_hero());
+    let textmod = build_complete(&ir).expect("build_complete");
+    assert!(textmod.contains("ph.bpb"), "expected sliceymon ph.b prefix");
+    assert!(textmod.contains(".img.PATHB_IMG"), "img_data must ride on the block");
+    assert!(textmod.contains(".mn.PathB"), "expected mn suffix");
+}
+
+#[test]
+fn build_roundtrip_sliceymon_no_sprites() {
+    let mod_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("working-mods")
+        .join("sliceymon.txt");
+    let text = std::fs::read_to_string(&mod_path).expect("read sliceymon.txt");
+    let ir1 = extract(&text).expect("extract1");
+    let rebuilt = build(&ir1).expect("build without sprites");
+    let ir2 = extract(&rebuilt).expect("extract2");
+    assert_eq!(ir1.heroes, ir2.heroes, "sliceymon heroes must roundtrip IR-equal");
+    assert_eq!(ir1.replica_items, ir2.replica_items, "replica items must roundtrip IR-equal");
+    assert_eq!(ir1.monsters, ir2.monsters, "monsters must roundtrip IR-equal");
+}
+
+#[test]
+fn build_hero_signature() {
+    // Compile-time guarantee: build_hero takes only &Hero — no HashMap arg.
+    let hero = minimal_path_b_hero();
+    let emitted = build_hero(&hero).expect("build_hero");
+    assert!(emitted.contains(".mn.PathB"));
+}
+
+#[test]
+fn build_emits_block_img_data_not_registry_payload() {
+    // Source-vs-IR divergence pin (per Chunk 3b tribunal lesson): the emitter
+    // must read `HeroBlock.sprite.img_data()` and nothing else. If a future
+    // refactor re-introduces registry lookup on the build path, a block whose
+    // name collides with a registered sprite but carries novel img_data would
+    // silently emit the registered payload instead of the block's own bytes.
+    //
+    // "Pikachu" is a registered name (see Chunk 3a), so using it as `name`
+    // while carrying `CHUNK_3C_NOVEL_IMG` as `img_data` exercises the
+    // collision surface.
+    let mut hero = minimal_path_b_hero();
+    hero.blocks[0].sprite = SpriteId::owned("Pikachu", "CHUNK_3C_NOVEL_IMG");
+    let emitted = build_hero(&hero).expect("build_hero");
+    assert!(
+        emitted.contains(".img.CHUNK_3C_NOVEL_IMG"),
+        "emitter must use the block's own img_data, got: {}",
+        emitted
+    );
 }

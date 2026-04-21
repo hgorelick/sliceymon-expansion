@@ -173,7 +173,6 @@ mod tests {
 
     #[test]
     fn builder_auto_generates_derived_structurals() {
-        use std::collections::HashMap;
         use crate::ir::ModIR;
 
         let mut ir = ModIR::empty();
@@ -181,13 +180,7 @@ mod tests {
         ir.heroes.push(make_hero("Beta", 'b'));
         ir.heroes.push(make_hero("Gamma", 'c'));
 
-        let sprites: HashMap<String, String> = [
-            ("Alpha".into(), "testimg".into()),
-            ("Beta".into(), "testimg".into()),
-            ("Gamma".into(), "testimg".into()),
-        ].into();
-
-        let output = crate::builder::build_complete(&ir, &sprites).unwrap();
+        let output = crate::builder::build_complete(&ir).unwrap();
         // Should contain auto-generated selector and hero pool
         assert!(output.contains("@1Alpha"), "missing char selection option Alpha");
         assert!(output.contains("@1Beta"), "missing char selection option Beta");

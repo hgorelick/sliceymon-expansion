@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -88,8 +87,7 @@ fn main() -> Result<(), CompilerError> {
                 ir = textmod_compiler::merge(ir, overlay_ir)?;
             }
 
-            let sprites: HashMap<String, String> = HashMap::new();
-            let textmod = textmod_compiler::build(&ir, &sprites)?;
+            let textmod = textmod_compiler::build(&ir)?;
             fs::write(&output, textmod)?;
             println!("Built textmod written to {}", output.display());
         }
@@ -115,8 +113,7 @@ fn main() -> Result<(), CompilerError> {
             // Optional round-trip IR comparison
             if round_trip {
                 let ir1 = textmod_compiler::extract(&textmod)?;
-                let sprites: HashMap<String, String> = HashMap::new();
-                let rebuilt = textmod_compiler::build(&ir1, &sprites)?;
+                let rebuilt = textmod_compiler::build(&ir1)?;
                 let ir2 = textmod_compiler::extract(&rebuilt)?;
 
                 let json1 = textmod_compiler::ir_to_json(&ir1)?;
@@ -148,8 +145,7 @@ fn main() -> Result<(), CompilerError> {
             let overlay_ir = textmod_compiler::ir_from_json(&overlay_json)?;
 
             let merged = textmod_compiler::merge(base_ir, overlay_ir)?;
-            let sprites: HashMap<String, String> = HashMap::new();
-            let textmod = textmod_compiler::build(&merged, &sprites)?;
+            let textmod = textmod_compiler::build(&merged)?;
             fs::write(&output, &textmod)?;
             println!("Overlay applied: {} heroes, {} replica items, {} monsters, {} bosses",
                 merged.heroes.len(), merged.replica_items.len(),

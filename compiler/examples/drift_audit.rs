@@ -70,8 +70,7 @@ fn audit(name: &str, path: &PathBuf) {
     println!("\n========== {} ==========", name);
     let source = match fs::read_to_string(path) { Ok(t) => t, Err(e) => { println!("READ ERR {}", e); return; } };
     let ir = match textmod_compiler::extract(&source) { Ok(ir) => ir, Err(e) => { println!("EXTRACT ERR {}", e); return; } };
-    let sprites: HashMap<String, String> = HashMap::new();
-    let rebuilt = match textmod_compiler::build(&ir, &sprites) { Ok(t) => t, Err(e) => { println!("BUILD ERR {}", e); return; } };
+    let rebuilt = match textmod_compiler::build(&ir) { Ok(t) => t, Err(e) => { println!("BUILD ERR {}", e); return; } };
 
     let src_mods = modifier_split(&source);
     let dst_mods = modifier_split(&rebuilt);
