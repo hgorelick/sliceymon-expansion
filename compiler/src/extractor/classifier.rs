@@ -11,6 +11,10 @@ pub enum ModifierType {
     BossEncounter,
     ReplicaItem,
     ReplicaItemWithAbility,
+    /// Top-level `item.(...)` — a Legendary replica item (persistent ally with
+    /// spell). Distinct from `ReplicaItem` / `ReplicaItemWithAbility`, which
+    /// are both Capture-shaped (wrapped in `itempool.(...)`).
+    Legendary,
     ItemPool,
     PartyConfig,
     EventModifier,
@@ -171,6 +175,14 @@ pub fn classify(modifier: &str, modifier_index: usize) -> Result<ModifierType, C
     // ItemPool: starts with "itempool."
     if starts_with_ci(modifier, "itempool.") {
         return Ok(ModifierType::ItemPool);
+    }
+
+    // Legendary: top-level `item.TEMPLATE...` (persistent ally with spell).
+    // Must be AFTER itempool / ItemPool checks so `itempool.` doesn't slip
+    // through. Distinct from the Capture path, which is always wrapped in
+    // `itempool.(((...))).n.BallName`.
+    if starts_with_ci(modifier, "item.") {
+        return Ok(ModifierType::Legendary);
     }
 
     // PartyConfig: starts with "=party." OR starts with "((party." OR "party."

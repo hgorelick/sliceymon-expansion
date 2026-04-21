@@ -588,17 +588,34 @@ pub struct HeroBlock {
 
 // -- Replica Items --
 //
-// Generic item pool entries wrapping a replica character inside an item container.
-// Covers what was previously "Capture" (simple: hat.replica) and "Legendary"
-// (with ability: hat.(replica...cast...)). The emit format is derived from
-// whether abilitydata is present — no format discriminant needed.
+// Generic item pool entries wrapping a replica character. The `container`
+// variant encodes the source-level shape:
+//   - `Capture { name }`  — `itempool.((...)).n.name` (the ball / container)
+//   - `Legendary`         — top-level `item.(...)` (persistent ally with spell)
+//
+// No separate `kind` discriminator and no `container_name: Option<String>` —
+// the variant IS the discriminator, so Capture-without-name and
+// Legendary-with-name are type errors (SPEC §3.6).
+
+/// Source-level container shape for a `ReplicaItem`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+pub enum ReplicaItemContainer {
+    /// Source-level `itempool.((...)).n.name` — the capturable ball shape.
+    /// `name` is the outer `.n.` value (e.g. `PokeBall`). By construction a
+    /// Capture cannot exist without this name.
+    Capture { name: String },
+    /// Source-level top-level `item.(...)` — persistent ally with spell.
+    /// By construction a Legendary carries no container name.
+    Legendary,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ReplicaItem {
     /// Inner character name (used for .mn. suffix)
     pub name: String,
-    /// Outer container/item display name (.n. at depth 0)
-    pub container_name: String,
+    /// Source-level container shape. Replaces the former
+    /// `container_name: String` field — see `ReplicaItemContainer` above.
+    pub container: ReplicaItemContainer,
     pub template: String,
     pub hp: Option<u16>,
     pub sd: DiceFaces,
@@ -1720,5 +1737,59 @@ mod chunk_1_tests {
             parsed_legacy.is_err(),
             "legacy sprite_name+img_data JSON must NOT deserialize into the post-§F4 HeroBlock"
         );
+    }
+}
+
+#[cfg(test)]
+mod chunk_6_tests {
+    //! Chunk 6 — `ReplicaItemContainer` enum replaces `container_name: String`.
+    //!
+    //! Structural proofs per plans/PLATFORM_FOUNDATIONS_PLAN.md §F7 / Chunk 6:
+    //! - Capture carries `name` by construction.
+    //! - Legendary carries no name by construction.
+    //! - Serde shape: `{"Capture":{"name":"X"}}` / `"Legendary"` round-trips.
+    use super::*;
+
+    #[test]
+    fn replica_item_capture_carries_container_name() {
+        // Constructible — proves the variant shape exists.
+        let c = ReplicaItemContainer::Capture { name: "PokeBall".into() };
+        match c {
+            ReplicaItemContainer::Capture { name } => assert_eq!(name, "PokeBall"),
+            ReplicaItemContainer::Legendary => panic!("expected Capture"),
+        }
+        // `ReplicaItemContainer::Capture { /* no name */ }` and
+        // `ReplicaItemContainer::Capture(String)` are compile errors — enforced
+        // structurally by the enum definition itself.
+    }
+
+    #[test]
+    fn replica_item_legendary_has_no_container_by_construction() {
+        let l = ReplicaItemContainer::Legendary;
+        // Trying to pattern-match `Legendary { name }` is a compile error:
+        //
+        //   match l { ReplicaItemContainer::Legendary { name } => .. }
+        //
+        // There is no variant shape that lets a Legendary carry a name.
+        match l {
+            ReplicaItemContainer::Legendary => {}
+            ReplicaItemContainer::Capture { .. } => panic!("expected Legendary"),
+        }
+    }
+
+    #[test]
+    fn replica_item_container_json_shape() {
+        // Default enum tagging: externally-tagged.
+        let cap = ReplicaItemContainer::Capture { name: "X".into() };
+        let cap_json = serde_json::to_string(&cap).unwrap();
+        assert_eq!(cap_json, r#"{"Capture":{"name":"X"}}"#);
+        let round_cap: ReplicaItemContainer = serde_json::from_str(&cap_json).unwrap();
+        assert_eq!(round_cap, cap);
+
+        let leg = ReplicaItemContainer::Legendary;
+        let leg_json = serde_json::to_string(&leg).unwrap();
+        assert_eq!(leg_json, r#""Legendary""#);
+        let round_leg: ReplicaItemContainer = serde_json::from_str(&leg_json).unwrap();
+        assert_eq!(round_leg, leg);
     }
 }
