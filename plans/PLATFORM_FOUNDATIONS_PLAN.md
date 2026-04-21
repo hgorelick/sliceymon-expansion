@@ -509,7 +509,7 @@ The original plan's "parallel groups A/B/C" are false — Chunk 2 and Chunk 3 bo
 - [ ] `ir::hero_new_defaults_empty_blocks` — `Hero::new("x", "X", 'r')` has `blocks.is_empty()`, `removed == false`, `source == Source::Base`.
 - [ ] `ir::monster_new_defaults_optional_fields_none` — `Monster::new("Foo", "bas", "1-5")` has `sd.is_none()` and the sprite-shaped optional field is `None`. The exact field name (`sprite_name` pre-Chunk 3b, `sprite` post-Chunk 3b) is updated by Chunk 3b when the field is renamed; this test moves with the rename in the same PR as the consolidation.
 - [ ] `ir::boss_default_roundtrip` — `Boss::default()` round-trips through `ir_to_json`/`ir_from_json` identically.
-- [ ] `authoring::module_doc_comment_present` — compile-time doc test referencing SPEC §6.1.
+- No unit test in `authoring/` skeleton — compilation is the gate (`pub mod authoring;` in `lib.rs` fails to build if the file is removed); Chunk 2 populates the module with real constructors and their tests.
 - [ ] All 4 working mods IR-equal roundtrip.
 - [ ] `cargo test` passes.
 
