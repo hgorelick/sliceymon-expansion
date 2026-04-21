@@ -350,11 +350,7 @@ impl AbilityData {
 
         let hsv = crate::util::extract_simple_prop(inner, ".hsv.");
 
-        let sprite = img_data.map(|img| {
-            SpriteId::lookup(&name)
-                .cloned()
-                .unwrap_or_else(|| SpriteId::owned(name.clone(), img))
-        });
+        let sprite = img_data.map(|img| SpriteId::owned(name.clone(), img));
 
         AbilityData { template, sd, sprite, name, modifier_chain, hsv, ability_type: None }
     }
@@ -436,12 +432,10 @@ impl TriggerHpDef {
         let part = crate::util::extract_simple_prop(inner, ".part.")
             .and_then(|v| v.parse::<u8>().ok());
 
-        let sprite = img_data.map(|img| {
-            let key = name.as_deref().unwrap_or(&template);
-            SpriteId::lookup(key)
-                .cloned()
-                .unwrap_or_else(|| SpriteId::owned(key.to_string(), img))
-        });
+        // Anonymous triggerhps (no `.n.`) store an empty sprite name; emit only reads
+        // `sprite.img_data()`, so the name is observably absent. Using the template
+        // name here would be a semantic lie stored in the IR.
+        let sprite = img_data.map(|img| SpriteId::owned(name.clone().unwrap_or_default(), img));
 
         TriggerHpDef { template, hp, sd, color, modifier_chain, sprite, name, tier, part }
     }

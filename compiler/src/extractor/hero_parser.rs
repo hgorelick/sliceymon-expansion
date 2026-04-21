@@ -231,11 +231,10 @@ fn try_parse_grouped_block(block: &str) -> Option<HeroBlock> {
             .map(|s| crate::ir::ModifierChain::parse(&s))
     };
 
-    let sprite = crate::authoring::SpriteId::lookup(&name)
-        .cloned()
-        .unwrap_or_else(|| {
-            crate::authoring::SpriteId::owned(name.clone(), img_data.clone().unwrap_or_default())
-        });
+    let sprite = crate::authoring::SpriteId::owned(
+        name.clone(),
+        img_data.clone().unwrap_or_default(),
+    );
 
     Some(HeroBlock {
         template,
@@ -543,11 +542,10 @@ fn parse_tier_block(
     let items_outside = extract_items_outside(outside_content)
         .map(|s| crate::ir::ModifierChain::parse(&s));
 
-    let sprite = crate::authoring::SpriteId::lookup(&name)
-        .cloned()
-        .unwrap_or_else(|| {
-            crate::authoring::SpriteId::owned(name.clone(), img_data.clone().unwrap_or_default())
-        });
+    let sprite = crate::authoring::SpriteId::owned(
+        name.clone(),
+        img_data.clone().unwrap_or_default(),
+    );
 
     Ok(HeroBlock {
         template,

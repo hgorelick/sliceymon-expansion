@@ -18,11 +18,7 @@ pub fn parse_simple(modifier: &str, _modifier_index: usize) -> ReplicaItem {
     let sticker = util::extract_simple_prop(modifier, ".sticker.");
     let toggle_flags = extract_toggle_flags(modifier);
     let img_data = util::extract_img_data(modifier);
-    let sprite = crate::authoring::SpriteId::lookup(&name)
-        .cloned()
-        .unwrap_or_else(|| {
-            crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default())
-        });
+    let sprite = crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default());
 
     ReplicaItem {
         name,
@@ -60,11 +56,7 @@ pub fn parse_with_ability(modifier: &str, _modifier_index: usize) -> ReplicaItem
     let item_modifiers = util::extract_modifier_chain(modifier)
         .map(|s| crate::ir::ModifierChain::parse(&s));
     let img_data = util::extract_img_data(modifier);
-    let sprite = crate::authoring::SpriteId::lookup(&name)
-        .cloned()
-        .unwrap_or_else(|| {
-            crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default())
-        });
+    let sprite = crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default());
 
     // Container name: the outer .n. (last one at depth 0, outside replica)
     let container_name = extract_outer_n_name(modifier).unwrap_or_default();
