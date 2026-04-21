@@ -14,12 +14,12 @@ pub fn emit_phase(phase: &Phase) -> Result<String, CompilerError> {
 
 fn emit_phase_at_depth(phase: &Phase, depth: usize) -> Result<String, CompilerError> {
     if depth > MAX_PHASE_DEPTH {
-        return Err(CompilerError::PhaseParseError {
-            phase_code: None,
-            content: format!("(emitter depth {})", depth),
-            expected: format!("phase nesting depth <= {}", MAX_PHASE_DEPTH),
-            found: format!("depth {}", depth),
-        });
+        return Err(CompilerError::phase_parse(
+            None,
+            format!("(emitter depth {})", depth),
+            format!("phase nesting depth <= {}", MAX_PHASE_DEPTH),
+            format!("depth {}", depth),
+        ));
     }
 
     let mut out = String::new();

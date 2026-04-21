@@ -1,5 +1,7 @@
 # Engineering Personas
 
+> **Spec**: [`SPEC.md`](../SPEC.md) is the project source of truth. Read it before invoking any persona — every persona's guidance is scoped to and bounded by the invariants defined there.
+
 This folder contains AI persona files representing expert principal engineers with different areas of expertise, tailored for the Sliceymon+ textmod compiler project. Reference these personas individually or in combination to get specialized guidance.
 
 ## Available Personas

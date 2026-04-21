@@ -88,7 +88,7 @@ pub fn detect_hero_format(modifier: &str) -> HeroFormat {
 ///
 /// Classification patterns (order matters -- first match wins).
 /// The logic below must handle all mod formats (pansaer, punpuns, sliceymon, community).
-/// Unrecognized patterns produce `ClassifyError` rather than a silent Unknown —
+/// Unrecognized patterns produce `ErrorKind::Classify` rather than a silent Unknown —
 /// this surfaces new constructs so they can be explicitly added via a typed variant.
 pub fn classify(modifier: &str, modifier_index: usize) -> Result<ModifierType, CompilerError> {
     // PoolReplacement: starts with "((" and contains "heropool."
@@ -275,9 +275,9 @@ pub fn classify(modifier: &str, modifier_index: usize) -> Result<ModifierType, C
     // means either (a) add a classifier rule for a documented construct, or
     // (b) add a new ModifierType variant for a new construct found in a mod.
     let preview: String = modifier.chars().take(120).collect();
-    Err(CompilerError::ClassifyError {
+    Err(CompilerError::classify(
         modifier_index,
         preview,
-        message: "no classifier pattern matched this modifier".to_string(),
-    })
+        "no classifier pattern matched this modifier",
+    ))
 }

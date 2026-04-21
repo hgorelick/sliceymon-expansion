@@ -214,7 +214,6 @@ fn compute_body_order(
     let bytes = content.as_bytes();
     let mut order: Vec<(usize, M)> = Vec::new();
     let mut depth: i32 = 0;
-    let mut in_chain = false;
     let mut chain_seg_idx: usize = 0;
     let non_chain_markers: &[&str] = &[
         ".col.", ".tier.", ".hp.", ".sd.", ".img.", ".hsv.", ".abilitydata.",
@@ -234,14 +233,12 @@ fn compute_body_order(
         }
         if depth == 0 {
             if i + 3 <= bytes.len() && &content[i..i + 3] == ".i." {
-                in_chain = true;
                 order.push((i, M::Chain(chain_seg_idx)));
                 chain_seg_idx += 1;
                 i += 3;
                 continue;
             }
             if i + 9 <= bytes.len() && &content[i..i + 9] == ".sticker." {
-                in_chain = true;
                 order.push((i, M::Chain(chain_seg_idx)));
                 chain_seg_idx += 1;
                 i += 9;
@@ -251,7 +248,6 @@ fn compute_body_order(
             let mut matched_non_chain = false;
             for m in non_chain_markers {
                 if i + m.len() <= bytes.len() && &content[i..i + m.len()] == *m {
-                    in_chain = false;
                     let marker = match *m {
                         ".col." => Some(M::Col),
                         ".hp." => Some(M::Hp),
