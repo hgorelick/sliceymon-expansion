@@ -12,6 +12,7 @@
 
 use std::collections::BTreeMap;
 use std::env;
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -76,11 +77,40 @@ fn main() {
         working_mods_dir.display()
     );
 
-    let ids = harvest_face_ids(&working_mods_dir);
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR must be set by cargo");
-    let out_path = Path::new(&out_dir).join("face_id_generated.rs");
-    fs::write(&out_path, emit_generated(&ids))
-        .unwrap_or_else(|e| panic!("write {}: {}", out_path.display(), e));
+    let out_dir = Path::new(&out_dir);
+
+    // Single-pass read: both harvesters scan the same file contents, so we
+    // read each working-mod exactly once and hand each pass the string it
+    // needs. Keeps the build script I/O-cheap and ordered deterministically.
+    let mod_contents = read_working_mods(&working_mods_dir);
+
+    let ids = harvest_face_ids(&mod_contents);
+    let face_path = out_dir.join("face_id_generated.rs");
+    fs::write(&face_path, emit_generated(&ids))
+        .unwrap_or_else(|e| panic!("write {}: {}", face_path.display(), e));
+
+    let sprites = harvest_sprites(&mod_contents);
+    let sprite_path = out_dir.join("sprite_registry_generated.rs");
+    fs::write(&sprite_path, emit_sprite_registry(&sprites))
+        .unwrap_or_else(|e| panic!("write {}: {}", sprite_path.display(), e));
+}
+
+/// Read each working-mod exactly once, in the `WORKING_MOD_ORDER` sequence.
+/// Missing files are silently skipped so the build doesn't break while a mod
+/// is in flux (same policy as the face-id harvester's previous inline loop).
+fn read_working_mods(dir: &Path) -> Vec<(&'static str, String)> {
+    let mut out = Vec::with_capacity(WORKING_MOD_ORDER.len());
+    for mod_name in WORKING_MOD_ORDER {
+        let path = dir.join(mod_name);
+        if !path.exists() {
+            continue;
+        }
+        let contents = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
+        out.push((*mod_name, contents));
+    }
+    out
 }
 
 /// The compiler/ Cargo.toml lives one level below the repo root. Walk up from
@@ -94,17 +124,9 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn harvest_face_ids(dir: &Path) -> BTreeMap<u16, FaceIdMeta> {
+fn harvest_face_ids(mods: &[(&'static str, String)]) -> BTreeMap<u16, FaceIdMeta> {
     let mut ids: BTreeMap<u16, FaceIdMeta> = BTreeMap::new();
-    for mod_name in WORKING_MOD_ORDER {
-        let path = dir.join(mod_name);
-        if !path.exists() {
-            // Plan authored against a 4-mod corpus; tolerate missing files so
-            // the build doesn't break when a mod is in flux.
-            continue;
-        }
-        let contents = fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
+    for (mod_name, contents) in mods {
         for (line_idx, line) in contents.lines().enumerate() {
             for raw_id in scan_sd_face_ids(line) {
                 if raw_id == 0 {
@@ -226,5 +248,242 @@ fn emit_generated(ids: &BTreeMap<u16, FaceIdMeta>) -> String {
         out.push_str(&format!("    {id},\n"));
     }
     out.push_str("];\n");
+    out
+}
+
+// -- Sprite harvester ---------------------------------------------------------
+//
+// For each `.img.<payload>` in the corpus, pair it with the nearest `.mn.` or
+// `.n.` name at the same paren depth. The result is a `BTreeMap<String, ...>`
+// (keyed by display name, first-write-wins in `WORKING_MOD_ORDER` — sliceymon
+// highest priority). Empty or pathological lines produce no pairs; they don't
+// error. The output is a `phf::Map<&'static str, SpriteId>` static whose value
+// expressions construct `SpriteId` via its private fields, which is why the
+// generated file is `include!`d into `authoring/sprite.rs` rather than exposed
+// as a submodule.
+
+#[derive(Debug)]
+struct SpriteEntry {
+    img_data: String,
+    /// `(mod_name, line_number)` of the first occurrence — stable across builds.
+    first_seen: (String, usize),
+}
+
+fn harvest_sprites(mods: &[(&'static str, String)]) -> BTreeMap<String, SpriteEntry> {
+    let mut sprites: BTreeMap<String, SpriteEntry> = BTreeMap::new();
+    for (mod_name, contents) in mods {
+        for (line_idx, line) in contents.lines().enumerate() {
+            for (name, img) in scan_entity_sprites(line) {
+                // First-write-wins in WORKING_MOD_ORDER. `sliceymon` iterates
+                // first, so its sprites stick — matching the plan's "priority
+                // order" rule. Later mods that reuse the same name are skipped.
+                sprites.entry(name).or_insert_with(|| SpriteEntry {
+                    img_data: img,
+                    first_seen: ((*mod_name).to_string(), line_idx + 1),
+                });
+            }
+        }
+    }
+    sprites
+}
+
+/// Walk a line tracking paren depth; collect `(.img. position, payload, depth)`
+/// and `(name position, name, depth, is_mn)` tuples; then for each `.img.`
+/// site pick the nearest name at the same depth. `.mn.` beats `.n.` on tie.
+fn scan_entity_sprites(line: &str) -> Vec<(String, String)> {
+    let bytes = line.as_bytes();
+    let mut img_sites: Vec<(usize, String, i32)> = Vec::new();
+    // (pos, name, depth, is_mn)
+    let mut name_sites: Vec<(usize, String, i32, bool)> = Vec::new();
+
+    let mut depth: i32 = 0;
+    let mut i: usize = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c == b'(' {
+            depth += 1;
+            i += 1;
+            continue;
+        }
+        if c == b')' {
+            depth -= 1;
+            i += 1;
+            continue;
+        }
+        if c == b'.' && line[i..].starts_with(".img.") {
+            let val_start = i + ".img.".len();
+            let val_end = find_img_val_end(line, val_start);
+            let val = line[val_start..val_end].to_string();
+            if !val.is_empty() {
+                img_sites.push((i, val, depth));
+            }
+            i = val_end.max(i + 1);
+            continue;
+        }
+        if c == b'.' && line[i..].starts_with(".mn.") {
+            let name_start = i + ".mn.".len();
+            let name_end = find_name_end(line, name_start);
+            let name = line[name_start..name_end].trim().to_string();
+            if !name.is_empty() {
+                name_sites.push((i, name, depth, true));
+            }
+            i = name_end.max(i + 1);
+            continue;
+        }
+        if c == b'.' && line[i..].starts_with(".n.") {
+            let name_start = i + ".n.".len();
+            let name_end = find_name_end(line, name_start);
+            let name = line[name_start..name_end].trim().to_string();
+            if !name.is_empty() {
+                name_sites.push((i, name, depth, false));
+            }
+            i = name_end.max(i + 1);
+            continue;
+        }
+        i += 1;
+    }
+
+    let mut out: Vec<(String, String)> = Vec::new();
+    for (ipos, val, idepth) in &img_sites {
+        // Names at the img's own depth or an outer depth are candidates. The
+        // common shape in sliceymon is an `.img.` at depth 1 inside a
+        // `(replica.Template...)` group with the entity's `.n.NAME` at depth 0
+        // immediately after the closing paren — e.g.
+        //   !mheropool.(replica.Lost...img.DATA).speech.X.n.Eevee+...
+        // Scoring: (fewer-outer-hops first, then shorter distance, then `.mn.` wins).
+        let mut best: Option<(u32, usize, &str, bool)> = None;
+        for (npos, name, ndepth, is_mn) in &name_sites {
+            if ndepth > idepth {
+                // Names at deeper depths belong to nested entities, not this one.
+                continue;
+            }
+            let hops = (*idepth - *ndepth) as u32;
+            let dist = if *npos >= *ipos { *npos - *ipos } else { *ipos - *npos };
+            let replace = match &best {
+                None => true,
+                Some((bh, bd, _, bmn)) => {
+                    if hops != *bh {
+                        hops < *bh
+                    } else if *is_mn != *bmn {
+                        *is_mn && !*bmn
+                    } else {
+                        dist < *bd
+                    }
+                }
+            };
+            if replace {
+                best = Some((hops, dist, name.as_str(), *is_mn));
+            }
+        }
+        if let Some((_, _, name, _)) = best {
+            out.push((name.to_string(), val.clone()));
+        }
+    }
+    out
+}
+
+/// Termination rule for an `.img.VAL` payload.
+/// - Paren-wrapped (`.img.(X)`): include the whole matched group.
+/// - Bare: end at the next `.X.` property marker (`.` followed by an alphabetic
+///   char), `(`, `)`, or end-of-line. `=` and `%` are valid payload characters
+///   and do NOT terminate the value.
+fn find_img_val_end(line: &str, start: usize) -> usize {
+    let bytes = line.as_bytes();
+    if start < bytes.len() && bytes[start] == b'(' {
+        let mut d: i32 = 0;
+        let mut j = start;
+        while j < bytes.len() {
+            match bytes[j] {
+                b'(' => d += 1,
+                b')' => {
+                    d -= 1;
+                    if d == 0 {
+                        return j + 1;
+                    }
+                }
+                _ => {}
+            }
+            j += 1;
+        }
+        return bytes.len();
+    }
+    let mut j = start;
+    while j < bytes.len() {
+        let c = bytes[j];
+        if c == b'(' || c == b')' {
+            return j;
+        }
+        if c == b'.' {
+            if let Some(&next) = bytes.get(j + 1) {
+                if next.is_ascii_alphabetic() {
+                    return j;
+                }
+            }
+        }
+        j += 1;
+    }
+    j
+}
+
+/// Termination rule for a `.n.NAME` or `.mn.NAME` value. Names terminate at
+/// any char that can start the next structural element: `.` (next property),
+/// `(`, `)`, `+`, `=`, `&`, `@`, `,`, or newline. This matches the union of
+/// `util::extract_last_n_name` and `util::extract_mn_name` terminators closely
+/// enough for the registry-harvest use case — we only need to capture the
+/// entity's display name, not every byte of it verbatim.
+fn find_name_end(line: &str, start: usize) -> usize {
+    let bytes = line.as_bytes();
+    let mut j = start;
+    while j < bytes.len() {
+        let c = bytes[j];
+        if matches!(c, b'.' | b'(' | b')' | b'+' | b'=' | b'&' | b'@' | b',' | b'\n') {
+            return j;
+        }
+        j += 1;
+    }
+    j
+}
+
+fn emit_sprite_registry(sprites: &BTreeMap<String, SpriteEntry>) -> String {
+    let mut out = String::new();
+    out.push_str("// @generated by compiler/build.rs — DO NOT EDIT.\n");
+    out.push_str("// Harvested from working-mods/*.txt. Determinism: BTreeMap-ordered phf build.\n\n");
+
+    // Build the phf map. Keys are &str borrowed from the BTreeMap (lives for
+    // the rest of this function), values are Rust expression strings that
+    // construct `SpriteId` through its private fields. The `include!` in
+    // `authoring/sprite.rs` puts the generated static inside that module's
+    // privacy scope, so the field access is legal.
+    let mut map: phf_codegen::Map<&str> = phf_codegen::Map::new();
+    // Hold value-expression strings for the lifetime of `map.build()`.
+    let value_exprs: Vec<(String, String, (String, usize))> = sprites
+        .iter()
+        .map(|(name, entry)| {
+            let expr = format!(
+                "SpriteId {{ name: ::std::borrow::Cow::Borrowed({name:?}), img_data: ::std::borrow::Cow::Borrowed({img:?}) }}",
+                name = name,
+                img = entry.img_data,
+            );
+            (name.clone(), expr, entry.first_seen.clone())
+        })
+        .collect();
+    for (name, expr, _) in &value_exprs {
+        map.entry(name.as_str(), expr.as_str());
+    }
+
+    // Provenance block — human-readable, stable across builds because the
+    // BTreeMap iterates in sorted order and first_seen is deterministic.
+    out.push_str("// Sprite provenance (stable order):\n");
+    for (name, _, (mod_name, line_no)) in &value_exprs {
+        let _ = writeln!(&mut out, "//   {name} ← {mod_name}:{line_no}");
+    }
+    out.push('\n');
+
+    out.push_str("/// Corpus-derived sprite registry. Keys are entity display names\n");
+    out.push_str("/// (`.mn.` preferred, `.n.` fallback) harvested from `working-mods/*.txt`.\n");
+    out.push_str("/// First-write-wins in the `sliceymon > pansaer > punpuns > community` priority order.\n");
+    out.push_str("pub static SPRITE_REGISTRY: ::phf::Map<&'static str, SpriteId> = ");
+    let _ = write!(&mut out, "{}", map.build());
+    out.push_str(";\n");
     out
 }

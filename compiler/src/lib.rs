@@ -9,6 +9,7 @@ pub mod xref;
 
 pub use xref::{check_references, check_hero_in_context, check_boss_in_context, Finding, Severity, ValidationReport};
 pub use ir::Source;
+pub use authoring::SpriteId;
 
 use std::collections::HashMap;
 
