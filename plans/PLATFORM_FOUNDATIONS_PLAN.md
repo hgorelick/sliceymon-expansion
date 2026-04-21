@@ -586,7 +586,15 @@ The original plan's "parallel groups A/B/C" are false — Chunk 2 and Chunk 3 bo
 
 This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks into 3a/3b/3c:
 
-#### Chunk 3a: SpriteId newtype + registry + authoring surface
+#### Chunk 3a: SpriteId newtype + registry + authoring surface — ✅ COMPLETE (2026-04-21)
+
+**Landed**: `phf`/`phf_codegen` deps; `compiler/src/authoring/sprite.rs` (`SpriteId` with `Cow<'static, str>` fields, `lookup`/`owned`/`try_registered`/`name`/`img_data`; flat `{name, img_data}` serde via `SpriteIdSerde`); `compiler/build.rs` extended with `harvest_sprites` (single-pass read shared with face-id harvest, depth-aware `.img.`↔`.n.`/`.mn.` pairing with fewer-outer-hops → nearer-distance → `.mn.`-beats-`.n.` scoring); generator emits `OUT_DIR/sprite_registry_generated.rs` (1,395 entries, phf-backed, byte-deterministic across rebuilds); `authoring/mod.rs` + `lib.rs` re-export `SpriteId`. IR unchanged — field consolidation deferred to 3b per plan.
+
+**Deviations from spec**:
+- Generated registry lives at `$OUT_DIR/sprite_registry_generated.rs` (included from `sprite.rs`) rather than `compiler/src/authoring/sprite_registry.rs` — matches the Chunk 2 `face_id_generated.rs` pattern and keeps the generated static inside the private-field scope of `SpriteId`.
+- `sprite_lookup_charmander` verification test targets `Agumon` — the Charmander→Agumon swap is a planned Sliceymon+ authoring change, and Agumon is already present in `working-mods/sliceymon.txt`, so the test pins to the final name directly (no proxy).
+
+#### Chunk 3a (original spec below) — SpriteId newtype + registry + authoring surface
 **Files**: `compiler/Cargo.toml`, `compiler/src/authoring/sprite.rs`, `compiler/src/authoring/sprite_registry.rs`, `compiler/src/authoring/mod.rs`, `compiler/build.rs`, `compiler/src/lib.rs` (re-export only, no signature change).
 **Dependencies**: Chunk 2.
 
