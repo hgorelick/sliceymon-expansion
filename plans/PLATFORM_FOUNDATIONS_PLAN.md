@@ -592,7 +592,7 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 
 **Deviations from spec**:
 - Generated registry lives at `$OUT_DIR/sprite_registry_generated.rs` (included from `sprite.rs`) rather than `compiler/src/authoring/sprite_registry.rs` — matches the Chunk 2 `face_id_generated.rs` pattern and keeps the generated static inside the private-field scope of `SpriteId`.
-- `sprite_lookup_charmander` verification test targets `Agumon` — the Charmander→Agumon swap is a planned Sliceymon+ authoring change, and Agumon is already present in `working-mods/sliceymon.txt`, so the test pins to the final name directly (no proxy).
+- `sprite_lookup_charmander` verification test renamed to `sprite_lookup_agumon` — the Charmander→Agumon swap is a planned Sliceymon+ authoring change, and Agumon is already present in `working-mods/sliceymon.txt`, so the test pins to the final name directly (no proxy). The byte-for-byte property is preserved: the test `include_str!`s `working-mods/sliceymon.txt`, extracts Agumon's `.img.` payload at test time, and `assert_eq!`s it against the registry value.
 
 #### Chunk 3a (original spec below) — SpriteId newtype + registry + authoring surface
 **Files**: `compiler/Cargo.toml`, `compiler/src/authoring/sprite.rs`, `compiler/src/authoring/sprite_registry.rs`, `compiler/src/authoring/mod.rs`, `compiler/build.rs`, `compiler/src/lib.rs` (re-export only, no signature change).
