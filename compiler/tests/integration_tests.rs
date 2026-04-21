@@ -260,8 +260,8 @@ fn test_dice_faces_high_pips() {
     let df = DiceFaces::parse("170-9:0:0:0:0:0");
     assert_eq!(df.emit(), "170-9:0:0:0:0:0");
     if let DiceFace::Active { face_id, pips } = &df.faces[0] {
-        assert_eq!(*face_id, 170);
-        assert_eq!(*pips, 9);
+        assert_eq!(face_id.raw(), 170);
+        assert_eq!(pips.raw(), 9);
     } else {
         panic!("Expected Active face");
     }

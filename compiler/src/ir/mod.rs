@@ -5,6 +5,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+use crate::authoring::{FaceIdValue, Pips};
+
 // -- Provenance --
 
 /// Provenance tracking — where an IR item originated.
@@ -36,7 +38,7 @@ pub struct DiceFaces {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum DiceFace {
     Blank,
-    Active { face_id: u16, pips: i16 },
+    Active { face_id: FaceIdValue, pips: Pips },
 }
 
 impl DiceFaces {
@@ -51,20 +53,26 @@ impl DiceFaces {
                 // Split on FIRST dash — everything after is the signed pips value.
                 let (id_str, pips_with_dash) = entry.split_at(dash_pos);
                 let pips_str = &pips_with_dash[1..]; // skip the separator
-                let face_id = id_str.parse::<u16>().unwrap_or(0);
-                let pips = pips_str.parse::<i16>().unwrap_or(0);
-                if face_id == 0 && pips == 0 {
+                let raw_id = id_str.parse::<u16>().unwrap_or(0);
+                let raw_pips = pips_str.parse::<i16>().unwrap_or(0);
+                if raw_id == 0 && raw_pips == 0 {
                     DiceFace::Blank
                 } else {
-                    DiceFace::Active { face_id, pips }
+                    DiceFace::Active {
+                        face_id: FaceIdValue::try_new(raw_id),
+                        pips: Pips::new(raw_pips),
+                    }
                 }
             } else {
                 // Bare number with no dash — treat as face_id with 0 pips
-                let face_id = entry.parse::<u16>().unwrap_or(0);
-                if face_id == 0 {
+                let raw_id = entry.parse::<u16>().unwrap_or(0);
+                if raw_id == 0 {
                     DiceFace::Blank
                 } else {
-                    DiceFace::Active { face_id, pips: 0 }
+                    DiceFace::Active {
+                        face_id: FaceIdValue::try_new(raw_id),
+                        pips: Pips::new(0),
+                    }
                 }
             }
         }).collect();
@@ -76,7 +84,7 @@ impl DiceFaces {
         self.faces.iter().map(|f| match f {
             DiceFace::Blank => "0".to_string(),
             // Negative pips render as `ID--N` because the signed value prints its own `-`.
-            DiceFace::Active { face_id, pips } => format!("{}-{}", face_id, pips),
+            DiceFace::Active { face_id, pips } => format!("{}-{}", face_id.raw(), pips.raw()),
         }).collect::<Vec<_>>().join(":")
     }
 }
@@ -1597,5 +1605,49 @@ mod chunk_1_tests {
     #[test]
     fn dice_faces_default_is_empty() {
         assert!(DiceFaces::default().faces.is_empty());
+    }
+
+    /// `FaceIdValue` + `Pips` replaced `u16` + `i16` on `DiceFace::Active`.
+    /// This test proves the newtype flip preserves byte-for-byte roundtrip
+    /// across the full shape space: corpus-known FaceID, blank, corpus-unknown
+    /// FaceID, and negative pips.
+    #[test]
+    fn diceface_roundtrip_through_newtypes() {
+        let input = "34-1:0:170-5:0:0:13--1";
+        let parsed = DiceFaces::parse(input);
+        assert_eq!(parsed.emit(), input);
+        // Shape check — Active/Blank alternation + Unknown preservation if any.
+        assert_eq!(parsed.faces.len(), 6);
+        match &parsed.faces[0] {
+            DiceFace::Active { face_id, pips } => {
+                assert_eq!(face_id.raw(), 34);
+                assert_eq!(pips.raw(), 1);
+                assert!(face_id.is_known(), "34 is curated");
+            }
+            _ => panic!("faces[0] must be Active"),
+        }
+        assert!(matches!(parsed.faces[1], DiceFace::Blank));
+        match &parsed.faces[5] {
+            DiceFace::Active { face_id, pips } => {
+                assert_eq!(face_id.raw(), 13);
+                assert_eq!(pips.raw(), -1);
+            }
+            _ => panic!("faces[5] must be Active with negative pips"),
+        }
+    }
+
+    /// Regression: a FaceID outside the whitelist must still round-trip.
+    #[test]
+    fn diceface_unknown_face_id_roundtrips() {
+        let input = "9999-2:0";
+        let parsed = DiceFaces::parse(input);
+        assert_eq!(parsed.emit(), input);
+        match &parsed.faces[0] {
+            DiceFace::Active { face_id, .. } => {
+                assert!(!face_id.is_known(), "9999 is outside the corpus whitelist");
+                assert_eq!(face_id.raw(), 9999);
+            }
+            _ => panic!("faces[0] must be Active"),
+        }
     }
 }
