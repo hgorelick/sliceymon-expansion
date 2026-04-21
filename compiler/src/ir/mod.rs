@@ -766,7 +766,7 @@ pub enum StructuralType {
 /// Structural modifier content. Each variant stores a `body` field containing the full
 /// modifier text for emission, plus typed summary fields for introspection/querying.
 ///
-/// The `body` fields contain game modifier text — rich display text with [tag] formatting,
+/// The `body` fields contain game modifier text — rich display text with `[tag]` formatting,
 /// game engine instructions, or structured content. These are NOT multi-property blobs:
 /// they are the authoritative content for each typed modifier category.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -1105,7 +1105,7 @@ pub enum ChainEntry {
     Sidesc {
         text: String,
     },
-    /// Entity reference: r<type>.<hex_hash>[.part.<n>][.m.<n>]
+    /// Entity reference: `r<type>.<hex_hash>[.part.<n>][.m.<n>]`
     EntityRef {
         kind: RefKind,
         hash: String,
