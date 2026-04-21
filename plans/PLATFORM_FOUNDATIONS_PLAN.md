@@ -440,8 +440,8 @@ File-level conflict matrix (every chunk's primary writes):
 Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
   ├── Chunk 1 (Default + ::new + authoring skeleton)  ✅ COMPLETE (2026-04-21)
   │     └── Chunk 2 (FaceId/Pips + IR flip)            ✅ COMPLETE (2026-04-21)
-  │           └── Chunk 3a (SpriteId + registry)        ← START HERE  [extends build.rs; new authoring submod]
-  │                 └── Chunk 3b (IR field consolidation) [rewrites 6 IR types + their parsers/emitters]
+  │           └── Chunk 3a (SpriteId + registry)        ✅ COMPLETE (2026-04-21)
+  │                 └── Chunk 3b (IR field consolidation) ← START HERE  [rewrites 6 IR types + their parsers/emitters]
   │                       └── Chunk 3c (drop HashMap from public API)
   │                             ├── Chunk 4 (BuildOptions + build_with + Finding.source)
   │                             └── Chunk 6 (ReplicaItemContainer enum replaces container_name)
