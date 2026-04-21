@@ -11,7 +11,6 @@ pub fn parse_simple(modifier: &str, _modifier_index: usize) -> ReplicaItem {
     let template = util::extract_template(modifier).unwrap_or_default();
     let hp = util::extract_hp(modifier, false);
     let color = util::extract_color(modifier);
-    let sprite_name = name.clone();
     let tier = util::extract_simple_prop(modifier, ".tier.")
         .and_then(|v| v.parse::<u8>().ok());
     let item_modifiers = util::extract_modifier_chain(modifier)
@@ -19,6 +18,7 @@ pub fn parse_simple(modifier: &str, _modifier_index: usize) -> ReplicaItem {
     let sticker = util::extract_simple_prop(modifier, ".sticker.");
     let toggle_flags = extract_toggle_flags(modifier);
     let img_data = util::extract_img_data(modifier);
+    let sprite = crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default());
 
     ReplicaItem {
         name,
@@ -27,12 +27,11 @@ pub fn parse_simple(modifier: &str, _modifier_index: usize) -> ReplicaItem {
         template,
         hp,
         sd,
-        sprite_name,
+        sprite,
         color,
         item_modifiers,
         sticker,
         toggle_flags,
-        img_data,
         // Simple items don't have these
         doc: None,
         speech: None,
@@ -50,7 +49,6 @@ pub fn parse_with_ability(modifier: &str, _modifier_index: usize) -> ReplicaItem
         .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
     let hp = util::extract_hp(modifier, false);
     let color = util::extract_color(modifier);
-    let sprite_name = name.clone();
     let doc = util::extract_simple_prop(modifier, ".doc.");
     let speech = util::extract_simple_prop(modifier, ".speech.");
     let abilitydata = util::extract_nested_prop(modifier, ".abilitydata.")
@@ -58,6 +56,7 @@ pub fn parse_with_ability(modifier: &str, _modifier_index: usize) -> ReplicaItem
     let item_modifiers = util::extract_modifier_chain(modifier)
         .map(|s| crate::ir::ModifierChain::parse(&s));
     let img_data = util::extract_img_data(modifier);
+    let sprite = crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default());
 
     // Container name: the outer .n. (last one at depth 0, outside replica)
     let container_name = extract_outer_n_name(modifier).unwrap_or_default();
@@ -68,13 +67,12 @@ pub fn parse_with_ability(modifier: &str, _modifier_index: usize) -> ReplicaItem
         template: util::extract_template(modifier).unwrap_or_default(),
         hp,
         sd,
-        sprite_name,
+        sprite,
         color,
         doc,
         speech,
         abilitydata,
         item_modifiers,
-        img_data,
         // With-ability items typically don't have these (but fields exist if needed)
         tier: None,
         sticker: None,

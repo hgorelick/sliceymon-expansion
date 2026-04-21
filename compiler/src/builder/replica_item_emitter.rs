@@ -39,9 +39,9 @@ fn emit_simple(item: &ReplicaItem) -> Result<String, CompilerError> {
     out.push_str(".sd.");
     out.push_str(&item.sd.emit());
 
-    if let Some(ref img) = item.img_data {
+    if !item.sprite.img_data().is_empty() {
         out.push_str(".img.");
-        out.push_str(img);
+        out.push_str(item.sprite.img_data());
     }
 
     // Inner character name
@@ -100,9 +100,9 @@ fn emit_with_ability(item: &ReplicaItem) -> Result<String, CompilerError> {
     out.push_str(".sd.");
     out.push_str(&item.sd.emit());
 
-    if let Some(ref img) = item.img_data {
+    if !item.sprite.img_data().is_empty() {
         out.push_str(".img.");
-        out.push_str(img);
+        out.push_str(item.sprite.img_data());
     }
 
     // Inner character name
@@ -141,6 +141,7 @@ fn emit_with_ability(item: &ReplicaItem) -> Result<String, CompilerError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::authoring::SpriteId;
     use crate::ir::{DiceFaces, Source};
 
     #[test]
@@ -152,12 +153,11 @@ mod tests {
             template: "Hat".into(),
             hp: None,
             sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite_name: "Pikachu".into(),
+            sprite: SpriteId::owned("Pikachu", ""),
             color: None,
             item_modifiers: None,
             sticker: None,
             toggle_flags: None,
-            img_data: None,
             doc: None,
             speech: None,
             abilitydata: None,
@@ -179,12 +179,11 @@ mod tests {
             template: "Hat".into(),
             hp: Some(5),
             sd: DiceFaces::parse("34-1:0:0:0:0:0"),
-            sprite_name: "Pikachu".into(),
+            sprite: SpriteId::owned("Pikachu", ""),
             color: Some('y'),
             item_modifiers: None,
             sticker: None,
             toggle_flags: None,
-            img_data: None,
             doc: None,
             speech: None,
             abilitydata: None,
@@ -207,13 +206,12 @@ mod tests {
             template: "Alpha".into(),
             hp: Some(20),
             sd: DiceFaces::parse("34-3:34-3:34-3:0:0:0"),
-            sprite_name: "Mewtwo".into(),
+            sprite: SpriteId::owned("Mewtwo", ""),
             color: Some('p'),
             doc: None,
             speech: None,
             abilitydata: Some(crate::ir::AbilityData::parse("(Fey.sd.34-1:0.img.spark.n.Psychic)")),
             item_modifiers: None,
-            img_data: None,
             sticker: None,
             toggle_flags: None,
             source: Source::Base,

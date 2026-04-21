@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::authoring::{FaceIdValue, Pips};
+use crate::authoring::{FaceIdValue, Pips, SpriteId};
 
 // -- Provenance --
 
@@ -308,7 +308,7 @@ pub struct AbilityData {
     pub template: String,
     pub sd: DiceFaces,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub img_data: Option<String>,
+    pub sprite: Option<SpriteId>,
     pub name: String,
     /// Item/modifier chain inside the ability (e.g., .i.Ritemx.62e8.i.left.k.cleanse)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -350,7 +350,9 @@ impl AbilityData {
 
         let hsv = crate::util::extract_simple_prop(inner, ".hsv.");
 
-        AbilityData { template, sd, img_data, name, modifier_chain, hsv, ability_type: None }
+        let sprite = img_data.map(|img| SpriteId::owned(name.clone(), img));
+
+        AbilityData { template, sd, sprite, name, modifier_chain, hsv, ability_type: None }
     }
 
     /// Emit back to the .abilitydata.(...) format (including outer parens).
@@ -362,9 +364,11 @@ impl AbilityData {
         if let Some(ref chain) = self.modifier_chain {
             out.push_str(&chain.emit());
         }
-        if let Some(ref img) = self.img_data {
-            out.push_str(".img.");
-            out.push_str(img);
+        if let Some(ref s) = self.sprite {
+            if !s.img_data().is_empty() {
+                out.push_str(".img.");
+                out.push_str(s.img_data());
+            }
         }
         if let Some(ref hsv) = self.hsv {
             out.push_str(".hsv.");
@@ -394,7 +398,7 @@ pub struct TriggerHpDef {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modifier_chain: Option<ModifierChain>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub img_data: Option<String>,
+    pub sprite: Option<SpriteId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -428,7 +432,12 @@ impl TriggerHpDef {
         let part = crate::util::extract_simple_prop(inner, ".part.")
             .and_then(|v| v.parse::<u8>().ok());
 
-        TriggerHpDef { template, hp, sd, color, modifier_chain, img_data, name, tier, part }
+        // Anonymous triggerhps (no `.n.`) store an empty sprite name; emit only reads
+        // `sprite.img_data()`, so the name is observably absent. Using the template
+        // name here would be a semantic lie stored in the IR.
+        let sprite = img_data.map(|img| SpriteId::owned(name.clone().unwrap_or_default(), img));
+
+        TriggerHpDef { template, hp, sd, color, modifier_chain, sprite, name, tier, part }
     }
 
     /// Emit back to the `(TEMPLATE.props...)` format (including outer parens).
@@ -465,9 +474,11 @@ impl TriggerHpDef {
             out.push_str(&part.to_string());
         }
 
-        if let Some(ref img) = self.img_data {
-            out.push_str(".img.");
-            out.push_str(img);
+        if let Some(ref s) = self.sprite {
+            if !s.img_data().is_empty() {
+                out.push_str(".img.");
+                out.push_str(s.img_data());
+            }
         }
 
         if let Some(ref name) = self.name {
@@ -554,7 +565,7 @@ pub struct HeroBlock {
     pub bare: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<char>,
-    pub sprite_name: String,
+    pub sprite: SpriteId,
     pub speech: String,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -573,8 +584,6 @@ pub struct HeroBlock {
     pub items_inside: Option<ModifierChain>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items_outside: Option<ModifierChain>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub img_data: Option<String>,
 }
 
 // -- Replica Items --
@@ -593,7 +602,7 @@ pub struct ReplicaItem {
     pub template: String,
     pub hp: Option<u16>,
     pub sd: DiceFaces,
-    pub sprite_name: String,
+    pub sprite: SpriteId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<char>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -610,8 +619,6 @@ pub struct ReplicaItem {
     pub sticker: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub toggle_flags: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub img_data: Option<String>,
     #[serde(default, skip_serializing_if = "Source::is_base")]
     pub source: Source,
 }
@@ -625,7 +632,8 @@ pub struct Monster {
     pub floor_range: String,
     pub hp: Option<u16>,
     pub sd: Option<DiceFaces>,
-    pub sprite_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sprite: Option<SpriteId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<char>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -634,8 +642,6 @@ pub struct Monster {
     pub modifier_chain: Option<ModifierChain>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub balance: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub img_data: Option<String>,
     #[serde(default, skip_serializing_if = "Source::is_base")]
     pub source: Source,
 }
@@ -1237,7 +1243,7 @@ pub struct FightUnit {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sd: Option<DiceFaces>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sprite_data: Option<String>,
+    pub sprite: Option<SpriteId>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_override: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1567,7 +1573,7 @@ mod chunk_1_tests {
         assert_eq!(m.base_template, "bas");
         assert_eq!(m.floor_range, "1-5");
         assert!(m.sd.is_none());
-        assert!(m.sprite_name.is_none());
+        assert!(m.sprite.is_none());
         assert!(m.hp.is_none());
         assert!(m.color.is_none());
         assert_eq!(m.source, Source::Base);
@@ -1649,5 +1655,70 @@ mod chunk_1_tests {
             }
             _ => panic!("faces[0] must be Active"),
         }
+    }
+
+    /// §F4: `HeroBlock.sprite` is a required `SpriteId`. A struct literal
+    /// omitting `sprite` must fail to compile — this test is the positive
+    /// side of that proof (construction with `SpriteId::owned` succeeds);
+    /// the negative side is exercised by every callsite that still spells
+    /// the old `sprite_name` / `img_data` fields failing `cargo build`.
+    #[test]
+    fn heroblock_sprite_required() {
+        let block = HeroBlock {
+            template: "Lost".into(),
+            tier: Some(1),
+            hp: Some(5),
+            sd: DiceFaces::parse("0:0:0:0:0:0"),
+            bare: false,
+            color: None,
+            sprite: SpriteId::owned("Pikachu", "ABC123"),
+            speech: "!".into(),
+            name: "Pikachu".into(),
+            doc: None,
+            abilitydata: None,
+            triggerhpdata: None,
+            hue: None,
+            modifier_chain: None,
+            facades: vec![],
+            items_inside: None,
+            items_outside: None,
+        };
+        assert_eq!(block.sprite.name(), "Pikachu");
+        assert_eq!(block.sprite.img_data(), "ABC123");
+    }
+
+    /// §F4 ruling (2026-04-20, "no legacy, always choose correctness over
+    /// back-compat"): the only accepted JSON shape for a sprite-bearing IR
+    /// type is the new flat `sprite: { name, img_data }` object. Legacy JSON
+    /// that ships `sprite_name` + `img_data` as split top-level keys must
+    /// fail to deserialize; no compat shim exists.
+    #[test]
+    fn serde_breaking_change_on_sprite_shape() {
+        // Positive: new flat shape deserializes.
+        let json_new = r#"{
+            "template":"Lost","tier":1,"hp":5,
+            "sd":{"faces":[{"Blank":null},{"Blank":null},{"Blank":null},{"Blank":null},{"Blank":null},{"Blank":null}]},
+            "sprite":{"name":"Pikachu","img_data":"ABC"},
+            "speech":"!","name":"Pikachu","facades":[]
+        }"#;
+        let parsed: Result<HeroBlock, _> = serde_json::from_str(json_new);
+        assert!(parsed.is_ok(), "new flat sprite shape must deserialize: {:?}", parsed.err());
+        let block = parsed.unwrap();
+        assert_eq!(block.sprite.name(), "Pikachu");
+        assert_eq!(block.sprite.img_data(), "ABC");
+
+        // Negative: legacy `sprite_name` + `img_data` keys, no `sprite` field,
+        // must fail — serde demands the required `sprite` field.
+        let json_legacy = r#"{
+            "template":"Lost","tier":1,"hp":5,
+            "sd":{"faces":[{"Blank":null},{"Blank":null},{"Blank":null},{"Blank":null},{"Blank":null},{"Blank":null}]},
+            "sprite_name":"Pikachu","img_data":"ABC",
+            "speech":"!","name":"Pikachu","facades":[]
+        }"#;
+        let parsed_legacy: Result<HeroBlock, _> = serde_json::from_str(json_legacy);
+        assert!(
+            parsed_legacy.is_err(),
+            "legacy sprite_name+img_data JSON must NOT deserialize into the post-§F4 HeroBlock"
+        );
     }
 }

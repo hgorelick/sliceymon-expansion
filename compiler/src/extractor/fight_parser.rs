@@ -82,7 +82,8 @@ pub fn parse_fight_unit(unit_str: &str) -> Option<FightUnit> {
         .unwrap_or_else(|| template.clone());
     let hp = util::extract_hp(prop_source, true);
     let sd = util::extract_sd(prop_source, true).map(|s| crate::ir::DiceFaces::parse(&s));
-    let sprite_data = extract_fight_unit_img(prop_source);
+    let img_data = extract_fight_unit_img(prop_source);
+    let sprite = img_data.map(|img| crate::authoring::SpriteId::owned(name.clone(), img));
     let doc = util::extract_simple_prop(prop_source, ".doc.");
     let template_override = extract_real_template_override(prop_source);
     let modifier_chain = util::extract_modifier_chain(prop_source)
@@ -103,7 +104,7 @@ pub fn parse_fight_unit(unit_str: &str) -> Option<FightUnit> {
         name,
         hp,
         sd,
-        sprite_data,
+        sprite,
         template_override,
         doc,
         modifier_chain,

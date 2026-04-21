@@ -182,7 +182,7 @@ fn test_ir_json_roundtrip_with_hero() {
             hp: Some(5),
             sd: DiceFaces::parse("0:0:0:0:0:0"),
             color: None,
-            sprite_name: "test".into(),
+            sprite: SpriteId::owned("test", "testimg"),
             speech: "!".into(),
             name: "Test".into(),
             doc: None,
@@ -193,7 +193,6 @@ fn test_ir_json_roundtrip_with_hero() {
             facades: vec![],
             items_inside: None,
             items_outside: None,
-            img_data: Some("testimg".into()),
             bare: false,
         }],
         removed: false,
@@ -314,7 +313,7 @@ fn test_validate_hero_minimal() {
             hp: Some(5),
             sd: DiceFaces::parse("0:0:0:0:0:0"),
             color: None,
-            sprite_name: "test".into(),
+            sprite: SpriteId::owned("test", "testimg"),
             speech: "!".into(),
             name: "Test".into(),
             doc: None,
@@ -325,7 +324,6 @@ fn test_validate_hero_minimal() {
             facades: vec![],
             items_inside: None,
             items_outside: None,
-            img_data: Some("testimg".into()),
             bare: false,
         }],
         removed: false,
@@ -371,4 +369,56 @@ fn test_source_survives_json_roundtrip() {
     let json = ir_to_json(&ir).unwrap();
     let back = ir_from_json(&json).unwrap();
     assert_eq!(back.heroes[0].source, Source::Custom);
+}
+
+// ---------------------------------------------------------------------------
+// Extract must preserve source `.img.` even when the display name collides
+// with the corpus-derived sprite registry. Round-1 tribunal finding (§F4
+// follow-up): the earlier `SpriteId::lookup(...)` fast-path in every parser
+// silently replaced the source's `.img.` payload with the registry entry's
+// whenever the name was known (sliceymon-seeded, so pansaer/punpuns/community
+// names colliding with sliceymon — e.g. `Pikachu` — lost their own `.img.`).
+// That's source corruption during extract and violates SPEC §3.3. These tests
+// pin the source-preservation property so a future refactor can't re-introduce
+// lookup-first semantics into the extract path.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn extract_preserves_hero_img_data_on_registry_name_collision() {
+    // `Pikachu` is registered from sliceymon.txt. The source below supplies a
+    // novel, deliberately-wrong `.img.` payload; extract must store *that*, not
+    // the registry's sliceymon payload.
+    let text = "!mheropool.(replica.Lost.hp.5.sd.0:0:0:0:0:0.img.TRIBUNAL_NOVEL_IMG).speech.!.n.Pikachu,";
+    let ir = extract(text).expect("extract");
+    let block = &ir.heroes[0].blocks[0];
+    assert_eq!(block.sprite.name(), "Pikachu");
+    assert_eq!(
+        block.sprite.img_data(),
+        "TRIBUNAL_NOVEL_IMG",
+        "extract must keep source .img. verbatim even when the display name is in the registry",
+    );
+}
+
+#[test]
+fn extract_preserves_monster_img_data_on_registry_name_collision() {
+    // Monster shape per `working-mods/punpuns.txt`: `1-3.monsterpool.(rmon...)...img.X...n.NAME`.
+    let text = "1-3.monsterpool.(rmon.ded.bal.boar).hp.3.sd.30-3:30-3:30-2:30-2:19-3:19-2.img.TRIBUNAL_NOVEL_IMG.n.Pikachu,";
+    let ir = extract(text).expect("extract");
+    let monster = &ir.monsters[0];
+    let sprite = monster.sprite.as_ref().expect("monster sprite");
+    assert_eq!(sprite.name(), "Pikachu");
+    assert_eq!(sprite.img_data(), "TRIBUNAL_NOVEL_IMG");
+}
+
+#[test]
+fn extract_preserves_replica_item_img_data_on_registry_name_collision() {
+    // `ModifierType::ReplicaItem` isn't produced by the top-level classifier yet
+    // (items currently survive as `StructuralType::ItemPool` raw text), so test
+    // the parser directly — same data-loss surface, just reached by whichever
+    // future caller routes here.
+    use textmod_compiler::extractor::replica_item_parser;
+    let modifier = "!mitempool.((ritemx.1697d.part.0)).n.Upgrade.tier.3.img.TRIBUNAL_NOVEL_IMG.part.1&hidden.mn.Pikachu@2!m(skip&hidden&temporary)";
+    let item = replica_item_parser::parse_simple(modifier, 0);
+    assert_eq!(item.sprite.name(), "Pikachu");
+    assert_eq!(item.sprite.img_data(), "TRIBUNAL_NOVEL_IMG");
 }

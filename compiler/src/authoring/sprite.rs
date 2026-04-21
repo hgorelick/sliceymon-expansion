@@ -4,14 +4,19 @@
 //! paths exist, matching the Path A / Path B asymmetry in SPEC §6.1:
 //!
 //! - [`SpriteId::lookup`] / [`SpriteId::try_registered`] — zero-alloc access to
-//!   sprites harvested from `working-mods/*.txt` at build time. The authoring
-//!   layer uses this so a hallucinated sprite name becomes a `None` at the
-//!   first callsite (and the surrounding code turns that into an error)
-//!   instead of silently emitting garbage.
+//!   sprites harvested from `working-mods/*.txt` at build time. The **authoring
+//!   layer only** uses this so a hallucinated sprite name becomes a `None` at
+//!   the first callsite (and the surrounding code turns that into an error)
+//!   instead of silently emitting garbage. The extractor must never consult
+//!   the registry: the registry is first-write-wins across the 4 reference
+//!   mods, so a lookup from extract silently replaces this mod's `.img.`
+//!   payload with sliceymon's on any name collision — source corruption,
+//!   violating SPEC §3.3.
 //! - [`SpriteId::owned`] — unconditional construction from a `(name, img_data)`
-//!   pair. The extractor calls this for sprites that are not in the registry.
-//!   Making the registry gating would re-break SPEC §3.3 (any valid textmod
-//!   must extract) because a new mod with a new sprite could not roundtrip.
+//!   pair. The **extractor always** calls this, passing the source's own
+//!   `.img.` bytes verbatim. This preserves SPEC §3.3 (any valid textmod must
+//!   extract) and keeps `extract(build(extract(mod))) == extract(mod)` honest
+//!   at the byte level, not just at IR-equality.
 //!
 //! The `Cow<'static, str>` backing is load-bearing: registry entries are
 //! `Cow::Borrowed` and cost nothing to clone; extractor-constructed values are

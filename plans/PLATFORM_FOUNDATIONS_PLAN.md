@@ -415,6 +415,16 @@ Before starting Chunk 7, re-run the audit (`rg '\.unwrap\(\)|\.expect\(|panic!\(
 
 ## Implementation Plan
 
+### Lessons from prior chunks (read before authoring a new chunk)
+
+- **Chunk 3b (2026-04-21) — plan contradicted itself on extractor registry use.** §F4 line 236 said *"Every extractor sprite-consuming parser calls `SpriteId::owned(name, img_data)`"*; the Chunk 3b requirements block said *"Every extractor uses `SpriteId::lookup(name).cloned().unwrap_or_else(...)`"*. Implementation followed the chunk-level wording and shipped lookup-first in 8 callsites, silently replacing source `.img.` with sliceymon's registry entry on any name collision — invisible to baselines (deterministic lookup → IR equality holds on both passes of the roundtrip). Caught only by an adversarial tribunal that constructed a collision input.
+
+  **Takeaway for future chunks:**
+  1. When a chunk's "Requirements" block restates a §F-level contract, the restatement must be **strictly narrower or identical**, never contradictory. If the chunk needs different semantics, update the §F-level contract first (same PR) so there is one canonical statement.
+  2. For any semantic invariant that's stable under idempotent operations (extract→build→extract, merge idempotence, signature-drop equivalence), **IR-equality baselines alone are insufficient.** Add at least one test whose failure mode is *source-vs-IR divergence*, not IR-vs-IR divergence. For the extract path this means: craft an input whose interpretation would differ if the parser consulted a derived/canonical data source, and assert the parser preserves source bytes.
+  3. Path A (extract, permissive, source-preserving) and Path B (authoring, strict, registry-gated) must stay split at every callsite. If a chunk proposes collapsing them, that's a SPEC §3.3 / §6.1 amendment, not a chunk detail.
+  4. Duplicating an identical 4-line incantation across N parser callsites is a plan smell. Either the incantation belongs in one helper (extract the helper as part of the chunk), or there's only one correct line to write (use that one line). Duplication encodes the incantation's wrongness N times; a helper at least concentrates it.
+
 ### Checkpoint Configuration
 - Total chunks: 10 (0, 1, 2, 3a, 3b, 3c, 4, 5, 6, 7).
 - Checkpoint frequency: After Chunk 0 (error type lands), Chunk 2 (SPEC §3.6 amendment + newtypes + IR flip), Chunk 3c (HashMap dropped + sprite consolidation), and Chunk 7 (final). Chunk 2's checkpoint is load-bearing because it lands a SPEC amendment; a missed amendment here invalidates every later chunk that cites the permissive whitelist.
@@ -441,8 +451,8 @@ Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
   ├── Chunk 1 (Default + ::new + authoring skeleton)  ✅ COMPLETE (2026-04-21)
   │     └── Chunk 2 (FaceId/Pips + IR flip)            ✅ COMPLETE (2026-04-21)
   │           └── Chunk 3a (SpriteId + registry)        ✅ COMPLETE (2026-04-21)
-  │                 └── Chunk 3b (IR field consolidation) ← START HERE  [rewrites 6 IR types + their parsers/emitters]
-  │                       └── Chunk 3c (drop HashMap from public API)
+  │                 └── Chunk 3b (IR field consolidation) ✅ COMPLETE (2026-04-21, PR #5 merged after round-2 tribunal)
+  │                       └── Chunk 3c (drop HashMap from public API) ← START HERE
   │                             ├── Chunk 4 (BuildOptions + build_with + Finding.source)
   │                             └── Chunk 6 (ReplicaItemContainer enum replaces container_name)
   │                                   └── Chunk 5 (merge strips + new regenerators + unconditional regen)
@@ -618,15 +628,21 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 
 **Requirements**:
 - Consolidate fields on `HeroBlock`, `ReplicaItem`, `Monster`, `FightUnit` (renaming `sprite_data` → `sprite`), `AbilityData`, `TriggerHpDef` per the §F4 table.
-- Every extractor uses `SpriteId::lookup(name).cloned().unwrap_or_else(|| SpriteId::owned(name, img_data))` — registry miss falls back to owned, not error. SPEC §3.3.
+- Every extractor uses `SpriteId::owned(name, img_data)` unconditionally — source bytes are preserved verbatim. **No `SpriteId::lookup` in the extract path**: the registry is first-write-wins across `sliceymon > pansaer > punpuns > community` (see `compiler/build.rs::WORKING_MOD_ORDER`), so a registry-first lookup during extract silently replaces the source's `.img.` payload with sliceymon's on any name collision (Pikachu, Amnesia, Apple, Bubble, Curry, …). That is source corruption, and it violates SPEC §3.3 (any valid textmod extracts with a self-contained IR). Registry lookup (`SpriteId::lookup` / `SpriteId::try_registered`) belongs on the **authoring path** only, where a miss is a real mistake — matches §F4 line 236 and SPEC §6.1's Path A/Path B split.
 - Every emitter reads `sprite.img_data()` (and `sprite.name()` for the display field).
 - xref rules that referenced sprite_name/img_data update to `sprite.name()` / `sprite.img_data()`.
 - ir/ops.rs duplicate-name checks unchanged (keyed by `name`, not `sprite`).
+- `TriggerHpDef::parse`: when source has no `.n.`, store `SpriteId.name == ""`. Do **not** fall back to the template name — that would store a semantic lie (template names are not sprite display names). The emitter only reads `sprite.img_data()`, so the absent name is observably absent.
 
 **Verification — specific tests**:
-- [ ] `ir::heroblock_sprite_required` — compile-time: `HeroBlock { sprite: SpriteId::owned("x", "y"), ... }` compiles; missing `sprite` is a compile error.
-- [ ] `ir::serde_breaking_change_on_sprite_shape` — decision made (user ruling 2026-04-20: "no legacy, always choose correctness over back-compat"): **no serde compat shim**. JSON that uses the old `sprite_name` + `img_data` keys fails to deserialize. Test asserts the new flat `sprite` shape is the only accepted JSON form; no dual-representation gymnastics. Plans/PIPELINE_FIDELITY and AUTHORING_ERGONOMICS author IR in code, not from historical JSON, so there are no legacy consumers to break.
-- [ ] All 4 working mods IR-equal roundtrip.
+- [x] `ir::heroblock_sprite_required` — compile-time: `HeroBlock { sprite: SpriteId::owned("x", "y"), ... }` compiles; missing `sprite` is a compile error.
+- [x] `ir::serde_breaking_change_on_sprite_shape` — decision made (user ruling 2026-04-20: "no legacy, always choose correctness over back-compat"): **no serde compat shim**. JSON that uses the old `sprite_name` + `img_data` keys fails to deserialize. Test asserts the new flat `sprite` shape is the only accepted JSON form; no dual-representation gymnastics. Plans/PIPELINE_FIDELITY and AUTHORING_ERGONOMICS author IR in code, not from historical JSON, so there are no legacy consumers to break.
+- [x] `integration_tests::extract_preserves_hero_img_data_on_registry_name_collision` — parses a hero block whose name is in the registry (`Pikachu`) with a novel `.img.` payload (`TRIBUNAL_NOVEL_IMG`); asserts `block.sprite.img_data() == "TRIBUNAL_NOVEL_IMG"`. This is the load-bearing test: it fails if any future refactor re-introduces `SpriteId::lookup` into the extract path.
+- [x] `integration_tests::extract_preserves_monster_img_data_on_registry_name_collision` — analogous pin for `Monster` via the real `1-3.monsterpool.(rmon…)…img.X.n.Name` shape.
+- [x] `integration_tests::extract_preserves_replica_item_img_data_on_registry_name_collision` — analogous pin for `ReplicaItem`, reached via `replica_item_parser::parse_simple` directly (top-level `extract()` still routes `!mitempool.` as `StructuralType::ItemPool`; classifier gap, not a Chunk 3b defect).
+- [x] All 4 working mods IR-equal roundtrip (hero/item/monster IR equality preserved; `bosses.equal: false` pinned by `roundtrip_baseline` as pre-Chunk 3b known-red, PIPELINE_FIDELITY_PLAN owns the fix).
+
+**Deviation note (2026-04-21)**: The original chunk requirement read *"Every extractor uses `SpriteId::lookup(name).cloned().unwrap_or_else(|| SpriteId::owned(name, img_data))` — registry miss falls back to owned, not error. SPEC §3.3."* That was **wrong** and contradicted §F4 line 236 (which correctly stated `SpriteId::owned` only). PR #5's first round shipped the lookup-first incantation in 8 extractor callsites; round-1 tribunal reproduced silent data loss (source `.img.WRONGDATA` + registered name `Pikachu` yielded sliceymon's Pikachu payload in the IR). Round-2 fix dropped all 8 lookups, added the 3 regression pins above, tightened the `authoring/sprite.rs` module doc to name SPEC §3.3 as the invariant forbidding registry use in extract, and rewrote the PR description. Future chunks authoring sprite-bearing parsers must copy the corrected wording above, not the original §F4 table shorthand.
 
 #### Chunk 3c: Drop `sprites: &HashMap` from public API
 **Files**: `compiler/src/lib.rs`, `compiler/src/main.rs` (if CLI passes sprite maps), `compiler/src/builder/mod.rs`, `compiler/src/builder/hero_emitter.rs` (already takes `&HashMap`; drop it), every callsite in `compiler/tests/` and `compiler/examples/`.

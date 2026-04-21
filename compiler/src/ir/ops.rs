@@ -178,7 +178,7 @@ mod tests {
                 hp: Some(5),
                 sd: DiceFaces::parse("0:0:0:0:0:0"),
                 color: None,
-                sprite_name: name.into(),
+                sprite: crate::authoring::SpriteId::owned(name.to_string(), "test"),
                 speech: "!".into(),
                 name: name.into(),
                 doc: None,
@@ -189,7 +189,6 @@ mod tests {
                 facades: vec![],
                 items_inside: None,
                 items_outside: None,
-                img_data: Some("test".into()),
                 bare: false,
             }],
             removed: false,
@@ -204,12 +203,11 @@ mod tests {
             floor_range: "1-3".into(),
             hp: Some(3),
             sd: Some(DiceFaces::parse("0:0:0:0:0:0")),
-            sprite_name: Some(name.into()),
+            sprite: Some(crate::authoring::SpriteId::owned(name.to_string(), "")),
             color: None,
             doc: None,
             modifier_chain: None,
             balance: None,
-            img_data: None,
             source: Source::Base,
         }
     }
@@ -235,7 +233,7 @@ mod tests {
             template: "Hat".into(),
             hp: None,
             sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite_name: name.into(),
+            sprite: crate::authoring::SpriteId::owned(name.to_string(), ""),
             color: None,
             tier: None,
             doc: None,
@@ -244,7 +242,6 @@ mod tests {
             item_modifiers: None,
             sticker: None,
             toggle_flags: None,
-            img_data: None,
             source: Source::Base,
         }
     }

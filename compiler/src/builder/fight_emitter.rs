@@ -73,7 +73,7 @@ fn emit_body_props(out: &mut String, unit: &FightUnit, name_inside_head: bool) {
         if unit.sd.is_some() { ord.push(M::Sd); }
         if !name_inside_head { ord.push(M::Name); }
         if unit.doc.is_some() { ord.push(M::Doc); }
-        if unit.sprite_data.is_some() { ord.push(M::Img); }
+        if unit.sprite.is_some() { ord.push(M::Img); }
         if unit.template_override.is_some() { ord.push(M::TemplateOverride); }
         if unit.part.is_some() { ord.push(M::Part); }
         ord
@@ -153,9 +153,11 @@ fn emit_body_props(out: &mut String, unit: &FightUnit, name_inside_head: bool) {
                 }
             }
             M::Img => {
-                if let Some(ref img) = unit.sprite_data {
-                    out.push_str(".img.");
-                    out.push_str(img);
+                if let Some(ref s) = unit.sprite {
+                    if !s.img_data().is_empty() {
+                        out.push_str(".img.");
+                        out.push_str(s.img_data());
+                    }
                 }
             }
             M::TemplateOverride => {

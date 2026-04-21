@@ -12,9 +12,16 @@ pub fn parse_monster(modifier: &str, _modifier_index: usize) -> Monster {
     let modifier_chain = util::extract_modifier_chain(modifier)
         .map(|s| crate::ir::ModifierChain::parse(&s));
 
-    // sprite_name: use name as key for sprite lookup
-    let sprite_name = if name.is_empty() { None } else { Some(name.clone()) };
+    // Source-preserving sprite (§F4 + round-1 tribunal fix): extract never consults
+    // the registry; that's the authoring-path semantics. A registry lookup here would
+    // silently replace this mod's `.img.` payload with sliceymon's whenever the
+    // display name collides, which corrupts source content during extract.
     let img_data = util::extract_img_data(modifier);
+    let sprite = if name.is_empty() {
+        None
+    } else {
+        Some(crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default()))
+    };
 
     Monster {
         name,
@@ -22,12 +29,11 @@ pub fn parse_monster(modifier: &str, _modifier_index: usize) -> Monster {
         floor_range,
         hp: util::extract_hp(modifier, true),
         sd: util::extract_sd(modifier, true).map(|s| crate::ir::DiceFaces::parse(&s)),
-        sprite_name,
+        sprite,
         color,
         doc,
         modifier_chain,
         balance: extract_balance(modifier),
-        img_data,
         source: Source::Base,
     }
 }
