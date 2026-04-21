@@ -6,9 +6,12 @@
 //! names, impossible container shapes) a compile error rather than a runtime surprise.
 //!
 //! Chunk 2 populates the `face_id` submodule (`FaceId`, `FaceIdValue`, `Pips`).
-//! Subsequent chunks add `SpriteId` + chainable builders per
+//! Chunk 3a adds `sprite` — the `SpriteId` newtype + build-time registry.
+//! Subsequent chunks add chainable builders per
 //! `PLATFORM_FOUNDATIONS_PLAN.md` / `AUTHORING_ERGONOMICS_PLAN.md`.
 
 pub mod face_id;
+pub mod sprite;
 
 pub use face_id::{FaceId, FaceIdError, FaceIdValue, Pips, KNOWN_FACE_IDS};
+pub use sprite::SpriteId;

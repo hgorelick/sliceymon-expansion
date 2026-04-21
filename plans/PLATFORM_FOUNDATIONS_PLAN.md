@@ -440,8 +440,8 @@ File-level conflict matrix (every chunk's primary writes):
 Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
   ├── Chunk 1 (Default + ::new + authoring skeleton)  ✅ COMPLETE (2026-04-21)
   │     └── Chunk 2 (FaceId/Pips + IR flip)            ✅ COMPLETE (2026-04-21)
-  │           └── Chunk 3a (SpriteId + registry)        ← START HERE  [extends build.rs; new authoring submod]
-  │                 └── Chunk 3b (IR field consolidation) [rewrites 6 IR types + their parsers/emitters]
+  │           └── Chunk 3a (SpriteId + registry)        ✅ COMPLETE (2026-04-21)
+  │                 └── Chunk 3b (IR field consolidation) ← START HERE  [rewrites 6 IR types + their parsers/emitters]
   │                       └── Chunk 3c (drop HashMap from public API)
   │                             ├── Chunk 4 (BuildOptions + build_with + Finding.source)
   │                             └── Chunk 6 (ReplicaItemContainer enum replaces container_name)
@@ -586,14 +586,22 @@ The original plan's "parallel groups A/B/C" are false — Chunk 2 and Chunk 3 bo
 
 This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks into 3a/3b/3c:
 
-#### Chunk 3a: SpriteId newtype + registry + authoring surface
+#### Chunk 3a: SpriteId newtype + registry + authoring surface — ✅ COMPLETE (2026-04-21)
+
+**Landed**: `phf`/`phf_codegen` deps; `compiler/src/authoring/sprite.rs` (`SpriteId` with `Cow<'static, str>` fields, `lookup`/`owned`/`try_registered`/`name`/`img_data`; flat `{name, img_data}` serde via `SpriteIdSerde`); `compiler/build.rs` extended with `harvest_sprites` (single-pass read shared with face-id harvest, depth-aware `.img.`↔`.n.`/`.mn.` pairing with fewer-outer-hops → nearer-distance → `.mn.`-beats-`.n.` scoring); generator emits `OUT_DIR/sprite_registry_generated.rs` (1,395 entries, phf-backed, byte-deterministic across rebuilds); `authoring/mod.rs` + `lib.rs` re-export `SpriteId`. IR unchanged — field consolidation deferred to 3b per plan.
+
+**Deviations from spec**:
+- Generated registry lives at `$OUT_DIR/sprite_registry_generated.rs` (included from `sprite.rs`) rather than `compiler/src/authoring/sprite_registry.rs` — matches the Chunk 2 `face_id_generated.rs` pattern and keeps the generated static inside the private-field scope of `SpriteId`.
+- `sprite_lookup_charmander` verification test renamed to `sprite_lookup_agumon` — the Charmander→Agumon swap is a planned Sliceymon+ authoring change, and Agumon is already present in `working-mods/sliceymon.txt`, so the test pins to the final name directly (no proxy). The byte-for-byte property is preserved: the test `include_str!`s `working-mods/sliceymon.txt`, extracts Agumon's `.img.` payload at test time, and `assert_eq!`s it against the registry value.
+
+#### Chunk 3a (original spec below) — SpriteId newtype + registry + authoring surface
 **Files**: `compiler/Cargo.toml`, `compiler/src/authoring/sprite.rs`, `compiler/src/authoring/sprite_registry.rs`, `compiler/src/authoring/mod.rs`, `compiler/build.rs`, `compiler/src/lib.rs` (re-export only, no signature change).
 **Dependencies**: Chunk 2.
 
 **Requirements**:
 - Add `phf` runtime + `phf_codegen` build-deps.
 - Author `SpriteId { name: Cow<'static, str>, img_data: Cow<'static, str> }` per §F4 — with `lookup`, `owned`, `try_registered`, `name()`, `img_data()` accessors.
-- Extend `build.rs` to emit `sprite_registry.rs` as a `phf::Map<&'static str, SpriteId>` literal. Mod-priority last-write-wins.
+- Extend `build.rs` to emit `sprite_registry.rs` as a `phf::Map<&'static str, SpriteId>` literal. Mod-priority: first-write-wins over forward iteration of `WORKING_MOD_ORDER = [sliceymon, pansaer, punpuns, community]`, so sliceymon sprites take precedence on name collisions.
 - Serde via `SpriteIdSerde` helper — flat `{name, img_data}` JSON.
 - Do NOT change any IR field types yet; IR still uses `sprite_name`/`img_data` strings.
 
