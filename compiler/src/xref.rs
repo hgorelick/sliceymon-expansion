@@ -11,7 +11,8 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::ir::{Boss, Hero, ModIR, StructuralContent};
+use crate::authoring::FaceIdValue;
+use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, StructuralContent};
 
 // ---------------------------------------------------------------------------
 // Rule ID constants
@@ -20,6 +21,21 @@ use crate::ir::{Boss, Hero, ModIR, StructuralContent};
 const V016: &str = "V016";
 const V019: &str = "V019";
 const V020: &str = "V020";
+pub const X016: &str = "X016";
+pub const X017: &str = "X017";
+
+/// X016 — template-restricted FaceID table. The authoritative source is
+/// `reference/textmod_guide.md`. Today the guide does not make a per-FaceID
+/// template-restriction claim, so this table is intentionally empty —
+/// populating it with corpus-derived guesses would violate the plan's
+/// "no hardcoded lists based on game-design persona claims" directive
+/// (PLATFORM_FOUNDATIONS_PLAN.md §F3). Add entries here only when the guide
+/// documents a restriction.
+///
+/// Each entry: `(face_id, &[allowed_template_prefix, ...])`. An entry with
+/// an empty `allowed_template_prefix` slice means the FaceID is blocked on
+/// every template — useful for "enemy-only" faces once the guide lists any.
+pub const X016_TEMPLATE_RESTRICTIONS: &[(u16, &[&str])] = &[];
 
 // ---------------------------------------------------------------------------
 // Types
@@ -156,8 +172,184 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
     check_hero_color_uniqueness(ir, &mut report);
     check_cross_category_names(ir, &mut report);
     check_hero_pool_refs(ir, &mut report);
+    check_face_template_compat(ir, &mut report);
+    check_face_unknown(ir, &mut report);
 
     report
+}
+
+// ---------------------------------------------------------------------------
+// X016 / X017: dice-face rules
+// ---------------------------------------------------------------------------
+
+/// Walk every `DiceFaces` in the IR, yielding `(field_path, &DiceFaces, template)`
+/// tuples so face-level rules don't have to reimplement the traversal.
+///
+/// Covered surfaces (every `DiceFaces` field reachable from `ModIR`):
+/// - `heroes[].blocks[].sd`
+/// - `heroes[].blocks[].abilitydata.sd`
+/// - `heroes[].blocks[].triggerhpdata.sd`
+/// - `replica_items[].sd`
+/// - `monsters[].sd`
+/// - `bosses[].fights[].enemies[].sd` (recursively into `nested_units`)
+fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str)> {
+    let mut out: Vec<(String, &'a DiceFaces, &'a str)> = Vec::new();
+    for hero in &ir.heroes {
+        if hero.removed {
+            continue;
+        }
+        for (i, block) in hero.blocks.iter().enumerate() {
+            out.push((
+                format!("heroes[{}].blocks[{}].sd", hero.mn_name, i),
+                &block.sd,
+                block.template.as_str(),
+            ));
+            if let Some(ability) = &block.abilitydata {
+                out.push((
+                    format!("heroes[{}].blocks[{}].abilitydata.sd", hero.mn_name, i),
+                    &ability.sd,
+                    ability.template.as_str(),
+                ));
+            }
+            if let Some(trigger) = &block.triggerhpdata {
+                if let Some(sd) = &trigger.sd {
+                    out.push((
+                        format!("heroes[{}].blocks[{}].triggerhpdata.sd", hero.mn_name, i),
+                        sd,
+                        trigger.template.as_str(),
+                    ));
+                }
+            }
+        }
+    }
+    for item in &ir.replica_items {
+        out.push((
+            format!("replica_items[{}].sd", item.name),
+            &item.sd,
+            item.template.as_str(),
+        ));
+    }
+    for monster in &ir.monsters {
+        if let Some(sd) = &monster.sd {
+            out.push((
+                format!("monsters[{}].sd", monster.name),
+                sd,
+                monster.base_template.as_str(),
+            ));
+        }
+    }
+    for boss in &ir.bosses {
+        for (fi, fight) in boss.fights.iter().enumerate() {
+            for (ei, enemy) in fight.enemies.iter().enumerate() {
+                let base = format!(
+                    "bosses[{}].fights[{}].enemies[{}]",
+                    boss.name, fi, ei
+                );
+                collect_fight_unit_faces(enemy, &base, &mut out);
+            }
+        }
+    }
+    out
+}
+
+/// Recursive helper — yields `(path, &DiceFaces, template)` for a `FightUnit`
+/// and any `nested_units` below it. The path is built from the caller's
+/// already-formatted prefix so container indices stay stable.
+fn collect_fight_unit_faces<'a>(
+    unit: &'a FightUnit,
+    path_prefix: &str,
+    out: &mut Vec<(String, &'a DiceFaces, &'a str)>,
+) {
+    if let Some(sd) = &unit.sd {
+        out.push((format!("{}.sd", path_prefix), sd, unit.template.as_str()));
+    }
+    if let Some(nested) = &unit.nested_units {
+        for (ni, child) in nested.iter().enumerate() {
+            let child_prefix = format!("{}.nested_units[{}]", path_prefix, ni);
+            collect_fight_unit_faces(child, &child_prefix, out);
+        }
+    }
+}
+
+/// X016 — flag a `FaceIdValue::Known` face whose ID is template-restricted by
+/// `reference/textmod_guide.md` when used on a disallowed template. Operates
+/// on `Known` only; `Unknown` is handled by X017.
+///
+/// Today `X016_TEMPLATE_RESTRICTIONS` is empty (the guide does not make
+/// per-FaceID template-restriction claims), so this rule fires only when the
+/// table is populated by a future guide update. See the table's doc-comment
+/// for why this is intentional.
+fn check_face_template_compat(ir: &ModIR, report: &mut ValidationReport) {
+    check_face_template_compat_with_table(ir, X016_TEMPLATE_RESTRICTIONS, report);
+}
+
+/// Testable variant of [`check_face_template_compat`] that accepts an injected
+/// restriction table. Used by unit tests to verify the rule framework fires
+/// when the table is populated, without hardcoding production claims.
+pub(crate) fn check_face_template_compat_with_table(
+    ir: &ModIR,
+    restrictions: &[(u16, &[&str])],
+    report: &mut ValidationReport,
+) {
+    if restrictions.is_empty() {
+        return;
+    }
+    for (field_path, sd, template) in iter_dice_faces(ir) {
+        for (face_idx, face) in sd.faces.iter().enumerate() {
+            if let DiceFace::Active { face_id: FaceIdValue::Known(id), .. } = face {
+                let raw = id.raw();
+                if let Some((_, allowed)) = restrictions.iter().find(|(rid, _)| *rid == raw) {
+                    let template_ok = allowed.iter().any(|prefix| template.starts_with(prefix));
+                    if !template_ok {
+                        push_finding(report, Finding {
+                            rule_id: X016.to_string(),
+                            severity: Severity::Error,
+                            message: format!(
+                                "FaceID {} is template-restricted by reference/textmod_guide.md; \
+                                 template '{}' is not in the allowed set",
+                                raw, template
+                            ),
+                            field_path: Some(format!("{}.faces[{}]", field_path, face_idx)),
+                            suggestion: Some(format!(
+                                "Use FaceID {} only on templates matching one of: [{}]",
+                                raw,
+                                allowed.join(", ")
+                            )),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// X017 — warn on a `FaceIdValue::Unknown(raw)`, i.e. a FaceID that extracted
+/// successfully (permissive path per SPEC §3.6) but is not in the corpus
+/// whitelist. Severity is Warning — extraction still round-trips byte-for-byte.
+fn check_face_unknown(ir: &ModIR, report: &mut ValidationReport) {
+    for (field_path, sd, _template) in iter_dice_faces(ir) {
+        for (face_idx, face) in sd.faces.iter().enumerate() {
+            if let DiceFace::Active { face_id: FaceIdValue::Unknown(raw), .. } = face {
+                push_finding(report, Finding {
+                    rule_id: X017.to_string(),
+                    severity: Severity::Warning,
+                    message: format!(
+                        "FaceID {} is not in the corpus whitelist; roundtrip is preserved \
+                         but the authoring layer has no typed const for this ID",
+                        raw
+                    ),
+                    field_path: Some(format!("{}.faces[{}]", field_path, face_idx)),
+                    suggestion: Some(format!(
+                        "If FaceID {} is a legitimate game FaceID, add it to the \
+                         build.rs curated table; otherwise verify the source textmod",
+                        raw
+                    )),
+                    ..Default::default()
+                });
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -748,5 +940,273 @@ mod tests {
 
         assert!(report.errors.is_empty());
         assert!(report.warnings.is_empty());
+    }
+
+    // -- X016: face-template compatibility --
+
+    /// Verifies the rule framework fires when the restriction table is
+    /// populated. The production table (`X016_TEMPLATE_RESTRICTIONS`) is
+    /// empty today because `reference/textmod_guide.md` does not make
+    /// per-FaceID template-restriction claims; the test injects a synthetic
+    /// `[(170, &["Wolf"])]` table to exercise the matching logic without
+    /// hardcoding a production claim.
+    ///
+    /// Guide context (verbatim, `reference/textmod_guide.md` line 626):
+    /// > "Enemy effects may be repeated for different enemy sizes. Also note
+    /// > that many enemy effects may behave strangely; the game doesn't
+    /// > expect heroes to use them."
+    ///
+    /// The guide documents FaceID 170 as "Wolf Bite | sd.170 (wolf damage)"
+    /// (line 639) — the synthetic restriction mirrors that guidance for test
+    /// purposes only.
+    #[test]
+    fn x016_flags_template_restricted_face() {
+        use crate::authoring::{FaceId, FaceIdValue, Pips};
+
+        let mut ir = ModIR::empty();
+        let mut hero = make_hero("Pikachu", 'a');
+        hero.blocks.push(HeroBlock {
+            template: "Goblin".to_string(),
+            tier: Some(0),
+            hp: Some(4),
+            sd: DiceFaces {
+                faces: vec![DiceFace::Active {
+                    // FaceId::try_from is the corpus-whitelisted constructor;
+                    // 170 is curated in authoring/face_id.rs.
+                    face_id: FaceIdValue::Known(FaceId::try_from(170u16).unwrap()),
+                    pips: Pips::new(3),
+                }],
+            },
+            bare: false,
+            color: None,
+            sprite_name: "pikachu".to_string(),
+            speech: String::new(),
+            name: "Pikachu".to_string(),
+            doc: None,
+            abilitydata: None,
+            triggerhpdata: None,
+            hue: None,
+            modifier_chain: None,
+            facades: vec![],
+            items_inside: None,
+            items_outside: None,
+            img_data: None,
+        });
+        ir.heroes.push(hero);
+
+        let synthetic: &[(u16, &[&str])] = &[(170, &["Wolf"])];
+        let mut report = ValidationReport::default();
+        check_face_template_compat_with_table(&ir, synthetic, &mut report);
+
+        assert_eq!(report.errors.len(), 1, "expected one X016 finding");
+        assert_eq!(report.errors[0].rule_id, "X016");
+        assert!(report.errors[0].message.contains("170"));
+        assert!(report.errors[0].message.contains("Goblin"));
+    }
+
+    #[test]
+    fn x016_silent_when_production_table_empty() {
+        assert!(
+            X016_TEMPLATE_RESTRICTIONS.is_empty(),
+            "production table must stay empty until the guide documents a restriction"
+        );
+    }
+
+    // -- X017: unknown FaceID warning --
+
+    #[test]
+    fn x017_flags_unknown_face_id_as_warning() {
+        use crate::authoring::{FaceIdValue, Pips};
+
+        let mut ir = ModIR::empty();
+        ir.replica_items.push(ReplicaItem {
+            name: "UnknownFaceItem".to_string(),
+            container_name: "UnknownFaceItem".to_string(),
+            template: "Slime".to_string(),
+            hp: Some(4),
+            sd: DiceFaces {
+                faces: vec![DiceFace::Active {
+                    face_id: FaceIdValue::try_new(9999),
+                    pips: Pips::new(1),
+                }],
+            },
+            sprite_name: "unknown".to_string(),
+            color: None,
+            tier: None,
+            doc: None,
+            speech: None,
+            abilitydata: None,
+            item_modifiers: None,
+            sticker: None,
+            toggle_flags: None,
+            img_data: None,
+            source: Source::Custom,
+        });
+
+        let report = check_references(&ir);
+
+        assert_eq!(report.errors.len(), 0, "X017 must be a warning, not an error");
+        let x017: Vec<_> = report.warnings.iter().filter(|f| f.rule_id == "X017").collect();
+        assert_eq!(x017.len(), 1);
+        assert_eq!(x017[0].severity, Severity::Warning);
+        assert!(x017[0].message.contains("9999"));
+    }
+
+    /// Regression: X017 must fire on every `DiceFaces`-bearing IR surface,
+    /// not only `ReplicaItem`. This test wires an Unknown FaceID into each
+    /// of the five other surfaces `iter_dice_faces` walks and asserts one
+    /// warning per surface, plus correct `field_path` strings.
+    #[test]
+    fn x017_fires_on_every_dice_faces_surface() {
+        use crate::authoring::{FaceIdValue, Pips};
+        use crate::ir::{AbilityData, FightDefinition, FightUnit, TriggerHpDef};
+
+        fn unknown_faces(id: u16) -> DiceFaces {
+            DiceFaces {
+                faces: vec![DiceFace::Active {
+                    face_id: FaceIdValue::try_new(id),
+                    pips: Pips::new(1),
+                }],
+            }
+        }
+
+        let mut ir = ModIR::empty();
+
+        // Surface 1: HeroBlock.sd  (id 9001)
+        // Surface 2: HeroBlock.abilitydata.sd  (id 9002)
+        // Surface 3: HeroBlock.triggerhpdata.sd  (id 9003)
+        let mut hero = make_hero("Pikachu", 'a');
+        hero.blocks.push(HeroBlock {
+            template: "Slime".to_string(),
+            tier: Some(0),
+            hp: Some(4),
+            sd: unknown_faces(9001),
+            bare: false,
+            color: None,
+            sprite_name: "pikachu".to_string(),
+            speech: String::new(),
+            name: "Pikachu".to_string(),
+            doc: None,
+            abilitydata: Some(AbilityData {
+                template: "Statue".to_string(),
+                sd: unknown_faces(9002),
+                img_data: None,
+                name: "Infuse".to_string(),
+                modifier_chain: None,
+                hsv: None,
+                ability_type: None,
+            }),
+            triggerhpdata: Some(TriggerHpDef {
+                template: "Egg".to_string(),
+                hp: Some(1),
+                sd: Some(unknown_faces(9003)),
+                color: None,
+                modifier_chain: None,
+                img_data: None,
+                name: None,
+                tier: None,
+                part: None,
+            }),
+            hue: None,
+            modifier_chain: None,
+            facades: vec![],
+            items_inside: None,
+            items_outside: None,
+            img_data: None,
+        });
+        ir.heroes.push(hero);
+
+        // Surface 4: Monster.sd  (id 9004)
+        ir.monsters.push(crate::ir::Monster {
+            name: "Gastly".to_string(),
+            base_template: "Goblin".to_string(),
+            floor_range: "1-3".to_string(),
+            hp: Some(3),
+            sd: Some(unknown_faces(9004)),
+            sprite_name: None,
+            color: None,
+            doc: None,
+            modifier_chain: None,
+            balance: None,
+            img_data: None,
+            source: Source::Custom,
+        });
+
+        // Surfaces 5 & 6: FightUnit.sd (id 9005) + FightUnit.nested_units[].sd (id 9006)
+        let nested = FightUnit {
+            template: "Egg".to_string(),
+            name: "EggSpawn".to_string(),
+            sd: Some(unknown_faces(9006)),
+            ..Default::default()
+        };
+        let enemy = FightUnit {
+            template: "Wolf".to_string(),
+            name: "Alpha".to_string(),
+            sd: Some(unknown_faces(9005)),
+            nested_units: Some(vec![nested]),
+            ..Default::default()
+        };
+        let fight = FightDefinition {
+            level: Some(8),
+            enemies: vec![enemy],
+            name: None,
+            trigger: None,
+        };
+        let mut boss = make_boss("Floor8");
+        boss.fights.push(fight);
+        ir.bosses.push(boss);
+
+        let report = check_references(&ir);
+        let x017: Vec<_> =
+            report.warnings.iter().filter(|f| f.rule_id == "X017").collect();
+
+        // 6 surfaces × 1 Unknown each = 6 warnings.
+        assert_eq!(x017.len(), 6, "every DiceFaces surface must emit X017");
+
+        // Spot-check each surface's field_path prefix — this pins the walker's
+        // path shape so a regression that drops a surface fails loudly.
+        let paths: Vec<_> = x017.iter().map(|f| f.field_path.clone().unwrap()).collect();
+        assert!(paths.iter().any(|p| p.starts_with("heroes[Pikachu].blocks[0].sd")));
+        assert!(paths.iter().any(|p| p.starts_with("heroes[Pikachu].blocks[0].abilitydata.sd")));
+        assert!(paths.iter().any(|p| p.starts_with("heroes[Pikachu].blocks[0].triggerhpdata.sd")));
+        assert!(paths.iter().any(|p| p.starts_with("monsters[Gastly].sd")));
+        assert!(paths.iter().any(|p| p.starts_with("bosses[Floor8].fights[0].enemies[0].sd")));
+        assert!(paths
+            .iter()
+            .any(|p| p.starts_with("bosses[Floor8].fights[0].enemies[0].nested_units[0].sd")));
+    }
+
+    #[test]
+    fn x017_silent_when_all_face_ids_known() {
+        use crate::authoring::{FaceId, FaceIdValue, Pips};
+
+        let mut ir = ModIR::empty();
+        ir.replica_items.push(ReplicaItem {
+            name: "KnownFaceItem".to_string(),
+            container_name: "KnownFaceItem".to_string(),
+            template: "Slime".to_string(),
+            hp: Some(4),
+            sd: DiceFaces {
+                faces: vec![DiceFace::Active {
+                    face_id: FaceIdValue::Known(FaceId::DAMAGE_BASIC),
+                    pips: Pips::new(2),
+                }],
+            },
+            sprite_name: "known".to_string(),
+            color: None,
+            tier: None,
+            doc: None,
+            speech: None,
+            abilitydata: None,
+            item_modifiers: None,
+            sticker: None,
+            toggle_flags: None,
+            img_data: None,
+            source: Source::Custom,
+        });
+
+        let report = check_references(&ir);
+        let x017: Vec<_> = report.warnings.iter().filter(|f| f.rule_id == "X017").collect();
+        assert!(x017.is_empty(), "no X017 on corpus-known FaceIDs");
     }
 }

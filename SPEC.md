@@ -60,7 +60,7 @@ Structural validity = "the extractor succeeded." Cross-IR semantic checks (uniqu
 
 ### 3.6 Make invalid states unrepresentable
 
-Use Rust enums and newtypes to encode constraints at compile time (e.g., `DiceFace::{Blank, Active{face_id: FaceId, pips: u8}}` not `String`). `FaceId` is a newtype backed by the guide's whitelist — constructing an invalid `FaceId` is a compile error, not a runtime validation failure. A bug that the type system can prevent must not be deferred to a runtime check.
+Use Rust enums and newtypes to encode constraints at compile time wherever the constraint is a **format invariant** (e.g., `DiceFace::{Blank, Active{face_id: FaceIdValue, pips: Pips}}` not `String`). For **corpus-derived whitelists** (Face IDs, sprite registry), the typed layer is the authoring path and the source-of-truth for correctness, and unknown values are surfaced as `Unknown(raw)` variants that extract successfully and emit an `xref` `Finding` at `Severity::Warning`. This preserves SPEC §1 / §3.3 (any valid textmod extracts, self-contained IR) while keeping the authoring layer hallucination-free (SPEC §6.1). `Pips` is a newtype around `i16` (the corpus contains negative pips, e.g. `13--1`).
 
 ### 3.7 Correctness over convenience
 
