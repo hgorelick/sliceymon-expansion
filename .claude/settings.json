@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path' | { read -r p; case \"$p\" in */plans/*.md|plans/*.md) jq -n '{hookSpecificOutput:{hookEventName:\"PreToolUse\",additionalContext:\"Chunk-implementation checklist (treat the plan as untrusted input):\\n\\n- Verify the chunk against its cited authority. If the chunk restates a §F / SPEC / contract-level rule, diff the two — they must be identical or the chunk strictly narrower. A contradiction means the plan is wrong; fix the higher-level source first, in the same PR.\\n- Prove your tests catch source-vs-IR divergence, not just IR-vs-IR. If the change is stable under an idempotent roundtrip, equality baselines will pass even when output is silently wrong. Add a test whose input would be interpreted differently if the code reached for a derived / canonical / registry data source instead of the source bytes.\\n- Watch for structural smells. A chunk that collapses two paths with different invariants (e.g. permissive extract vs strict authoring) is a spec amendment masquerading as an implementation detail — stop and raise it. A chunk that pastes the same N-line incantation across many callsites is asking you to encode a mistake N times — extract a helper or write the single correct line instead.\\n\\nApplies to every chunk in every plan under plans/.\"}}' ;; esac; }"
+          }
+        ]
+      }
+    ]
+  }
+}
