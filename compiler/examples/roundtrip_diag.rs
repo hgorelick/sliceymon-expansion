@@ -1,7 +1,7 @@
 //! Roundtrip diagnostic: for each mod, extract → build → re-extract,
 //! and print count deltas and per-StructuralType breakdowns.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
@@ -54,8 +54,7 @@ fn report(name: &str, path: &PathBuf) {
     let s1 = count_structural_by_type(&ir1);
     let b1 = count_boss_formats(&ir1);
 
-    let sprites: HashMap<String, String> = HashMap::new();
-    let rebuilt = match textmod_compiler::build(&ir1, &sprites) {
+    let rebuilt = match textmod_compiler::build(&ir1) {
         Ok(t) => t,
         Err(e) => {
             println!("  BUILD ERROR: {}", e);

@@ -1,21 +1,21 @@
-use std::collections::HashMap;
-
 use crate::error::CompilerError;
 use crate::ir::{Hero, HeroFormat};
 
 /// Emit a Hero struct as a modifier string.
 ///
-/// Reconstructs the modifier from parsed fields based on format.
-/// Sprite resolution order: sprite map > img_data > error.
-pub fn emit(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
+/// Reconstructs the modifier from parsed fields based on format. Sprite data
+/// rides on each `HeroBlock.sprite` (SpriteId); an empty `img_data()` means
+/// the source block had no `.img.` property, so emission is skipped to
+/// preserve roundtrip fidelity.
+pub fn emit(hero: &Hero) -> Result<String, CompilerError> {
     match hero.format {
-        HeroFormat::Sliceymon => emit_sliceymon(hero, sprites),
-        HeroFormat::Grouped | HeroFormat::Unknown => emit_grouped(hero, sprites),
+        HeroFormat::Sliceymon => emit_sliceymon(hero),
+        HeroFormat::Grouped | HeroFormat::Unknown => emit_grouped(hero),
     }
 }
 
 /// Emit a Sliceymon-format hero (ph.b prefix, !mheropool.).
-fn emit_sliceymon(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
+fn emit_sliceymon(hero: &Hero) -> Result<String, CompilerError> {
     if hero.blocks.is_empty() {
         return Err(CompilerError::build(
             format!("hero:{}", hero.internal_name),
@@ -43,9 +43,7 @@ fn emit_sliceymon(hero: &Hero, sprites: &HashMap<String, String>) -> Result<Stri
         }
         emitted_sliceymon += 1;
 
-        // Resolve sprite: sprite map > explicit img_data. None means the source
-        // had no `.img.` property — we skip emitting it to preserve roundtrip.
-        let resolved_img = resolve_sprite(sprites, block);
+        let resolved_img = resolve_sprite(block);
         let _ = i;
 
         if block.bare {
@@ -181,7 +179,7 @@ fn emit_sliceymon(hero: &Hero, sprites: &HashMap<String, String>) -> Result<Stri
 }
 
 /// Emit a grouped-format hero (pansaer/punpuns/community: heropool.Name+...replica blocks).
-fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
+fn emit_grouped(hero: &Hero) -> Result<String, CompilerError> {
     if hero.blocks.is_empty() {
         return Err(CompilerError::build(
             format!("hero:{}", hero.internal_name),
@@ -206,9 +204,7 @@ fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String
         }
         emitted += 1;
 
-        // Resolve sprite: sprite map > explicit img_data. None means the source
-        // had no `.img.` property — we skip emitting it to preserve roundtrip.
-        let resolved_img = resolve_sprite(sprites, block);
+        let resolved_img = resolve_sprite(block);
         let _ = i;
 
         // Bare blocks emit as `TEMPLATE.props...` without the `(replica....)` wrapper.
@@ -310,22 +306,11 @@ fn emit_grouped(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String
     Ok(out)
 }
 
-/// Resolve sprite data for emission. Post-§F4, every `HeroBlock.sprite` is a
-/// complete `SpriteId` carrying its own `img_data`. The legacy `sprites` map
-/// (retained by the signature until Chunk 3c drops it) still wins when present
-/// so a caller-supplied override during merge/overlay flows remains authoritative.
-/// An empty `img_data()` means the source had no `.img.` at all (e.g. an inherited
-/// block), so we return `None` to suppress emission and preserve roundtrip.
-fn resolve_sprite(
-    sprites: &HashMap<String, String>,
-    block: &crate::ir::HeroBlock,
-) -> Option<String> {
-    let sprite_name = block.sprite.name();
-    if !sprite_name.is_empty() {
-        if let Some(data) = sprites.get(sprite_name) {
-            return Some(data.clone());
-        }
-    }
+/// Resolve sprite data for emission. Per SPEC §F4/§3.3, every `HeroBlock.sprite`
+/// is a complete `SpriteId` carrying its own `img_data`. An empty `img_data()`
+/// means the source had no `.img.` at all (e.g. an inherited block), so we
+/// return `None` to suppress emission and preserve roundtrip.
+fn resolve_sprite(block: &crate::ir::HeroBlock) -> Option<String> {
     let img = block.sprite.img_data();
     if img.is_empty() { None } else { Some(img.to_string()) }
 }

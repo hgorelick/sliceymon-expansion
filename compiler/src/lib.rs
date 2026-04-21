@@ -11,8 +11,6 @@ pub use xref::{check_references, check_hero_in_context, check_boss_in_context, F
 pub use ir::Source;
 pub use authoring::SpriteId;
 
-use std::collections::HashMap;
-
 use error::CompilerError;
 use ir::ModIR;
 
@@ -21,15 +19,15 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
     extractor::extract(textmod)
 }
 
-/// Build a textmod string from a ModIR and sprite mappings.
-pub fn build(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
-    builder::build(ir, sprites)
+/// Build a textmod string from a ModIR.
+pub fn build(ir: &ModIR) -> Result<String, CompilerError> {
+    builder::build(ir)
 }
 
 /// Build a complete textmod, auto-generating derived structurals (character selection,
 /// hero pool base) if not explicitly present in the IR.
-pub fn build_complete(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
-    builder::build_complete(ir, sprites)
+pub fn build_complete(ir: &ModIR) -> Result<String, CompilerError> {
+    builder::build_complete(ir)
 }
 
 /// Merge a base ModIR with an overlay ModIR.
@@ -40,8 +38,8 @@ pub fn merge(base: ModIR, overlay: ModIR) -> Result<ModIR, CompilerError> {
 // -- Single-item build functions --
 
 /// Build a single hero into a modifier string.
-pub fn build_hero(hero: &ir::Hero, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
-    builder::hero_emitter::emit(hero, sprites)
+pub fn build_hero(hero: &ir::Hero) -> Result<String, CompilerError> {
+    builder::hero_emitter::emit(hero)
 }
 
 /// Build a single replica item into a modifier string.
@@ -64,9 +62,9 @@ pub fn build_boss(boss: &ir::Boss) -> Result<String, CompilerError> {
 /// Validate a single hero by attempting to build it. If the build succeeds,
 /// the hero is structurally valid. Returns an empty report on success,
 /// or a report with a build error on failure.
-pub fn validate_hero(hero: &ir::Hero, sprites: &HashMap<String, String>) -> ValidationReport {
+pub fn validate_hero(hero: &ir::Hero) -> ValidationReport {
     let mut report = ValidationReport::default();
-    if let Err(e) = build_hero(hero, sprites) {
+    if let Err(e) = build_hero(hero) {
         report.errors.push(Finding {
             rule_id: "E000".to_string(),
             severity: Severity::Error,
@@ -82,8 +80,8 @@ pub fn validate_hero(hero: &ir::Hero, sprites: &HashMap<String, String>) -> Vali
 
 /// Validate a hero in the context of an existing IR (checks color conflicts, name duplicates).
 /// Combines build validation with cross-reference checks.
-pub fn validate_hero_in_context(hero: &ir::Hero, ir: &ModIR, sprites: &HashMap<String, String>) -> ValidationReport {
-    let mut report = validate_hero(hero, sprites);
+pub fn validate_hero_in_context(hero: &ir::Hero, ir: &ModIR) -> ValidationReport {
+    let mut report = validate_hero(hero);
     let context_report = xref::check_hero_in_context(hero, ir);
     report.merge(context_report);
     report

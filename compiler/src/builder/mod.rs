@@ -9,12 +9,10 @@ pub mod reward_emitter;
 pub mod phase_emitter;
 pub mod derived;
 
-use std::collections::HashMap;
-
 use crate::error::CompilerError;
 use crate::ir::{ModIR, StructuralType};
 
-/// Build a textmod string from a ModIR and sprite mappings.
+/// Build a textmod string from a ModIR.
 ///
 /// Assembly order matches sliceymon convention:
 /// party, events, dialogs, selectors, heropool base, heroes, level-up,
@@ -22,7 +20,7 @@ use crate::ir::{ModIR, StructuralType};
 /// gen select, difficulty, end screen, art credits
 ///
 /// Output format: one modifier per line, comma-terminated, with blank spacer lines.
-pub fn build(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
+pub fn build(ir: &ModIR) -> Result<String, CompilerError> {
     // Type-based assembly for all mods.
     let mut modifiers: Vec<String> = Vec::new();
 
@@ -53,7 +51,7 @@ pub fn build(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<String, Co
 
     // 6. Heroes
     for hero in &ir.heroes {
-        modifiers.push(hero_emitter::emit(hero, sprites)?);
+        modifiers.push(hero_emitter::emit(hero)?);
     }
 
     // 7. Level-up action
@@ -155,7 +153,7 @@ pub fn build(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<String, Co
 /// Use this for programmatic IR creation where the IR may not have
 /// explicit structural modifiers. For round-trip builds from existing mods,
 /// use `build()` instead.
-pub fn build_complete(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<String, CompilerError> {
+pub fn build_complete(ir: &ModIR) -> Result<String, CompilerError> {
     let mut ir = ir.clone();
 
     if !ir.heroes.is_empty() {
@@ -167,5 +165,5 @@ pub fn build_complete(ir: &ModIR, sprites: &HashMap<String, String>) -> Result<S
         }
     }
 
-    build(&ir, sprites)
+    build(&ir)
 }
