@@ -53,10 +53,11 @@ const KNOWN_FACE_NAMES: &[(u16, &str)] = &[
     (146, "SHIELD_ADD_SELF"),
     // Heal
     (107, "HEAL_ALL"),
-    // Mana / utility (guide cheat-sheet)
+    // Mana / utility (guide cheat-sheet + sd. index at line 1165)
     (76, "MANA"),
     (125, "REROLL"),
-    (126, "CANTRIP"),
+    // FaceID 13 — guide line 1165: "sd.13 I Die Cantrip".
+    (13, "CANTRIP"),
     // Keyword cards (guide line 630, 639-640)
     (137, "DAMAGE_RAMPAGE"),
     (169, "SNAKE_DAMAGE"),

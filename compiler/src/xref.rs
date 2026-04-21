@@ -12,7 +12,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::authoring::FaceIdValue;
-use crate::ir::{Boss, DiceFace, DiceFaces, Hero, ModIR, StructuralContent};
+use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, StructuralContent};
 
 // ---------------------------------------------------------------------------
 // Rule ID constants
@@ -184,6 +184,14 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
 
 /// Walk every `DiceFaces` in the IR, yielding `(field_path, &DiceFaces, template)`
 /// tuples so face-level rules don't have to reimplement the traversal.
+///
+/// Covered surfaces (every `DiceFaces` field reachable from `ModIR`):
+/// - `heroes[].blocks[].sd`
+/// - `heroes[].blocks[].abilitydata.sd`
+/// - `heroes[].blocks[].triggerhpdata.sd`
+/// - `replica_items[].sd`
+/// - `monsters[].sd`
+/// - `bosses[].fights[].enemies[].sd` (recursively into `nested_units`)
 fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str)> {
     let mut out: Vec<(String, &'a DiceFaces, &'a str)> = Vec::new();
     for hero in &ir.heroes {
@@ -196,6 +204,22 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str)> {
                 &block.sd,
                 block.template.as_str(),
             ));
+            if let Some(ability) = &block.abilitydata {
+                out.push((
+                    format!("heroes[{}].blocks[{}].abilitydata.sd", hero.mn_name, i),
+                    &ability.sd,
+                    ability.template.as_str(),
+                ));
+            }
+            if let Some(trigger) = &block.triggerhpdata {
+                if let Some(sd) = &trigger.sd {
+                    out.push((
+                        format!("heroes[{}].blocks[{}].triggerhpdata.sd", hero.mn_name, i),
+                        sd,
+                        trigger.template.as_str(),
+                    ));
+                }
+            }
         }
     }
     for item in &ir.replica_items {
@@ -214,7 +238,37 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str)> {
             ));
         }
     }
+    for boss in &ir.bosses {
+        for (fi, fight) in boss.fights.iter().enumerate() {
+            for (ei, enemy) in fight.enemies.iter().enumerate() {
+                let base = format!(
+                    "bosses[{}].fights[{}].enemies[{}]",
+                    boss.name, fi, ei
+                );
+                collect_fight_unit_faces(enemy, &base, &mut out);
+            }
+        }
+    }
     out
+}
+
+/// Recursive helper — yields `(path, &DiceFaces, template)` for a `FightUnit`
+/// and any `nested_units` below it. The path is built from the caller's
+/// already-formatted prefix so container indices stay stable.
+fn collect_fight_unit_faces<'a>(
+    unit: &'a FightUnit,
+    path_prefix: &str,
+    out: &mut Vec<(String, &'a DiceFaces, &'a str)>,
+) {
+    if let Some(sd) = &unit.sd {
+        out.push((format!("{}.sd", path_prefix), sd, unit.template.as_str()));
+    }
+    if let Some(nested) = &unit.nested_units {
+        for (ni, child) in nested.iter().enumerate() {
+            let child_prefix = format!("{}.nested_units[{}]", path_prefix, ni);
+            collect_fight_unit_faces(child, &child_prefix, out);
+        }
+    }
 }
 
 /// X016 — flag a `FaceIdValue::Known` face whose ID is template-restricted by
@@ -996,6 +1050,130 @@ mod tests {
         assert_eq!(x017.len(), 1);
         assert_eq!(x017[0].severity, Severity::Warning);
         assert!(x017[0].message.contains("9999"));
+    }
+
+    /// Regression: X017 must fire on every `DiceFaces`-bearing IR surface,
+    /// not only `ReplicaItem`. This test wires an Unknown FaceID into each
+    /// of the five other surfaces `iter_dice_faces` walks and asserts one
+    /// warning per surface, plus correct `field_path` strings.
+    #[test]
+    fn x017_fires_on_every_dice_faces_surface() {
+        use crate::authoring::{FaceIdValue, Pips};
+        use crate::ir::{AbilityData, FightDefinition, FightUnit, TriggerHpDef};
+
+        fn unknown_faces(id: u16) -> DiceFaces {
+            DiceFaces {
+                faces: vec![DiceFace::Active {
+                    face_id: FaceIdValue::try_new(id),
+                    pips: Pips::new(1),
+                }],
+            }
+        }
+
+        let mut ir = ModIR::empty();
+
+        // Surface 1: HeroBlock.sd  (id 9001)
+        // Surface 2: HeroBlock.abilitydata.sd  (id 9002)
+        // Surface 3: HeroBlock.triggerhpdata.sd  (id 9003)
+        let mut hero = make_hero("Pikachu", 'a');
+        hero.blocks.push(HeroBlock {
+            template: "Slime".to_string(),
+            tier: Some(0),
+            hp: Some(4),
+            sd: unknown_faces(9001),
+            bare: false,
+            color: None,
+            sprite_name: "pikachu".to_string(),
+            speech: String::new(),
+            name: "Pikachu".to_string(),
+            doc: None,
+            abilitydata: Some(AbilityData {
+                template: "Statue".to_string(),
+                sd: unknown_faces(9002),
+                img_data: None,
+                name: "Infuse".to_string(),
+                modifier_chain: None,
+                hsv: None,
+                ability_type: None,
+            }),
+            triggerhpdata: Some(TriggerHpDef {
+                template: "Egg".to_string(),
+                hp: Some(1),
+                sd: Some(unknown_faces(9003)),
+                color: None,
+                modifier_chain: None,
+                img_data: None,
+                name: None,
+                tier: None,
+                part: None,
+            }),
+            hue: None,
+            modifier_chain: None,
+            facades: vec![],
+            items_inside: None,
+            items_outside: None,
+            img_data: None,
+        });
+        ir.heroes.push(hero);
+
+        // Surface 4: Monster.sd  (id 9004)
+        ir.monsters.push(crate::ir::Monster {
+            name: "Gastly".to_string(),
+            base_template: "Goblin".to_string(),
+            floor_range: "1-3".to_string(),
+            hp: Some(3),
+            sd: Some(unknown_faces(9004)),
+            sprite_name: None,
+            color: None,
+            doc: None,
+            modifier_chain: None,
+            balance: None,
+            img_data: None,
+            source: Source::Custom,
+        });
+
+        // Surfaces 5 & 6: FightUnit.sd (id 9005) + FightUnit.nested_units[].sd (id 9006)
+        let nested = FightUnit {
+            template: "Egg".to_string(),
+            name: "EggSpawn".to_string(),
+            sd: Some(unknown_faces(9006)),
+            ..Default::default()
+        };
+        let enemy = FightUnit {
+            template: "Wolf".to_string(),
+            name: "Alpha".to_string(),
+            sd: Some(unknown_faces(9005)),
+            nested_units: Some(vec![nested]),
+            ..Default::default()
+        };
+        let fight = FightDefinition {
+            level: Some(8),
+            enemies: vec![enemy],
+            name: None,
+            trigger: None,
+        };
+        let mut boss = make_boss("Floor8");
+        boss.fights.push(fight);
+        ir.bosses.push(boss);
+
+        let report = check_references(&ir);
+        let x017: Vec<_> =
+            report.warnings.iter().filter(|f| f.rule_id == "X017").collect();
+
+        // 6 surfaces × 1 Unknown each = 6 warnings.
+        assert_eq!(x017.len(), 6, "every DiceFaces surface must emit X017");
+
+        // Spot-check each surface's field_path prefix — this pins the walker's
+        // path shape so a regression that drops a surface fails loudly.
+        let paths: Vec<_> = x017.iter().map(|f| f.field_path.clone().unwrap()).collect();
+        assert!(paths.iter().any(|p| p.starts_with("heroes[Pikachu].blocks[0].sd")));
+        assert!(paths.iter().any(|p| p.starts_with("heroes[Pikachu].blocks[0].abilitydata.sd")));
+        assert!(paths.iter().any(|p| p.starts_with("heroes[Pikachu].blocks[0].triggerhpdata.sd")));
+        assert!(paths.iter().any(|p| p.starts_with("monsters[Gastly].sd")));
+        assert!(paths.iter().any(|p| p.starts_with("bosses[Floor8].fights[0].enemies[0].sd")));
+        assert!(paths
+            .iter()
+            .any(|p| p.starts_with("bosses[Floor8].fights[0].enemies[0].nested_units[0].sd")));
     }
 
     #[test]
