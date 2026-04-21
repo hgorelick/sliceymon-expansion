@@ -454,7 +454,7 @@ Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
   │                 └── Chunk 3b (IR field consolidation) ✅ COMPLETE (2026-04-21, PR #5 merged after round-2 tribunal)
   │                       └── Chunk 3c (drop HashMap from public API) ✅ COMPLETE (2026-04-21, PR #6 merged)
   │                             ├── Chunk 4 (BuildOptions + build_with + Finding.source) ✅ COMPLETE (2026-04-22)
-  │                             └── Chunk 6 (ReplicaItemContainer enum replaces container_name) ← START HERE
+  │                             └── Chunk 6 (ReplicaItemContainer enum replaces container_name) ✅ COMPLETE (2026-04-21)
   │                                   └── Chunk 5 (merge strips + new regenerators + unconditional regen)
   └── Chunk 7 (lib-code unwrap/expect/panic elimination) [parallel from Chunk 0 completion onward; no shared files with 1..6]
 ```
@@ -717,7 +717,7 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 
 ---
 
-### Chunk 6: `ReplicaItemContainer` enum replaces `container_name` [serial after Chunk 4, before Chunk 5]
+### Chunk 6: `ReplicaItemContainer` enum replaces `container_name` [serial after Chunk 4, before Chunk 5] — ✅ COMPLETE (2026-04-21, branch `feat/chunk-6-replica-item-container`)
 **Spec**: §F7
 **Files**: `compiler/src/ir/mod.rs` (replace `container_name: String` with `container: ReplicaItemContainer`), `compiler/src/extractor/replica_item_parser.rs` (build the enum variant from source shape), `compiler/src/extractor/classifier.rs` (if modifier-kind classification lives there), `compiler/src/builder/replica_item_emitter.rs` (match on `container` for emission), `compiler/src/xref.rs` (new X003 rule), `compiler/src/ir/ops.rs` (constructor updates + duplicate-name checks), `compiler/src/ir/merge.rs` (match-by-`name` logic already keys on `ReplicaItem.name`, not `container_name` — verify during this chunk that no merge code path reaches into `container_name` directly), serde test fixtures.
 **Dependencies**: Chunk 3c, Chunk 4.
@@ -785,7 +785,7 @@ Callers in the same files or their module roots that previously could not fail m
 - [ ] Lib-code audit (`rg` with `#[cfg(test)]` stripping, enforced via `xtask`/`build.rs`) shows zero `unwrap()` / `expect()` / `panic!` / `unimplemented!` / `todo!` hits.
 - [ ] Every new xref rule (X003, X010, X016, X017) populates `field_path`, `suggestion`, and `source` on its `Finding`s. Every existing V-rule (V016, V019, V020) populates `source`.
 - [ ] `merge` signature: `pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError>` (matches SPEC §5 verbatim). Warnings surface via `ModIR.warnings: Vec<Finding>`.
-- [ ] `ReplicaItem` has no `container_name: String` field and no `kind: ReplicaItemKind` field; the only container-related field is `container: ReplicaItemContainer`.
+- [x] `ReplicaItem` has no `container_name: String` field and no `kind: ReplicaItemKind` field; the only container-related field is `container: ReplicaItemContainer`. (Chunk 6, 2026-04-21)
 - [ ] SPEC §3.6 has been amended to name the permissive whitelist + `Unknown(raw)` variant as the spec-blessed design; SPEC §3.6's pips type annotation reads `i16`.
 
 ---
