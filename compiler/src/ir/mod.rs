@@ -28,7 +28,7 @@ impl Source {
 /// Dice faces — the .sd. field on heroes, captures, monsters, spells, etc.
 /// Format: colon-separated entries, each is "0" (blank) or "FaceID-Pips"
 /// Example: "34-1:30-1:0:0:30-1:0" → [Active(34,1), Active(30,1), Blank, Blank, Active(30,1), Blank]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, JsonSchema)]
 pub struct DiceFaces {
     pub faces: Vec<DiceFace>,
 }
@@ -519,6 +519,20 @@ pub struct Hero {
     pub source: Source,
 }
 
+impl Hero {
+    pub fn new(internal_name: impl Into<String>, mn_name: impl Into<String>, color: char) -> Self {
+        Self {
+            internal_name: internal_name.into(),
+            mn_name: mn_name.into(),
+            color,
+            format: HeroFormat::default(),
+            blocks: Vec::new(),
+            removed: false,
+            source: Source::Base,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct HeroBlock {
     pub template: String,
@@ -596,7 +610,7 @@ pub struct ReplicaItem {
 
 // -- Monsters --
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, JsonSchema)]
 pub struct Monster {
     pub name: String,
     pub base_template: String,
@@ -618,6 +632,21 @@ pub struct Monster {
     pub source: Source,
 }
 
+impl Monster {
+    pub fn new(
+        name: impl Into<String>,
+        base_template: impl Into<String>,
+        floor_range: impl Into<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            base_template: base_template.into(),
+            floor_range: floor_range.into(),
+            ..Default::default()
+        }
+    }
+}
+
 // -- Bosses --
 
 /// Boss format — how the encounter is encoded in the textmod.
@@ -635,7 +664,7 @@ pub enum BossFormat {
 
 /// A boss encounter definition. Can contain multiple fight variants
 /// (alternative boss fights for a floor — the game randomly selects one).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, JsonSchema)]
 pub struct Boss {
     /// Overall encounter name (e.g., "Floor8", "ZangooseQuagsireAriados")
     pub name: String,
@@ -658,6 +687,16 @@ pub struct Boss {
     pub modifier_chain: Option<ModifierChain>,
     #[serde(default, skip_serializing_if = "Source::is_base")]
     pub source: Source,
+}
+
+impl Boss {
+    pub fn new(name: impl Into<String>, level: Option<u8>) -> Self {
+        Self {
+            name: name.into(),
+            level,
+            ..Default::default()
+        }
+    }
 }
 
 // BossFightVariant and BossFightUnit have been replaced by FightDefinition and FightUnit
@@ -1163,7 +1202,7 @@ impl fmt::Display for RichText {
 // -- Fight Definitions (generalized beyond Boss context) --
 
 /// Fight definition — generalizable fight encounter (used by bosses, phases, etc.).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, JsonSchema)]
 pub struct FightDefinition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub level: Option<u8>,
@@ -1172,6 +1211,12 @@ pub struct FightDefinition {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trigger: Option<String>,
+}
+
+impl FightDefinition {
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 /// Unified fight unit — shared between bosses and general fights.
@@ -1227,6 +1272,16 @@ pub struct FightUnit {
     /// this order so re-paste matches source structure. Empty → canonical order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub body_order: Vec<FightUnitMarker>,
+}
+
+impl FightUnit {
+    pub fn new(template: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            template: template.into(),
+            name: name.into(),
+            ..Default::default()
+        }
+    }
 }
 
 /// Body property markers in source order for FightUnit re-emission.
@@ -1475,5 +1530,72 @@ mod new_type_tests {
             let back: PhaseType = serde_json::from_str(&json).unwrap();
             assert_eq!(*v, back);
         }
+    }
+}
+
+// =========================================================================
+// Chunk 1 tests — Default + ::new(identity) constructors
+// =========================================================================
+
+#[cfg(test)]
+mod chunk_1_tests {
+    use super::*;
+
+    #[test]
+    fn hero_new_defaults_empty_blocks() {
+        let h = Hero::new("x", "X", 'r');
+        assert_eq!(h.internal_name, "x");
+        assert_eq!(h.mn_name, "X");
+        assert_eq!(h.color, 'r');
+        assert!(h.blocks.is_empty());
+        assert!(!h.removed);
+        assert_eq!(h.source, Source::Base);
+    }
+
+    #[test]
+    fn monster_new_defaults_optional_fields_none() {
+        let m = Monster::new("Foo", "bas", "1-5");
+        assert_eq!(m.name, "Foo");
+        assert_eq!(m.base_template, "bas");
+        assert_eq!(m.floor_range, "1-5");
+        assert!(m.sd.is_none());
+        assert!(m.sprite_name.is_none());
+        assert!(m.hp.is_none());
+        assert!(m.color.is_none());
+        assert_eq!(m.source, Source::Base);
+    }
+
+    #[test]
+    fn boss_default_roundtrip() {
+        let b = Boss::default();
+        let json = serde_json::to_string(&b).unwrap();
+        let back: Boss = serde_json::from_str(&json).unwrap();
+        assert_eq!(b, back);
+    }
+
+    #[test]
+    fn boss_new_sets_identity() {
+        let b = Boss::new("Floor8", Some(8));
+        assert_eq!(b.name, "Floor8");
+        assert_eq!(b.level, Some(8));
+        assert!(b.fights.is_empty());
+    }
+
+    #[test]
+    fn fight_definition_new_equals_default() {
+        assert_eq!(FightDefinition::new(), FightDefinition::default());
+    }
+
+    #[test]
+    fn fight_unit_new_sets_identity() {
+        let u = FightUnit::new("Sniper", "Wooper");
+        assert_eq!(u.template, "Sniper");
+        assert_eq!(u.name, "Wooper");
+        assert!(u.hp.is_none());
+    }
+
+    #[test]
+    fn dice_faces_default_is_empty() {
+        assert!(DiceFaces::default().faces.is_empty());
     }
 }
