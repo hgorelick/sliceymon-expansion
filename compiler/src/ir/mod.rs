@@ -10,7 +10,7 @@ use crate::authoring::{FaceIdValue, Pips, SpriteId};
 // -- Provenance --
 
 /// Provenance tracking — where an IR item originated.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, JsonSchema)]
 pub enum Source {
     /// Extracted from a base textmod (default).
     #[default]
