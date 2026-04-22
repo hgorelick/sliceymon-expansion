@@ -209,9 +209,11 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
 
 /// SPEC §6.3 — "A Pokemon may exist in at most one of: heroes, replica items
 /// (captures / legendaries), monsters." This rule matches on
-/// `ReplicaItem.container` to route items into per-kind buckets, which V020
-/// does not — V020 collapses captures and legendaries into a single
-/// `replica_item` bucket. X003 is strictly more granular.
+/// `ReplicaItem.container` to route items into per-kind buckets so a
+/// capture+legendary same-name collision is detected as a cross-bucket
+/// duplicate. V020 now mirrors this granularity (§F9) to stay out of X003's
+/// territory — both rules share the same `{hero, capture, legendary, monster}`
+/// Pokemon-bucket set.
 fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
     // (bucket_label, original_name) pairs keyed by lowercase name.
     let mut owners: HashMap<String, Vec<(String, &'static str)>> = HashMap::new();
@@ -969,8 +971,8 @@ mod tests {
     // -- V020: Cross-category name uniqueness --
 
     // Post-§F9 (Chunk 8): V020 no longer fires on cross-bucket Pokemon
-    // collisions (subset of {hero, replica_item, monster}) — X003 owns that
-    // slice per SPEC §6.3. These two tests were inverted from their pre-F9
+    // collisions (subset of {hero, capture, legendary, monster}) — X003 owns
+    // that slice per SPEC §6.3. These tests were inverted from their pre-F9
     // form to pin the new boundary.
     #[test]
     fn v020_silent_on_cross_bucket_pokemon_hero_replica() {
