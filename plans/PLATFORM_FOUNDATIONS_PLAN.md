@@ -392,24 +392,24 @@ No build-time invariant check is needed; the type system already enforces Captur
 
 New xref rule **X003** (no duplicate Pokemon across heroes / captures / legendaries / monsters — SPEC §6.3) is authored as part of this chunk. It does **not** exist today; current xref uses V-prefixed rules. X003 matches on `ReplicaItem.container` to route items into the per-kind buckets (Capture vs Legendary).
 
-### F8. `panic!`/`unwrap`/`expect` elimination in library code
+### F8. `panic!`/`unwrap`/`expect` elimination in library code — ✅ landed (PR #11)
 
-**Correction — the original plan cited `compiler/src/ir/mod.rs:284` as a `panic!("Expected Item segment")` in `ModifierChain::split_at_segment()`. That line is inside a `#[cfg(test)]` module (test `typed_entries_populated` at line 274) and is not library code.** Library-code `panic!` is not at this location.
+**Invariant (enforced going forward):** no `.unwrap()`, `.expect(...)`, `panic!(...)`, `unimplemented!(...)`, or `todo!(...)` in `compiler/src/**/*.rs` outside `#[cfg(test)]` / `#[test]` gates. Enforced by the integration test `compiler/tests/audit_lib_panic_free.rs::audit_no_lib_panic_or_unwrap`, which walks `src/`, strips test-gated items via brace-counting on `#[cfg(test)]` / `#[test]` attributes, and fails if any forbidden token remains. The test runs as part of `cargo test`, so drift fails the project's de-facto gate on every run (there is no separate `.github/workflows/` pipeline).
 
-**Verified lib-code audit (with `#[cfg(test)]` blocks removed — 2026-04-20):**
+**Landed audit (Chunk 7 re-audit at chunk start, 2026-04-22):** 7 lib-code hits across 6 files — one more hit than the 2026-04-20 baseline because `replica_item_parser.rs:124`'s `.expect(...)` had drifted in between plan-write and chunk-start. All 7 resolved:
 
-| File | Lib-code `unwrap/expect/panic` hits |
-|---|---|
-| `compiler/src/builder/hero_emitter.rs` | 2 |
-| `compiler/src/extractor/fight_parser.rs` | 1 |
-| `compiler/src/extractor/reward_parser.rs` | 1 |
-| `compiler/src/extractor/hero_parser.rs` | 1 |
-| `compiler/src/extractor/phase_parser.rs` | 1 |
-| **Total** | **6 across 5 files** |
+| File | Hits | Resolution |
+|---|---|---|
+| `compiler/src/builder/hero_emitter.rs` | 2 | Dead-code removal — the 5 `verify_*` helpers were unreferenced; `verify_paren_balance` and `verify_ascii_only` additionally duplicated live `util.rs` versions |
+| `compiler/src/extractor/hero_parser.rs` | 1 | `let-else` returning `HeroParse` with `field_path = heroes[N].blocks` |
+| `compiler/src/extractor/phase_parser.rs` | 1 | `let-else` returning `PhaseParse` with `field_path = phase.type_code` |
+| `compiler/src/extractor/reward_parser.rs` | 1 | `let-else` returning `RewardParse` with `field_path = reward_tag.raw` |
+| `compiler/src/extractor/fight_parser.rs` | 1 | Direct offset arithmetic (`content.len() - after_template.len() + 1`) — the old `.find(prefix).unwrap()` was structurally unreachable under the existing guard, so this is panic-removal without behavior change |
+| `compiler/src/extractor/replica_item_parser.rs` | 1 | `parse_legendary` returns `Result<ReplicaItem, CompilerError>`; classifier-invariant breach now surfaces as `Build` error with `replica_items[N]` field path |
 
-Replace each with structured error propagation using the new `CompilerError` shape from §F0. Callers that previously could not fail now return `Result`; update call chains.
+**Lesson recorded (for future chunks):** the integration-test audit is the right durable enforcement surface. The original plan hedged between "xtask / build.rs check" and "integration test"; the integration test is simpler, uses the same `cargo test` entry point as every other correctness check, and needs no build-graph changes. Future chunks adding new error paths do not need to re-plan the audit — just keep the gate green.
 
-Before starting Chunk 7, re-run the audit (`rg '\.unwrap\(\)|\.expect\(|panic!\(|unimplemented!|todo!\(' compiler/src/` with test-block stripping) to confirm the count — the baseline may drift as §F0 and earlier chunks land and add new error paths. SPEC §8.
+**Non-authoritative snapshot note:** the `panic!("Expected Item segment")` currently at `src/ir/mod.rs:292` is NOT lib code — it lives inside `#[cfg(test)] mod modifier_chain_tests`, test `typed_entries_populated` (`#[test]` at `:282`). The pre-Chunk-7 plan at one point cited it as a lib-code panic; it never was.
 
 ### F9. V020 restructure — remove overlap with X003 on cross-bucket Pokemon
 
@@ -766,35 +766,31 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 
 ---
 
-### Chunk 7: `unwrap`/`expect`/`panic` elimination in lib code [after Chunk 3c; parallel with Chunk 5]
+### Chunk 7: `unwrap`/`expect`/`panic` elimination in lib code — ✅ landed (PR #11, 2026-04-22)
 **Spec**: §F8
-**Files** (indicative baseline audited 2026-04-20; re-audit immediately before starting):
-- `compiler/src/builder/hero_emitter.rs` (2 — post-Chunk 3c, signatures have already dropped the `sprites` arg)
-- `compiler/src/extractor/fight_parser.rs` (1)
-- `compiler/src/extractor/reward_parser.rs` (1)
-- `compiler/src/extractor/hero_parser.rs` (1)
-- `compiler/src/extractor/phase_parser.rs` (1)
 
-Callers in the same files or their module roots that previously could not fail may now return `Result`; update the call chain in this chunk.
+**Landed files** (re-audit at chunk start found 7 hits across 6 files — one more than the 2026-04-20 baseline; `replica_item_parser.rs:124` had drifted in between plan-write and chunk-start):
+- `compiler/src/builder/hero_emitter.rs` — 2 hits removed by deleting 5 unreferenced `verify_*` helpers (dead code; 2 of the 5 duplicated live `util.rs` functions).
+- `compiler/src/extractor/hero_parser.rs` — 1 hit replaced with `let-else` returning `HeroParse { modifier_index, ... }` with `field_path = heroes[N].blocks`.
+- `compiler/src/extractor/phase_parser.rs` — 1 hit replaced with `let-else` returning `PhaseParse` with `field_path = phase.type_code`; the empty-input suggestion now shares a module-level `PHASE_CODES_HINT` constant with the unknown-code default arm so the two can never drift.
+- `compiler/src/extractor/reward_parser.rs` — 1 hit replaced with `let-else` returning `RewardParse` with `field_path = reward_tag.raw`.
+- `compiler/src/extractor/fight_parser.rs` — 1 hit (`content.find(prefix).unwrap()`) replaced with direct offset arithmetic (`content.len() - after_template.len() + 1`). The old `.unwrap()` was structurally unreachable under the existing `is_double || is_single` guard, so this is panic-removal without behavior change.
+- `compiler/src/extractor/replica_item_parser.rs` — 1 hit; `parse_legendary` signature flipped to `Result<ReplicaItem, CompilerError>`. Classifier-invariant breach now surfaces as a `Build` error with `field_path = replica_items[N]`. `?` propagation added in `extractor::extract` and the two emit/parse parity tests in `builder/replica_item_emitter.rs`.
 
-**Dependencies**: Chunk 3c (shares `builder/hero_emitter.rs` with 3c — running earlier would force 7's edits to be redone after 3c lands).
-**Parallel with**: Chunk 5 only (5 writes `ir/merge.rs`, `builder/derived.rs`, `builder/mod.rs`; 7 writes extractor files + the post-3c `hero_emitter.rs`; no overlap).
+**Enforcement** — the integration test `compiler/tests/audit_lib_panic_free.rs::audit_no_lib_panic_or_unwrap` walks `compiler/src/**/*.rs`, strips `#[cfg(test)]` / `#[test]` items via brace-counting, and fails if any forbidden token remains. Runs on every `cargo test`. Stripper soundness depends on: (a) no char literals `'{'` / `'}'`; (b) balanced `{`/`}` inside string literals within test blocks; (c) no `#[cfg(not(test))]` items (the `starts_with("#[cfg(") && contains("test")` heuristic would incorrectly treat those as test gates). All three conditions hold today; a future violation would require a deliberate pattern change that would be caught by the same audit failing unexpectedly.
 
-**Note**: `compiler/src/ir/mod.rs:284`'s `panic!("Expected Item segment")` is inside `#[cfg(test)]` (test `typed_entries_populated`). It is NOT lib code and is NOT in scope for this chunk. The original plan's citation was wrong.
+**Deviations from pre-chunk plan:**
+- `hero_emitter_pathological_input_propagates_error` test was **not authored** — both `hero_emitter.rs` hits lived in dead code; a regression test for deleted functions would be fiction. Dead-code removal is the correct response.
+- Audit enforcement landed as an **integration test**, not an `xtask` / `build.rs` check. Integration tests run under the same `cargo test` entry point as every other correctness gate, need no build-graph changes, and require no CI pipeline (the repo has no `.github/workflows/`). Future chunks adding new error paths need not re-plan the audit — keep `cargo test` green.
 
-**Requirements**:
-- **Re-audit at chunk start**, not at plan-write time. Run `rg '\.unwrap\(\)|\.expect\(|panic!\(|unimplemented!|todo!\(' compiler/src/` with `#[cfg(test)]` stripping (use a small helper script or `cargo xtask`) and record the actual count in the chunk-open note. Fix every hit found — the "6 across 5 files" figure is indicative only. Running Chunk 7 after Chunk 3c fixes the baseline-drift problem: 3c is the last chunk that may introduce new error paths in the files 7 touches.
-- Replace each lib-code `unwrap()` / `expect(...)` / `panic!(...)` / `unimplemented!(...)` / `todo!(...)` with a `?` propagation returning `CompilerError` with `field_path` + `suggestion` populated via `ErrorKind::{Build, Paren, HeroParse, PhaseParse, RewardParse, ChainParse}` from §F0.
-- `ir::DiceFaces::parse` and friends currently use `.unwrap_or` patterns (no panic) — out of scope; do not touch.
-
-**Verification — specific tests**:
-- [ ] `audit_no_lib_panic_or_unwrap` — an `xtask` / `build.rs` check (not a unit test, which can't meaningfully grep the workspace) that greps `compiler/src/**/*.rs` with test-module stripping and fails CI if any hit is found. SPEC §8.
-- [ ] `extractor::hero_parser_malformed_propagates_error` — the exact input that previously panicked now returns `Err(CompilerError { kind: ErrorKind::HeroParse { .. }, .. })`.
-- [ ] `extractor::fight_parser_malformed_propagates_error` — same for `fight_parser.rs`.
-- [ ] `extractor::reward_parser_malformed_propagates_error` — same for `reward_parser.rs`.
-- [ ] `extractor::phase_parser_malformed_propagates_error` — same for `phase_parser.rs`.
-- [ ] `builder::hero_emitter_pathological_input_propagates_error` — covers both hits in `hero_emitter.rs`.
-- [ ] All 4 working mods IR-equal roundtrip.
+**Landed verification** (every test exists in-tree and passes):
+- [x] `audit_no_lib_panic_or_unwrap` (`compiler/tests/audit_lib_panic_free.rs`).
+- [x] `extractor::hero_parser::tests::hero_parser_malformed_propagates_error`.
+- [x] `extractor::phase_parser::tests::phase_parser_malformed_propagates_error`.
+- [x] `extractor::reward_parser::tests::reward_parser_malformed_propagates_error`.
+- [x] `extractor::fight_parser::tests::fight_parser_malformed_propagates_error` (pins the `starts_with(template)` guard and the happy-path direct-offset math; a test that discriminates old `find` from new arithmetic is unwriteable — for every input reaching the call site the two produce the same byte offset, so the refactor is panic-removal, not a bug fix).
+- [x] `extractor::replica_item_parser::tests::legendary_without_item_prefix_propagates_error`.
+- [x] All 4 working mods IR-equal roundtrip (`baseline_sliceymon`, `baseline_pansaer`, `baseline_punpuns`, `baseline_community`).
 
 ---
 
