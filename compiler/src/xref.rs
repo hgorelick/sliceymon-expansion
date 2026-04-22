@@ -513,12 +513,18 @@ fn check_hero_color_uniqueness(ir: &ModIR, report: &mut ValidationReport) {
 /// identifier resolves to different entities depending on context.
 ///
 /// **Scope (post-§F9)**: V020's emission is narrowed so X003 owns Pokemon
-/// cross-bucket uniqueness (SPEC §6.3 — `{hero, replica_item, monster}`).
+/// cross-bucket uniqueness (SPEC §6.3 — `{hero, capture, legendary, monster}`).
 /// V020 fires only on collisions X003 cannot own:
 /// - Any collision involving a boss (bosses are not Pokemon per SPEC §6.3).
 /// - Any intra-bucket duplicate (X003 requires ≥2 distinct buckets).
 ///
-/// The 4-bucket collection stays intact for single-scan efficiency; the
+/// Replicas are classified by container kind (capture vs legendary) to match
+/// X003's granularity — without this, a capture+legendary same-name collision
+/// would collapse to a single `replica_item` bucket for V020 and slip past
+/// the Pokemon-only filter, producing the exact V020 ∩ X003 parallel finding
+/// SPEC §3.7 forbids.
+///
+/// The 5-bucket collection stays intact for single-scan efficiency; the
 /// narrowing is applied at emission time.
 fn check_cross_category_names(ir: &ModIR, report: &mut ValidationReport) {
     // Collect names by category (case-insensitive comparison).
@@ -535,7 +541,11 @@ fn check_cross_category_names(ir: &ModIR, report: &mut ValidationReport) {
 
     for item in &ir.replica_items {
         let key = item.name.to_lowercase();
-        name_owners.entry(key).or_default().push((item.name.clone(), "replica_item"));
+        let label = match &item.container {
+            ReplicaItemContainer::Capture { .. } => "capture",
+            ReplicaItemContainer::Legendary => "legendary",
+        };
+        name_owners.entry(key).or_default().push((item.name.clone(), label));
     }
 
     for monster in &ir.monsters {
@@ -559,14 +569,14 @@ fn check_cross_category_names(ir: &ModIR, report: &mut ValidationReport) {
             continue;
         }
         // Compute distinct bucket set. If it is a subset of
-        // {hero, replica_item, monster} with cardinality ≥2, X003 owns it.
+        // {hero, capture, legendary, monster} with cardinality ≥2, X003 owns it.
         let mut distinct_buckets: Vec<&str> = entries.iter().map(|(_, cat)| *cat).collect();
         distinct_buckets.sort();
         distinct_buckets.dedup();
         let pokemon_only = distinct_buckets.len() >= 2
             && distinct_buckets
                 .iter()
-                .all(|b| matches!(*b, "hero" | "replica_item" | "monster"));
+                .all(|b| matches!(*b, "hero" | "capture" | "legendary" | "monster"));
         if pokemon_only {
             continue;
         }
@@ -1004,6 +1014,24 @@ mod tests {
     }
 
     #[test]
+    fn v020_silent_on_cross_bucket_pokemon_capture_legendary() {
+        // Pokemon-only slice: one Capture + one Legendary with the same name.
+        // X003 separates the two container kinds into distinct buckets and
+        // owns the collision; V020 must collapse neither its classification
+        // nor its emission back to a single `replica_item` label — otherwise
+        // the pair slips past the Pokemon-only filter and co-fires with X003.
+        let mut ir = ModIR::empty();
+        ir.replica_items.push(make_replica_item("Mewtwo"));
+        ir.replica_items.push(make_legendary_replica_item("Mewtwo"));
+
+        let report = check_references(&ir);
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 0, "V020 must not fire on capture+legendary Pokemon collision — X003 owns it");
+        assert_eq!(x003, 1, "X003 must fire as the sole owner");
+    }
+
+    #[test]
     fn v020_silent_on_cross_bucket_pokemon_case_insensitive() {
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("PIKACHU", 'a'));
@@ -1201,19 +1229,30 @@ mod tests {
                     if f1.rule_id == f2.rule_id {
                         continue; // same rule firing twice on same name is not a double-fire
                     }
-                    let pair = {
-                        let mut p = [f1.rule_id.as_str(), f2.rule_id.as_str()];
-                        p.sort();
-                        (p[0].to_string(), p[1].to_string())
+                    let (v020, other) = match (f1.rule_id.as_str(), f2.rule_id.as_str()) {
+                        ("V020", "X003") => (f1, f2),
+                        ("X003", "V020") => (f2, f1),
+                        _ => panic!(
+                            "double-fire on '{}' in {}: rules {} and {} — only V020∧X003 boss+Pokemon co-fire is permitted",
+                            f1.modifier_name.as_deref().unwrap_or(""),
+                            mod_path,
+                            f1.rule_id,
+                            f2.rule_id,
+                        ),
                     };
-                    let allowed = pair == ("V020".to_string(), "X003".to_string());
+                    // V020∧X003 co-fire is only permitted when the collision
+                    // includes a boss bucket — otherwise the pair duplicates
+                    // X003's SPEC §6.3 Pokemon-uniqueness finding (§F9). V020's
+                    // message embeds the colliding bucket labels verbatim as
+                    // `[hero, capture, boss, ...]`, so a literal "boss" match
+                    // is sufficient and unambiguous.
                     assert!(
-                        allowed,
-                        "double-fire on '{}' in {}: rules {} and {} — only V020∧X003 boss+Pokemon co-fire is permitted",
-                        f1.modifier_name.as_deref().unwrap_or(""),
+                        v020.message.contains("boss"),
+                        "double-fire on '{}' in {}: V020 paired with X003 without a boss bucket — SPEC §3.7 parallel-representation leak. V020 msg: {:?}. X003 msg: {:?}",
+                        v020.modifier_name.as_deref().unwrap_or(""),
                         mod_path,
-                        f1.rule_id,
-                        f2.rule_id,
+                        v020.message,
+                        other.message,
                     );
                 }
             }
