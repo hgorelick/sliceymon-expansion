@@ -137,22 +137,30 @@ pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
             body[start..start + end].to_string()
         })
         .unwrap_or_default();
-    let sd = util::extract_sd(body, false)
+    // `extract_hp` / `extract_color` aren't depth-aware; if a Legendary has
+    // `hp: None` / `color: None` but its `.cast.(...)` chain contains `.hp.N`
+    // / `.col.X`, a naive scan of `body` leaks those cast-interior values into
+    // top-level fields. Emission places every depth-0 prop-ish field before
+    // `.cast.`, so scoping hp/color to the pre-cast slice is sufficient.
+    let before_cast = util::find_at_depth0(body, ".cast.")
+        .map(|pos| &body[..pos])
+        .unwrap_or(body);
+    let sd = util::extract_sd(before_cast, false)
         .map(|s| crate::ir::DiceFaces::parse(&s))
         .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
     let template = body
         .find('.')
         .map(|i| body[..i].to_string())
         .unwrap_or_else(|| body.to_string());
-    let hp = util::extract_hp(body, false);
-    let color = util::extract_color(body);
+    let hp = util::extract_hp(before_cast, false);
+    let color = util::extract_color(before_cast);
     let doc = util::extract_simple_prop(body, ".doc.");
     let speech = util::extract_simple_prop(body, ".speech.");
     let abilitydata = util::extract_nested_prop(body, ".cast.")
         .map(|s| crate::ir::AbilityData::parse(&s));
     let item_modifiers = util::extract_modifier_chain(body)
         .map(|s| crate::ir::ModifierChain::parse(&s));
-    let img_data = util::extract_img_data(body);
+    let img_data = util::extract_img_data(before_cast);
     let sprite = crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default());
 
     ReplicaItem {
@@ -224,6 +232,33 @@ mod tests {
         assert_eq!(item.name, "Mew");
         assert_eq!(item.container, ReplicaItemContainer::Legendary);
         assert_eq!(item.template, "Alpha");
+    }
+
+    #[test]
+    fn legendary_ignores_cast_interior_hp_color_sd_img() {
+        // Top-level Legendary declares NO hp / color / img / sd. Its cast
+        // block carries `.hp.`, `.col.`, `.sd.`, `.img.` at cast-interior
+        // depth. A naive non-depth-aware scan (`content.find(".hp.")`) would
+        // pull those cast-interior values up into the top-level fields —
+        // silently flipping `None`/empty into `Some(...)` at parse time.
+        // Guards against that leakage.
+        let modifier = "item.Alpha.n.Mew.cast.(Spell.sd.170-1:0:0:0:0:0.col.a.hp.5.img.bas99:9.n.Psy)";
+        let item = parse_legendary(modifier, 0);
+        assert_eq!(item.name, "Mew");
+        assert_eq!(item.template, "Alpha");
+        assert_eq!(item.hp, None, "cast-interior .hp. must not leak into top-level hp");
+        assert_eq!(item.color, None, "cast-interior .col. must not leak into top-level color");
+        assert_eq!(
+            item.sd,
+            crate::ir::DiceFaces { faces: vec![] },
+            "cast-interior .sd. must not leak into top-level sd",
+        );
+        assert_eq!(
+            item.sprite.img_data(),
+            "",
+            "cast-interior .img. must not leak into top-level sprite img_data",
+        );
+        assert!(item.abilitydata.is_some(), "cast block still parses into abilitydata");
     }
 }
 
