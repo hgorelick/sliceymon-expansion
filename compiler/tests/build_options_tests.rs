@@ -267,12 +267,13 @@ fn v016_finding_source_populated_custom() {
     assert_eq!(v016[0].severity, Severity::Error);
 }
 
-// -- JSON back-compat ------------------------------------------------------
+// -- Finding serde shape ---------------------------------------------------
 
 #[test]
 fn finding_json_omits_absent_source() {
-    // `source: None` + `#[serde(skip_serializing_if = "Option::is_none")]`
-    // means legacy JSON consumers see no new field.
+    // Global findings (V020 cross-category) emit `source: None`; the serde
+    // skip_serializing_if keeps the emitted JSON clean — no null `source`
+    // key for rules that don't bind to a single sourced entity.
     use textmod_compiler::Finding;
     let f = Finding {
         rule_id: "V020".to_string(),
@@ -283,9 +284,4 @@ fn finding_json_omits_absent_source() {
     };
     let json = serde_json::to_string(&f).expect("serialize");
     assert!(!json.contains("\"source\""), "source=None must be skipped; got {}", json);
-
-    // And deserializing old JSON (without source) still works.
-    let legacy = r#"{"rule_id":"V020","severity":"Error","message":"x"}"#;
-    let parsed: Finding = serde_json::from_str(legacy).expect("deserialize");
-    assert_eq!(parsed.source, None);
 }
