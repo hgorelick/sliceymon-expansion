@@ -452,9 +452,9 @@ Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
   │     └── Chunk 2 (FaceId/Pips + IR flip)            ✅ COMPLETE (2026-04-21)
   │           └── Chunk 3a (SpriteId + registry)        ✅ COMPLETE (2026-04-21)
   │                 └── Chunk 3b (IR field consolidation) ✅ COMPLETE (2026-04-21, PR #5 merged after round-2 tribunal)
-  │                       └── Chunk 3c (drop HashMap from public API) ← START HERE
-  │                             ├── Chunk 4 (BuildOptions + build_with + Finding.source)
-  │                             └── Chunk 6 (ReplicaItemContainer enum replaces container_name)
+  │                       └── Chunk 3c (drop HashMap from public API) ✅ COMPLETE (2026-04-21, PR #6 merged)
+  │                             ├── Chunk 4 (BuildOptions + build_with + Finding.source) ✅ COMPLETE (2026-04-22)
+  │                             └── Chunk 6 (ReplicaItemContainer enum replaces container_name) ← START HERE
   │                                   └── Chunk 5 (merge strips + new regenerators + unconditional regen)
   └── Chunk 7 (lib-code unwrap/expect/panic elimination) [parallel from Chunk 0 completion onward; no shared files with 1..6]
 ```
@@ -661,30 +661,33 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 
 ---
 
-### Chunk 4: `BuildOptions` + `build_with` + `Finding.source` [serial after Chunk 3c, before Chunk 6]
+### Chunk 4: `BuildOptions` + `build_with` + `Finding.source` — ✅ COMPLETE (2026-04-22)
 **Spec**: §F5
-**Files**: `compiler/src/builder/mod.rs`, `compiler/src/lib.rs`, `compiler/src/xref.rs` (every existing V-rule Finding construction site), every content-emission site in `builder/*.rs`.
-**Dependencies**: Chunk 3c.
-**Merge ordering**: merges before Chunk 6 to keep `xref.rs` conflicts linear.
 
-**Requirements**:
-- Define `BuildOptions`, `SourceFilter`, `SourceSet` per §F5. Hand-written `impl Default for BuildOptions`. `SourceFilter::admits` is `const fn`.
-- Introduce `pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerError>`. `build(ir)` is `build_with(ir, &BuildOptions::default())`.
-- Every content-emission site in `builder/mod.rs` checks `opts.include.admits(entity.source)` before emitting. Derived structurals are regenerated from post-filter content.
-- `Finding.source: Option<Source>` added with `#[serde(default, skip_serializing_if = "Option::is_none")]`. Existing tests that parse Finding JSON continue to work.
-- **Retrofit `Finding.source` on every existing V-rule**: V016 (sprite-template compat), V019 (hero pool ref), V020 (color conflict). Plan author runs `rg 'Finding \{ rule_id: "V01[69]"' compiler/src/xref.rs` at chunk start and lists every construction site in the chunk-open note; each site populates `source` from the offending entity's `.source` field. The retrofit is a load-bearing part of this chunk, not a follow-up.
-- No X001 demo rule. Duplicate-name detection already lives in `CompilerError::DuplicateName` (ops.rs) and existing xref checks; inventing a parallel rule violates SPEC §3.7.
-- Severity promotion: violations on `Source::Base` emit `Severity::Warning`; `Source::Custom`/`Overlay` emit `Severity::Error`. Promotion logic lives in a single helper `fn promote_severity(base: Severity, src: Option<Source>) -> Severity` so every rule applies it identically.
+**Landed**: `compiler/src/builder/options.rs` defines `BuildOptions`, `SourceFilter`, `SourceSet`; re-exported via `builder::{BuildOptions, SourceFilter, SourceSet}` and `lib::{BuildOptions, SourceFilter, SourceSet}`. `pub fn build_with(ir, opts)` replaces the inlined emitter; `pub fn build(ir)` is a thin wrapper over `build_with(ir, &BuildOptions::default())`. Every content-emission site (heroes, replica_items, monsters, bosses, and all 19 structural-type filters via an `emit_structurals` closure) consults `opts.include.admits(entity.source)` before pushing.
 
-**Verification — specific tests**:
-- [ ] `builder::build_with_only_base_omits_overlay` — ModIR with one `Base` hero + one `Overlay` hero, `build_with(ir, &BuildOptions { include: SourceFilter::Only(SourceSet::single(Source::Base)) })` emits only the Base hero.
-- [ ] `builder::build_with_exclude_base` — same ModIR, `Exclude(SourceSet::single(Source::Base))` emits only the Overlay hero.
-- [ ] `builder::source_filter_admits_const` — `const _: bool = SourceFilter::All.admits(Source::Base);` compiles.
-- [ ] `xref::v016_finding_carries_source_for_base` — craft a mod where a `Source::Base` hero trips V016 → Finding has `source == Some(Source::Base)` and promoted `Severity::Warning`.
-- [ ] `xref::v016_finding_carries_source_for_custom` — same trigger on `Source::Custom` → Finding has `severity == Severity::Error`.
-- [ ] `xref::v019_finding_source_populated`, `xref::v020_finding_source_populated` — same for the other two retrofitted rules.
-- [ ] `xref::promote_severity_helper_table` — unit test of the severity-promotion helper across the full cross product (Error × {None, Base, Custom, Overlay}).
-- [ ] All 4 working mods IR-equal roundtrip with `BuildOptions::default()`.
+`xref::Finding` gained `pub source: Option<Source>` (`#[serde(default, skip_serializing_if = "Option::is_none")]`). `xref::promote_severity(base: Severity, src: Option<Source>) -> Severity` concentrates the promotion policy in one place: `Some(Base) → Warning`, `Some(Custom|Overlay) → Error`, `None → base`. Every existing Finding-construction site applies both the source field and the helper.
+
+**Construction-site audit** (ran at chunk start, per §F5):
+- `compiler/src/xref.rs` (12 sites): X016 at `check_face_template_compat_with_table`, X017 at `check_face_unknown`, V019 in `check_hero_color_uniqueness`, V020 in `check_cross_category_names` (global — `source: None` because there is no single offending entity; severity stays Error), V016 in `check_hero_pool_refs` (source from `StructuralModifier.source`), V019 + three V020 in `check_hero_in_context`, three V020 in `check_boss_in_context`. `iter_dice_faces` extended to yield `(path, &DiceFaces, template, Source)` so face-level rules inherit provenance from the owning hero/replica_item/monster/boss. `FightUnit` has no provenance of its own → inherits from the enclosing `Boss`.
+- `compiler/src/lib.rs` (1 site): `E000` in `validate_hero` — populated from `hero.source`; kept at literal `Severity::Error` (build failure is not a semantic rule subject to source promotion).
+
+**Side effects**: `ir::Source` now derives `Copy, Eq, Hash` so filtering and bitmask lookups are cheap; existing Clone-using code is unaffected. Test helpers in `xref::tests` (`make_hero`, `make_replica_item`, `make_boss`, `make_hero_pool`) default to `Source::Base` so pre-existing rule-fire tests continue to pass their structural assertions while §F5's policy routes findings to the Warning lane; tests that want to exercise the Custom/Overlay Error path set `source` explicitly.
+
+**Source-vs-IR divergence pin** (per Lessons takeaway #2): the severity-promotion policy *changes* what lane a finding lands in based on the offending entity's `.source`. An IR-vs-IR roundtrip test can't catch a bug where `promote_severity` silently collapses to a constant — `promote_severity_helper_table` enumerates the full 3×4 cross product so a regression trips one of twelve assertions, and `v016_finding_source_populated_{base,custom}` verifies the same rule lands in different lanes for different sources.
+
+**Tests landed** (`compiler/tests/build_options_tests.rs`, 10 tests + new unit tests in `xref::tests`):
+- [x] `build_with_only_base_omits_overlay`
+- [x] `build_with_exclude_base`
+- [x] `build_default_equivalent_to_build_with_default_opts` (pins `build(ir) == build_with(ir, &BuildOptions::default())`)
+- [x] `source_filter_admits_const` (const-fn pin)
+- [x] `promote_severity_helper_table` — full 3×4 cross product
+- [x] `v016_finding_source_populated_base` — Base source → Warning, source = Some(Base)
+- [x] `v016_finding_source_populated_custom` — Custom source → Error, source = Some(Custom)
+- [x] `v019_finding_source_populated`
+- [x] `v020_cross_category_source_is_global` (cross-category V020 stays `source: None`)
+- [x] `finding_json_omits_absent_source` (serde back-compat — legacy JSON without `source` still deserializes)
+- [x] All 4 working mods IR-equal roundtrip (`cargo run --example roundtrip_diag` — sliceymon / pansaer / punpuns / community all `ROUNDTRIP OK`).
 
 ---
 
