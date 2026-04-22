@@ -5,6 +5,8 @@ use crate::constants::MAX_PHASE_DEPTH;
 use crate::error::CompilerError;
 use crate::ir::*;
 
+const PHASE_CODES_HINT: &str = "known phase code (!, 0-9, b-g, l, r, s, t, z)";
+
 /// Parse a phase string into a Phase struct.
 /// Input should start with an optional level scope prefix then `ph.`.
 /// Example: `"5.ph.4Hello"` or `"ph.!m(Sword)@3m(Shield)"`
@@ -44,7 +46,7 @@ fn parse_phase_at_depth(input: &str, depth: usize) -> Result<Phase, CompilerErro
             "empty string",
         )
         .with_field_path("phase.type_code")
-        .with_suggestion("expected one of: ! 0-9 b c d e g l r s t y z z<digit>"));
+        .with_suggestion(format!("expected {}", PHASE_CODES_HINT)));
     };
     let content_str = &after_ph[code.len_utf8()..];
 
@@ -74,7 +76,7 @@ fn parse_phase_at_depth(input: &str, depth: usize) -> Result<Phase, CompilerErro
             return Err(CompilerError::phase_parse(
                 Some(code),
                 input.to_string(),
-                "known phase code (!, 0-9, b-g, l, r, s, t, z)",
+                PHASE_CODES_HINT,
                 format!("'{}'", code),
             ));
         }

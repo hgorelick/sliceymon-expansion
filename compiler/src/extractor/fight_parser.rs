@@ -550,52 +550,48 @@ mod tests {
 
     #[test]
     fn fight_parser_malformed_propagates_error() {
-        // The `.find(prefix).unwrap()` at the old fight_parser.rs:488 was
-        // guarded by `after_template.starts_with(prefix)` and therefore
-        // structurally unreachable; the post-fix code now computes the
-        // position directly from `content.len() - after_template.len() + 1`
-        // — no rescan, no fallback. This test pins three properties:
-        //   1. Inputs that don't match the `.(` / `.((` prefix return (None, None).
-        //   2. The direct computation locates the *post-template* `.(` even
-        //      when an earlier `.(` exists inside leading parens or a longer
-        //      template would shadow a substring match. A naive
-        //      `content.find(".((")` would have picked the wrong (earlier)
-        //      occurrence in case (b); the direct computation cannot.
-        //   3. The children parse from the source bytes (invented template
-        //      name `Zzz_fake` so any registry-derived regression would fail
-        //      the children-count assertion).
+        // The old `content.find(prefix).unwrap()` at fight_parser.rs:488 was
+        // structurally unreachable: `is_double || is_single` already gated on
+        // `after_template.starts_with(".(")`, and `after_template` is a suffix
+        // of `content` starting at `leading_parens + template.len()` — so the
+        // only `.((` / `.(` that `find` could locate is exactly that
+        // post-template prefix. The refactor replaces the unwrap with direct
+        // arithmetic (`content.len() - after_template.len() + 1`) that
+        // produces the same byte offset on all inputs. No behavior change,
+        // just panic-removal (SPEC §F8). This test pins the surviving shape:
+        //   1. Inputs that don't pass the `starts_with(template)` guard
+        //      return (None, None) cleanly.
+        //   2. The happy-path nested-children shape still parses.
+        //   3. The single-paren `.(child)` form still parses (the +1 offset
+        //      must be correct for both `.(` and `.((` because both share
+        //      the same leading `.`).
+        // A test that discriminates the old `find` path from the new
+        // direct-offset path is unwriteable: for every input that reaches
+        // line 491, `content.find(".((")` and the arithmetic return the same
+        // position.
 
         // (1) No prefix match.
         let (nested, props) = extract_nested_and_props("wildly.malformed input", "Zzz_fake");
         assert!(nested.is_none() && props.is_none(), "no-match must return (None, None)");
 
-        // (2a) Real nested-children shape succeeds.
+        // (2) Real nested-children shape succeeds. Invented template name
+        // `Zzz_fake` so any registry-derived regression would fail the
+        // children-count assertion.
         let content = "Zzz_fake.((mon.A.n.A+mon.B.n.B)).n.Parent";
         let (nested, props) = extract_nested_and_props(content, "Zzz_fake");
         assert_eq!(nested.as_ref().map(|v| v.len()), Some(2));
         assert!(props.is_some());
 
-        // (2b) Decoy `.((` earlier in `content` (inside a leading paren wrapper).
-        // A `find`-based implementation would lock onto the decoy and parse
-        // the wrong child group. The direct computation skips past the
-        // template name to the *real* post-template prefix.
-        // Layout:
-        //   `(.((decoy))(Zzz_fake.((mon.X.n.X+mon.Y.n.Y))).n.Parent`
-        // After `trim_start_matches('(')`, `stripped` starts with `.((decoy))(Zzz_fake…`,
-        // so `stripped.starts_with("Zzz_fake")` is FALSE — early return (None, None).
-        // That alone proves the parser does not stray into the decoy. Pin it:
+        // (3) Template not at head of `stripped` → early return. Confirms
+        // the `starts_with(template)` guard still works after the refactor.
         let decoy = "(.((decoy))(Zzz_fake.((mon.X.n.X+mon.Y.n.Y))).n.Parent";
         let (nested, _) = extract_nested_and_props(decoy, "Zzz_fake");
         assert!(
             nested.is_none(),
-            "template not at the head of stripped content must not parse — \
-             a `find(\".((\")`-based regression would lock onto the decoy `.((decoy))` \
-             and parse phantom children"
+            "template not at head of stripped content must return (None, None)"
         );
 
-        // (2c) Single-paren `.(child)` form — separate prefix length than `.((`.
-        // The +1 offset must be correct for both `.(` (single) and `.((` (double)
-        // because both share the same leading `.`.
+        // (4) Single-paren `.(child)` form.
         let single = "Zzz_fake.(mon.Solo.n.Solo).n.Parent";
         let (nested, props) = extract_nested_and_props(single, "Zzz_fake");
         assert_eq!(nested.as_ref().map(|v| v.len()), Some(1), "single-paren form parses one child");
