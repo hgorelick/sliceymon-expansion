@@ -511,6 +511,15 @@ fn check_hero_color_uniqueness(ir: &ModIR, report: &mut ValidationReport) {
 /// A name must not appear in more than one category (hero, replica item,
 /// monster, boss). This prevents game-engine confusion where the same
 /// identifier resolves to different entities depending on context.
+///
+/// **Scope (post-§F9)**: V020's emission is narrowed so X003 owns Pokemon
+/// cross-bucket uniqueness (SPEC §6.3 — `{hero, replica_item, monster}`).
+/// V020 fires only on collisions X003 cannot own:
+/// - Any collision involving a boss (bosses are not Pokemon per SPEC §6.3).
+/// - Any intra-bucket duplicate (X003 requires ≥2 distinct buckets).
+///
+/// The 4-bucket collection stays intact for single-scan efficiency; the
+/// narrowing is applied at emission time.
 fn check_cross_category_names(ir: &ModIR, report: &mut ValidationReport) {
     // Collect names by category (case-insensitive comparison).
     // Track (original_name, category) pairs keyed by lowercase name.
@@ -539,28 +548,48 @@ fn check_cross_category_names(ir: &ModIR, report: &mut ValidationReport) {
         name_owners.entry(key).or_default().push((boss.name.clone(), "boss"));
     }
 
-    for (_key, entries) in &name_owners {
-        if entries.len() > 1 {
-            // Use the first original name for display
-            let display_name = &entries[0].0;
-            let cats: Vec<&str> = entries.iter().map(|(_, cat)| *cat).collect();
-            let cats_str = cats.join(", ");
-            push_finding(report, Finding {
-                rule_id: V020.to_string(),
-                severity: promote_severity(Severity::Error, None),
-                message: format!(
-                    "Name '{}' appears in multiple categories: [{}]",
-                    display_name, cats_str
-                ),
-                field_path: Some(format!("cross_category[{}]", display_name)),
-                suggestion: Some(format!(
-                    "Rename the duplicate '{}' so each category has a unique name",
-                    display_name
-                )),
-                source: None,
-                ..Default::default()
-            });
+    // Deterministic order — HashMap iteration is randomized per-process and
+    // mirrors X003's sort.
+    let mut keys: Vec<&String> = name_owners.keys().collect();
+    keys.sort();
+
+    for key in keys {
+        let entries = &name_owners[key];
+        if entries.len() <= 1 {
+            continue;
         }
+        // Compute distinct bucket set. If it is a subset of
+        // {hero, replica_item, monster} with cardinality ≥2, X003 owns it.
+        let mut distinct_buckets: Vec<&str> = entries.iter().map(|(_, cat)| *cat).collect();
+        distinct_buckets.sort();
+        distinct_buckets.dedup();
+        let pokemon_only = distinct_buckets.len() >= 2
+            && distinct_buckets
+                .iter()
+                .all(|b| matches!(*b, "hero" | "replica_item" | "monster"));
+        if pokemon_only {
+            continue;
+        }
+
+        let display_name = &entries[0].0;
+        let cats: Vec<&str> = entries.iter().map(|(_, cat)| *cat).collect();
+        let cats_str = cats.join(", ");
+        push_finding(report, Finding {
+            rule_id: V020.to_string(),
+            severity: promote_severity(Severity::Error, None),
+            message: format!(
+                "Name '{}' appears in multiple categories: [{}]",
+                display_name, cats_str
+            ),
+            field_path: Some(format!("cross_category[{}]", display_name)),
+            suggestion: Some(format!(
+                "Rename the duplicate '{}' so each category has a unique name",
+                display_name
+            )),
+            modifier_name: Some(display_name.clone()),
+            source: None,
+            ..Default::default()
+        });
     }
 }
 
@@ -820,6 +849,23 @@ mod tests {
         }
     }
 
+    /// Helper: create a minimal monster for testing.
+    fn make_monster(name: &str) -> Monster {
+        Monster {
+            name: name.to_string(),
+            base_template: "Slime".to_string(),
+            floor_range: "1-3".to_string(),
+            hp: Some(4),
+            sd: None,
+            sprite: None,
+            color: None,
+            doc: None,
+            modifier_chain: None,
+            balance: None,
+            source: Source::Base,
+        }
+    }
+
     /// Helper: create a minimal boss for testing.
     fn make_boss(name: &str) -> Boss {
         Boss {
@@ -912,40 +958,62 @@ mod tests {
 
     // -- V020: Cross-category name uniqueness --
 
+    // Post-§F9 (Chunk 8): V020 no longer fires on cross-bucket Pokemon
+    // collisions (subset of {hero, replica_item, monster}) — X003 owns that
+    // slice per SPEC §6.3. These two tests were inverted from their pre-F9
+    // form to pin the new boundary.
     #[test]
-    fn test_v020_cross_category_duplicate() {
+    fn v020_silent_on_cross_bucket_pokemon_hero_replica() {
+        // Source-vs-IR proof: the offending Pokemon name is shared across
+        // two buckets covered by SPEC §6.3; V020 must defer entirely.
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Pikachu", 'a'));
         ir.replica_items.push(make_replica_item("Pikachu"));
 
         let report = check_references(&ir);
-
-        // X003 (per-bucket) also fires on this IR; filter to V020 alone here.
-        let v020: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "V020").collect();
-        assert_eq!(v020.len(), 1, "Expected exactly one V020 finding for cross-category duplicate");
-        assert!(
-            v020[0].message.contains("Pikachu"),
-            "Error should mention the conflicting name"
-        );
-        assert!(
-            v020[0].field_path.is_some(),
-            "field_path must be populated"
-        );
-        assert!(
-            v020[0].suggestion.is_some(),
-            "suggestion must be populated"
-        );
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 0, "V020 must not fire on hero+replica Pokemon collision — X003 owns it");
+        assert_eq!(x003, 1, "X003 must fire as the sole owner");
     }
 
     #[test]
-    fn test_v020_case_insensitive() {
+    fn v020_silent_on_cross_bucket_pokemon_hero_monster() {
+        let mut ir = ModIR::empty();
+        ir.heroes.push(make_hero("Pikachu", 'a'));
+        ir.monsters.push(make_monster("Pikachu"));
+
+        let report = check_references(&ir);
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 0, "V020 must not fire on hero+monster Pokemon collision");
+        assert_eq!(x003, 1, "X003 must fire");
+    }
+
+    #[test]
+    fn v020_silent_on_cross_bucket_pokemon_replica_monster() {
+        let mut ir = ModIR::empty();
+        ir.replica_items.push(make_replica_item("Pikachu"));
+        ir.monsters.push(make_monster("Pikachu"));
+
+        let report = check_references(&ir);
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 0, "V020 must not fire on replica+monster Pokemon collision");
+        assert_eq!(x003, 1, "X003 must fire");
+    }
+
+    #[test]
+    fn v020_silent_on_cross_bucket_pokemon_case_insensitive() {
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("PIKACHU", 'a'));
         ir.replica_items.push(make_replica_item("pikachu"));
 
         let report = check_references(&ir);
-        let v020: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "V020").collect();
-        assert_eq!(v020.len(), 1, "Cross-category check should be case-insensitive");
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 0, "V020 silence is case-insensitive on cross-bucket Pokemon");
+        assert_eq!(x003, 1);
     }
 
     #[test]
@@ -953,22 +1021,203 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Charmander", 'a'));
         ir.replica_items.push(make_replica_item("Pikachu"));
-        ir.monsters.push(Monster {
-            name: "Weedle".to_string(),
-            base_template: "Slime".to_string(),
-            floor_range: "1-3".to_string(),
-            hp: Some(4),
-            sd: None,
-            sprite: None,
-            color: None,
-            doc: None,
-            modifier_chain: None,
-            balance: None,
-            source: Source::Custom,
-        });
+        ir.monsters.push(make_monster("Weedle"));
 
         let report = check_references(&ir);
         assert!(report.errors.is_empty(), "No errors when all names are unique");
+    }
+
+    #[test]
+    fn v020_still_fires_on_boss_hero_collision() {
+        // SPEC §6.3 excludes bosses from Pokemon uniqueness; X003 must stay
+        // silent here. Use a boss name ("Zzzboss") that cannot appear in any
+        // Pokemon-bucket registry lookup — a regression that routes bosses
+        // through a Pokemon bucket would still fail the X003 silence check.
+        let mut ir = ModIR::empty();
+        ir.heroes.push(make_hero("Zzzboss", 'a'));
+        ir.bosses.push(make_boss("Zzzboss"));
+
+        let report = check_references(&ir);
+        let v020: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "V020").collect();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020.len(), 1, "V020 must fire on hero+boss collision (bosses are not Pokemon)");
+        assert_eq!(x003, 0, "X003 must not fire (SPEC §6.3 excludes bosses)");
+        assert_eq!(v020[0].modifier_name.as_deref(), Some("Zzzboss"));
+        assert!(v020[0].field_path.is_some());
+        assert!(v020[0].suggestion.is_some());
+    }
+
+    #[test]
+    fn v020_still_fires_on_boss_replica_capture_collision() {
+        let mut ir = ModIR::empty();
+        ir.replica_items.push(make_replica_item("Zzzboss"));
+        ir.bosses.push(make_boss("Zzzboss"));
+
+        let report = check_references(&ir);
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 1, "V020 fires on capture+boss collision");
+        assert_eq!(x003, 0, "X003 silent — boss is not a Pokemon bucket");
+    }
+
+    #[test]
+    fn v020_still_fires_on_boss_replica_legendary_collision() {
+        let mut ir = ModIR::empty();
+        ir.replica_items.push(make_legendary_replica_item("Zzzboss"));
+        ir.bosses.push(make_boss("Zzzboss"));
+
+        let report = check_references(&ir);
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 1, "V020 fires on legendary+boss collision");
+        assert_eq!(x003, 0);
+    }
+
+    #[test]
+    fn v020_still_fires_on_boss_monster_collision() {
+        let mut ir = ModIR::empty();
+        ir.monsters.push(make_monster("Zzzboss"));
+        ir.bosses.push(make_boss("Zzzboss"));
+
+        let report = check_references(&ir);
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 1, "V020 fires on monster+boss collision");
+        assert_eq!(x003, 0);
+    }
+
+    #[test]
+    fn v020_still_fires_on_intra_bucket_duplicate_heroes() {
+        // Post-Chunk-6, X003 requires ≥2 distinct buckets, so intra-bucket
+        // duplicates are V020's sole territory.
+        let mut ir = ModIR::empty();
+        ir.heroes.push(make_hero("Pikachu", 'a'));
+        ir.heroes.push(make_hero("Pikachu", 'b'));
+
+        let report = check_references(&ir);
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 1, "V020 fires once on two heroes with the same name");
+        assert_eq!(x003, 0, "X003 silent on intra-bucket duplicates (per Chunk 6 tightening)");
+    }
+
+    #[test]
+    fn v020_still_fires_on_intra_bucket_duplicate_replicas() {
+        let mut ir = ModIR::empty();
+        ir.replica_items.push(make_replica_item("Pikachu"));
+        ir.replica_items.push(make_replica_item("Pikachu"));
+
+        let report = check_references(&ir);
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 1, "V020 fires on two captures with the same name");
+        assert_eq!(x003, 0);
+    }
+
+    #[test]
+    fn v020_still_fires_on_intra_bucket_duplicate_monsters() {
+        let mut ir = ModIR::empty();
+        ir.monsters.push(make_monster("Pikachu"));
+        ir.monsters.push(make_monster("Pikachu"));
+
+        let report = check_references(&ir);
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 1, "V020 fires on two monsters with the same name");
+        assert_eq!(x003, 0);
+    }
+
+    #[test]
+    fn v020_still_fires_on_intra_bucket_duplicate_bosses() {
+        let mut ir = ModIR::empty();
+        ir.bosses.push(make_boss("Zzzboss"));
+        ir.bosses.push(make_boss("Zzzboss"));
+
+        let report = check_references(&ir);
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 1, "V020 fires on two bosses with the same name");
+        assert_eq!(x003, 0);
+    }
+
+    #[test]
+    fn v020_and_x003_coexist_when_collision_spans_boss_and_pokemon_buckets() {
+        // hero + capture + boss named "Pikachu": V020 fires because boss is
+        // involved (boss cross-category), AND X003 fires because two distinct
+        // Pokemon buckets collide (hero + capture). Each rule describes a
+        // different invariant — V020 reports the boss-involving collision,
+        // X003 reports the SPEC §6.3 Pokemon collision. A future refactor
+        // that collapses these would silently lose invariant coverage.
+        let mut ir = ModIR::empty();
+        ir.heroes.push(make_hero("Pikachu", 'a'));
+        ir.replica_items.push(make_replica_item("Pikachu"));
+        ir.bosses.push(make_boss("Pikachu"));
+
+        let report = check_references(&ir);
+        let v020 = report.errors.iter().filter(|f| f.rule_id == "V020").count();
+        let x003 = report.errors.iter().filter(|f| f.rule_id == "X003").count();
+        assert_eq!(v020, 1, "V020 must fire because the collision includes a boss");
+        assert_eq!(x003, 1, "X003 must fire because two Pokemon buckets collide");
+    }
+
+    #[test]
+    fn no_double_fire_on_working_mods() {
+        // Integration-style assertion over the four reference mods: any two
+        // findings with the same `modifier_name` must differ in invariant
+        // class, not be redundant coverage. The only permitted co-fire today
+        // is V020 ∧ X003 when the collision spans boss + Pokemon buckets
+        // (see v020_and_x003_coexist_when_collision_spans_boss_and_pokemon_buckets).
+        use crate::extractor::extract;
+        use std::path::Path;
+
+        let mods = [
+            "../working-mods/sliceymon.txt",
+            "../working-mods/pansaer.txt",
+            "../working-mods/punpuns.txt",
+            "../working-mods/community.txt",
+        ];
+        for mod_path in mods {
+            let path = Path::new(mod_path);
+            let source = std::fs::read_to_string(path)
+                .unwrap_or_else(|e| panic!("read {}: {}", mod_path, e));
+            let ir = extract(&source)
+                .unwrap_or_else(|e| panic!("extract {}: {}", mod_path, e));
+            let report = check_references(&ir);
+            let all: Vec<&Finding> = report
+                .errors
+                .iter()
+                .chain(report.warnings.iter())
+                .chain(report.info.iter())
+                .collect();
+
+            for (i, f1) in all.iter().enumerate() {
+                for f2 in all.iter().skip(i + 1) {
+                    if f1.modifier_name.is_none() || f2.modifier_name.is_none() {
+                        continue;
+                    }
+                    if f1.modifier_name != f2.modifier_name {
+                        continue;
+                    }
+                    if f1.rule_id == f2.rule_id {
+                        continue; // same rule firing twice on same name is not a double-fire
+                    }
+                    let pair = {
+                        let mut p = [f1.rule_id.as_str(), f2.rule_id.as_str()];
+                        p.sort();
+                        (p[0].to_string(), p[1].to_string())
+                    };
+                    let allowed = pair == ("V020".to_string(), "X003".to_string());
+                    assert!(
+                        allowed,
+                        "double-fire on '{}' in {}: rules {} and {} — only V020∧X003 boss+Pokemon co-fire is permitted",
+                        f1.modifier_name.as_deref().unwrap_or(""),
+                        mod_path,
+                        f1.rule_id,
+                        f2.rule_id,
+                    );
+                }
+            }
+        }
     }
 
     // -- X003: No duplicate Pokemon across hero/capture/legendary/monster buckets --

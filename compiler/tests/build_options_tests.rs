@@ -182,25 +182,23 @@ fn v019_finding_source_populated() {
 #[test]
 fn v020_cross_category_source_is_global() {
     // V020 in `check_cross_category_names` is a global finding (no single
-    // offender) — source=None, severity stays Error.
-    use textmod_compiler::ir::{ReplicaItem, ReplicaItemContainer};
+    // offender) — source=None, severity stays Error. Post-§F9 (Chunk 8),
+    // V020's retained scope is boss cross-category + intra-bucket duplicates;
+    // X003 owns the pure Pokemon slice. This test exercises V020's global
+    // finding shape via a hero+boss collision (boss is excluded from X003
+    // per SPEC §6.3).
+    use textmod_compiler::ir::{Boss, BossFormat};
     let mut ir = ModIR::empty();
-    ir.heroes.push(minimal_hero("Pikachu", 'a', Source::Base));
-    ir.replica_items.push(ReplicaItem {
-        name: "Pikachu".to_string(),
-        container: ReplicaItemContainer::Capture { name: "Pikachu".to_string() },
-        template: "Slime".to_string(),
-        hp: Some(4),
-        sd: DiceFaces { faces: vec![DiceFace::Blank] },
-        sprite: SpriteId::owned("pikachu", ""),
-        color: None,
-        tier: None,
+    ir.heroes.push(minimal_hero("Zzzboss", 'a', Source::Base));
+    ir.bosses.push(Boss {
+        name: "Zzzboss".to_string(),
+        level: Some(5),
+        format: BossFormat::default(),
+        encounter_id: None,
+        fights: vec![],
+        event_phases: None,
         doc: None,
-        speech: None,
-        abilitydata: None,
-        item_modifiers: None,
-        sticker: None,
-        toggle_flags: None,
+        modifier_chain: None,
         source: Source::Base,
     });
 
@@ -214,6 +212,7 @@ fn v020_cross_category_source_is_global() {
     assert_eq!(v020.len(), 1);
     assert_eq!(v020[0].source, None, "global V020 finding carries source=None");
     assert_eq!(v020[0].severity, Severity::Error);
+    assert_eq!(v020[0].modifier_name.as_deref(), Some("Zzzboss"));
 }
 
 #[test]
