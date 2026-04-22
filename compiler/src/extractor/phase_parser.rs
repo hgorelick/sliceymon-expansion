@@ -35,17 +35,17 @@ fn parse_phase_at_depth(input: &str, depth: usize) -> Result<Phase, CompilerErro
         )
     })?;
 
-    if after_ph.is_empty() {
+    // Extract phase code (first char after ph.)
+    let Some(code) = after_ph.chars().next() else {
         return Err(CompilerError::phase_parse(
             None,
             input.to_string(),
             "phase type code after ph.",
             "empty string",
-        ));
-    }
-
-    // Extract phase code (first char after ph.)
-    let code = after_ph.chars().next().unwrap();
+        )
+        .with_field_path("phase.type_code")
+        .with_suggestion("expected one of: ! 0-9 b c d e g l r s t y z z<digit>"));
+    };
     let content_str = &after_ph[code.len_utf8()..];
 
     let (phase_type, content) = match code {
@@ -583,5 +583,26 @@ mod tests {
         } else {
             panic!("Expected PhaseGenerator");
         }
+    }
+
+    #[test]
+    fn phase_parser_malformed_propagates_error() {
+        // `ph.` with nothing after is the pathological input previously
+        // reaching `after_ph.chars().next().unwrap()` at phase_parser.rs:48.
+        // It must now return `Err(PhaseParse)` with the original `input`
+        // carried on the error — source-vs-IR proof: `content` must equal
+        // the source bytes "ph.", not a canonicalized or registry-derived
+        // form.
+        let err = parse_phase("ph.").expect_err("empty phase code must not parse");
+        match err.kind.as_ref() {
+            crate::error::ErrorKind::PhaseParse { content, expected, found, .. } => {
+                assert_eq!(content, "ph.");
+                assert_eq!(expected, "phase type code after ph.");
+                assert_eq!(found, "empty string");
+            }
+            other => panic!("expected PhaseParse, got {:?}", other),
+        }
+        assert_eq!(err.field_path.as_deref(), Some("phase.type_code"));
+        assert!(err.suggestion.is_some());
     }
 }

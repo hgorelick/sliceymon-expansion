@@ -482,10 +482,14 @@ fn extract_nested_and_props(content: &str, template: &str) -> (Option<Vec<FightU
         return (None, None);
     }
 
-    // Position of the first `(` (in the original `content`, accounting for any
-    // leading `(` that was skipped by `trim_start_matches`).
-    let prefix = if is_double { ".((" } else { ".(" };
-    let nested_start_in_content = content.find(prefix).unwrap() + 1; // position of first `(`
+    // Position of the first `(` in `content`. `after_template` is a suffix of
+    // `content` (offset = leading `(`s skipped by `trim_start_matches` plus
+    // `template.len()`), and starts with `.(` — so the first `(` is one byte
+    // past `after_template`'s start in `content`. Compute directly rather than
+    // re-scanning with `find`, which would either re-derive the same answer or
+    // signal an invariant break we can't recover from.
+    let nested_start_in_content =
+        (content.len() - after_template.len()) + 1; // +1 skips the leading `.`
     let close = util::find_matching_close_paren(content, nested_start_in_content);
     let close = match close {
         Some(c) => c,
@@ -538,4 +542,63 @@ fn extract_fight_unit_img(content: &str) -> Option<String> {
     let end = util::find_next_prop_boundary(remaining);
     let val = &remaining[..end];
     if val.is_empty() { None } else { Some(val.to_string()) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fight_parser_malformed_propagates_error() {
+        // The `.find(prefix).unwrap()` at the old fight_parser.rs:488 was
+        // guarded by `after_template.starts_with(prefix)` and therefore
+        // structurally unreachable; the post-fix code now computes the
+        // position directly from `content.len() - after_template.len() + 1`
+        // — no rescan, no fallback. This test pins three properties:
+        //   1. Inputs that don't match the `.(` / `.((` prefix return (None, None).
+        //   2. The direct computation locates the *post-template* `.(` even
+        //      when an earlier `.(` exists inside leading parens or a longer
+        //      template would shadow a substring match. A naive
+        //      `content.find(".((")` would have picked the wrong (earlier)
+        //      occurrence in case (b); the direct computation cannot.
+        //   3. The children parse from the source bytes (invented template
+        //      name `Zzz_fake` so any registry-derived regression would fail
+        //      the children-count assertion).
+
+        // (1) No prefix match.
+        let (nested, props) = extract_nested_and_props("wildly.malformed input", "Zzz_fake");
+        assert!(nested.is_none() && props.is_none(), "no-match must return (None, None)");
+
+        // (2a) Real nested-children shape succeeds.
+        let content = "Zzz_fake.((mon.A.n.A+mon.B.n.B)).n.Parent";
+        let (nested, props) = extract_nested_and_props(content, "Zzz_fake");
+        assert_eq!(nested.as_ref().map(|v| v.len()), Some(2));
+        assert!(props.is_some());
+
+        // (2b) Decoy `.((` earlier in `content` (inside a leading paren wrapper).
+        // A `find`-based implementation would lock onto the decoy and parse
+        // the wrong child group. The direct computation skips past the
+        // template name to the *real* post-template prefix.
+        // Layout:
+        //   `(.((decoy))(Zzz_fake.((mon.X.n.X+mon.Y.n.Y))).n.Parent`
+        // After `trim_start_matches('(')`, `stripped` starts with `.((decoy))(Zzz_fake…`,
+        // so `stripped.starts_with("Zzz_fake")` is FALSE — early return (None, None).
+        // That alone proves the parser does not stray into the decoy. Pin it:
+        let decoy = "(.((decoy))(Zzz_fake.((mon.X.n.X+mon.Y.n.Y))).n.Parent";
+        let (nested, _) = extract_nested_and_props(decoy, "Zzz_fake");
+        assert!(
+            nested.is_none(),
+            "template not at the head of stripped content must not parse — \
+             a `find(\".((\")`-based regression would lock onto the decoy `.((decoy))` \
+             and parse phantom children"
+        );
+
+        // (2c) Single-paren `.(child)` form — separate prefix length than `.((`.
+        // The +1 offset must be correct for both `.(` (single) and `.((` (double)
+        // because both share the same leading `.`.
+        let single = "Zzz_fake.(mon.Solo.n.Solo).n.Parent";
+        let (nested, props) = extract_nested_and_props(single, "Zzz_fake");
+        assert_eq!(nested.as_ref().map(|v| v.len()), Some(1), "single-paren form parses one child");
+        assert!(props.is_some());
+    }
 }

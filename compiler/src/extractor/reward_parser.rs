@@ -26,15 +26,15 @@ use crate::ir::{RewardTag, RewardTagType};
 /// Returns a RewardTag with tag_type set from the first character and content
 /// storing the full original string for lossless round-trip.
 pub fn parse_reward_tag(s: &str) -> Result<RewardTag, CompilerError> {
-    if s.is_empty() {
+    let Some(first) = s.chars().next() else {
         return Err(CompilerError::reward_parse(
             s.to_string(),
             "non-empty reward tag string",
             "empty string",
-        ));
-    }
-
-    let first = s.chars().next().unwrap();
+        )
+        .with_field_path("reward_tag.raw")
+        .with_suggestion("tag must start with one of: m i l g r q o e v p s"));
+    };
 
     let tag_type = match first {
         'm' => RewardTagType::Modifier,
@@ -156,6 +156,27 @@ mod tests {
     fn test_parse_empty_string_errors() {
         let result = parse_reward_tag("");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn reward_parser_malformed_propagates_error() {
+        // Empty tag is the pathological input previously reaching
+        // `s.chars().next().unwrap()` at reward_parser.rs:37. It must now
+        // return `Err(RewardParse)` whose `content` equals the original
+        // source string — source-vs-IR proof: a regression that derived
+        // `content` from a default or placeholder would fail the exact
+        // equality check below.
+        let err = parse_reward_tag("").expect_err("empty reward tag must not parse");
+        match err.kind.as_ref() {
+            crate::error::ErrorKind::RewardParse { content, expected, found } => {
+                assert_eq!(content, "");
+                assert_eq!(expected, "non-empty reward tag string");
+                assert_eq!(found, "empty string");
+            }
+            other => panic!("expected RewardParse, got {:?}", other),
+        }
+        assert_eq!(err.field_path.as_deref(), Some("reward_tag.raw"));
+        assert!(err.suggestion.is_some());
     }
 
     #[test]
