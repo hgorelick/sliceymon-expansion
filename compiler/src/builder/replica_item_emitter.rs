@@ -364,4 +364,48 @@ mod tests {
             "abilitydata (compared via re-emit)",
         );
     }
+
+    #[test]
+    fn legendary_emit_parse_roundtrip_with_item_modifiers() {
+        // Separate from `legendary_emit_parse_roundtrip_with_all_fields` so the
+        // chain emission branch in `emit_legendary` isn't dead-weight coverage:
+        // no working mod contains a top-level `item.*`, so without this test
+        // any regression in chain ordering (e.g. emitting the chain after
+        // `.sd.` instead of before) would pass every other gate.
+        use crate::extractor::replica_item_parser::parse_legendary;
+        use crate::ir::ModifierChain;
+
+        let chain_src = ".i.left.k.scared#facade.bas170:55";
+        let item = ReplicaItem {
+            name: "Mew".into(),
+            container: ReplicaItemContainer::Legendary,
+            tier: None,
+            template: "Alpha".into(),
+            hp: Some(9),
+            sd: DiceFaces::parse("0:0:0:0:0:0"),
+            sprite: SpriteId::owned("Mew", ""),
+            color: None,
+            item_modifiers: Some(ModifierChain::parse(chain_src)),
+            sticker: None,
+            toggle_flags: None,
+            doc: None,
+            speech: None,
+            abilitydata: None,
+            source: Source::Base,
+        };
+
+        let emitted = emit(&item).unwrap();
+        let parsed = parse_legendary(&emitted, 0);
+
+        assert_eq!(parsed.container, item.container, "container variant");
+        assert_eq!(parsed.name, item.name, "name");
+        assert_eq!(parsed.template, item.template, "template");
+        assert_eq!(parsed.hp, item.hp, "hp");
+        assert_eq!(parsed.sd, item.sd, "sd");
+        assert_eq!(
+            parsed.item_modifiers.as_ref().map(|c| c.emit()),
+            item.item_modifiers.as_ref().map(|c| c.emit()),
+            "item_modifiers (compared via re-emit)",
+        );
+    }
 }
