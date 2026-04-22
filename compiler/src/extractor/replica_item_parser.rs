@@ -125,18 +125,6 @@ pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
             "parse_legendary invoked with a modifier that does not start with `item.` — \
              classifier invariant broken (see extractor/classifier.rs)",
         );
-    // `n.NAME` at depth 0 is the character name for Legendary (no outer
-    // container wraps it, so there is only one `.n.`).
-    let name = util::find_at_depth0(body, ".n.")
-        .map(|pos| {
-            let start = pos + 3;
-            let remaining = &body[start..];
-            let end = remaining
-                .find(['.', '+', ')', '&', '@', ','])
-                .unwrap_or(remaining.len());
-            body[start..start + end].to_string()
-        })
-        .unwrap_or_default();
     // `extract_hp` / `extract_color` aren't depth-aware; if a Legendary has
     // `hp: None` / `color: None` but its `.cast.(...)` chain contains `.hp.N`
     // / `.col.X`, a naive scan of `body` leaks those cast-interior values into
@@ -145,6 +133,22 @@ pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
     let before_cast = util::find_at_depth0(body, ".cast.")
         .map(|pos| &body[..pos])
         .unwrap_or(body);
+    // The character name is the LAST `.n.NAME` at depth 0 before `.cast.`.
+    // `item_modifiers` can carry chain-internal `.n.` tokens at depth 0
+    // (e.g. `.i.hat.statue.n.Viscera`), and emission always places the
+    // character `.n.NAME` after the chain and before `.cast.`, so the
+    // last pre-cast depth-0 `.n.` is the character name. First-match
+    // would pick a chain token instead.
+    let name = util::find_last_at_depth0(before_cast, ".n.")
+        .map(|pos| {
+            let start = pos + 3;
+            let remaining = &before_cast[start..];
+            let end = remaining
+                .find(['.', '+', ')', '&', '@', ','])
+                .unwrap_or(remaining.len());
+            before_cast[start..start + end].to_string()
+        })
+        .unwrap_or_default();
     let sd = util::extract_sd(before_cast, false)
         .map(|s| crate::ir::DiceFaces::parse(&s))
         .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
@@ -232,6 +236,18 @@ mod tests {
         assert_eq!(item.name, "Mew");
         assert_eq!(item.container, ReplicaItemContainer::Legendary);
         assert_eq!(item.template, "Alpha");
+    }
+
+    #[test]
+    fn legendary_name_is_last_depth0_n_before_cast() {
+        // A `.i.` chain segment can carry a depth-0 `.n.NAME` (e.g. an item
+        // with a named reference). Emission always places the character
+        // `.n.NAME` *after* the chain and *before* `.cast.`, so the LAST
+        // pre-cast depth-0 `.n.` is the character name. First-match would
+        // incorrectly pick the chain's internal `.n.`.
+        let modifier = "item.Alpha.hp.9.i.hat.statue.n.Viscera.sd.0:0:0:0:0:0.n.Mew";
+        let item = parse_legendary(modifier, 0);
+        assert_eq!(item.name, "Mew", "character name must be the last pre-cast `.n.`, not a chain-internal `.n.`");
     }
 
     #[test]
