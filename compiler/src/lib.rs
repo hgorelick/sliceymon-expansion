@@ -10,6 +10,7 @@ pub mod xref;
 pub use xref::{check_references, check_hero_in_context, check_boss_in_context, Finding, Severity, ValidationReport};
 pub use ir::Source;
 pub use authoring::SpriteId;
+pub use builder::{BuildOptions, SourceFilter, SourceSet};
 
 use error::CompilerError;
 use ir::ModIR;
@@ -22,6 +23,13 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
 /// Build a textmod string from a ModIR.
 pub fn build(ir: &ModIR) -> Result<String, CompilerError> {
     builder::build(ir)
+}
+
+/// Build a textmod string from a ModIR, honoring the supplied [`BuildOptions`].
+///
+/// `build(ir)` is equivalent to `build_with(ir, &BuildOptions::default())`.
+pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerError> {
+    builder::build_with(ir, opts)
 }
 
 /// Build a complete textmod, auto-generating derived structurals (character selection,
@@ -72,6 +80,7 @@ pub fn validate_hero(hero: &ir::Hero) -> ValidationReport {
             message: format!("Build failed: {}", e),
             field_path: Some(format!("hero[{}]", hero.mn_name)),
             suggestion: Some("Fix the hero definition so it can be built into a valid modifier".to_string()),
+            source: Some(hero.source),
             ..Default::default()
         });
     }

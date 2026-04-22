@@ -12,7 +12,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::authoring::FaceIdValue;
-use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, StructuralContent};
+use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, Source, StructuralContent};
 
 // ---------------------------------------------------------------------------
 // Rule ID constants
@@ -69,6 +69,29 @@ pub struct Finding {
     pub position: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
+    /// Provenance of the offending entity. `None` for global findings that
+    /// don't bind to a single sourced entity (e.g. cross-category name clashes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
+}
+
+/// Source-aware severity promotion — every xref rule that visits a sourced
+/// entity runs its literal `severity` through this helper so the promotion
+/// policy lives in one place (per PLATFORM_FOUNDATIONS_PLAN §F5 and the
+/// Chunk 3b lesson on not duplicating the same incantation across N sites).
+///
+/// Policy:
+/// - `Some(Source::Base)` → `Severity::Warning` (base content is load-bearing;
+///   violations are informative, not blocking).
+/// - `Some(Source::Custom | Source::Overlay)` → `Severity::Error` (author-added
+///   violations should block).
+/// - `None` → `base` unchanged (global findings carry the rule's native severity).
+pub fn promote_severity(base: Severity, src: Option<Source>) -> Severity {
+    match src {
+        Some(Source::Base) => Severity::Warning,
+        Some(Source::Custom) | Some(Source::Overlay) => Severity::Error,
+        None => base,
+    }
 }
 
 /// Full validation report — errors, warnings, and informational notes.
@@ -192,8 +215,8 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
 /// - `replica_items[].sd`
 /// - `monsters[].sd`
 /// - `bosses[].fights[].enemies[].sd` (recursively into `nested_units`)
-fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str)> {
-    let mut out: Vec<(String, &'a DiceFaces, &'a str)> = Vec::new();
+fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str, Source)> {
+    let mut out: Vec<(String, &'a DiceFaces, &'a str, Source)> = Vec::new();
     for hero in &ir.heroes {
         if hero.removed {
             continue;
@@ -203,12 +226,14 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str)> {
                 format!("heroes[{}].blocks[{}].sd", hero.mn_name, i),
                 &block.sd,
                 block.template.as_str(),
+                hero.source,
             ));
             if let Some(ability) = &block.abilitydata {
                 out.push((
                     format!("heroes[{}].blocks[{}].abilitydata.sd", hero.mn_name, i),
                     &ability.sd,
                     ability.template.as_str(),
+                    hero.source,
                 ));
             }
             if let Some(trigger) = &block.triggerhpdata {
@@ -217,6 +242,7 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str)> {
                         format!("heroes[{}].blocks[{}].triggerhpdata.sd", hero.mn_name, i),
                         sd,
                         trigger.template.as_str(),
+                        hero.source,
                     ));
                 }
             }
@@ -227,6 +253,7 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str)> {
             format!("replica_items[{}].sd", item.name),
             &item.sd,
             item.template.as_str(),
+            item.source,
         ));
     }
     for monster in &ir.monsters {
@@ -235,6 +262,7 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str)> {
                 format!("monsters[{}].sd", monster.name),
                 sd,
                 monster.base_template.as_str(),
+                monster.source,
             ));
         }
     }
@@ -245,28 +273,29 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str)> {
                     "bosses[{}].fights[{}].enemies[{}]",
                     boss.name, fi, ei
                 );
-                collect_fight_unit_faces(enemy, &base, &mut out);
+                collect_fight_unit_faces(enemy, &base, boss.source, &mut out);
             }
         }
     }
     out
 }
 
-/// Recursive helper — yields `(path, &DiceFaces, template)` for a `FightUnit`
-/// and any `nested_units` below it. The path is built from the caller's
-/// already-formatted prefix so container indices stay stable.
+/// Recursive helper — yields `(path, &DiceFaces, template, source)` for a
+/// `FightUnit` and any `nested_units` below it. `FightUnit` has no provenance
+/// of its own, so the source is inherited from the owning `Boss`.
 fn collect_fight_unit_faces<'a>(
     unit: &'a FightUnit,
     path_prefix: &str,
-    out: &mut Vec<(String, &'a DiceFaces, &'a str)>,
+    source: Source,
+    out: &mut Vec<(String, &'a DiceFaces, &'a str, Source)>,
 ) {
     if let Some(sd) = &unit.sd {
-        out.push((format!("{}.sd", path_prefix), sd, unit.template.as_str()));
+        out.push((format!("{}.sd", path_prefix), sd, unit.template.as_str(), source));
     }
     if let Some(nested) = &unit.nested_units {
         for (ni, child) in nested.iter().enumerate() {
             let child_prefix = format!("{}.nested_units[{}]", path_prefix, ni);
-            collect_fight_unit_faces(child, &child_prefix, out);
+            collect_fight_unit_faces(child, &child_prefix, source, out);
         }
     }
 }
@@ -294,7 +323,7 @@ pub(crate) fn check_face_template_compat_with_table(
     if restrictions.is_empty() {
         return;
     }
-    for (field_path, sd, template) in iter_dice_faces(ir) {
+    for (field_path, sd, template, source) in iter_dice_faces(ir) {
         for (face_idx, face) in sd.faces.iter().enumerate() {
             if let DiceFace::Active { face_id: FaceIdValue::Known(id), .. } = face {
                 let raw = id.raw();
@@ -303,7 +332,7 @@ pub(crate) fn check_face_template_compat_with_table(
                     if !template_ok {
                         push_finding(report, Finding {
                             rule_id: X016.to_string(),
-                            severity: Severity::Error,
+                            severity: promote_severity(Severity::Error, Some(source)),
                             message: format!(
                                 "FaceID {} is template-restricted by reference/textmod_guide.md; \
                                  template '{}' is not in the allowed set",
@@ -315,6 +344,7 @@ pub(crate) fn check_face_template_compat_with_table(
                                 raw,
                                 allowed.join(", ")
                             )),
+                            source: Some(source),
                             ..Default::default()
                         });
                     }
@@ -328,12 +358,12 @@ pub(crate) fn check_face_template_compat_with_table(
 /// successfully (permissive path per SPEC §3.6) but is not in the corpus
 /// whitelist. Severity is Warning — extraction still round-trips byte-for-byte.
 fn check_face_unknown(ir: &ModIR, report: &mut ValidationReport) {
-    for (field_path, sd, _template) in iter_dice_faces(ir) {
+    for (field_path, sd, _template, source) in iter_dice_faces(ir) {
         for (face_idx, face) in sd.faces.iter().enumerate() {
             if let DiceFace::Active { face_id: FaceIdValue::Unknown(raw), .. } = face {
                 push_finding(report, Finding {
                     rule_id: X017.to_string(),
-                    severity: Severity::Warning,
+                    severity: promote_severity(Severity::Warning, Some(source)),
                     message: format!(
                         "FaceID {} is not in the corpus whitelist; roundtrip is preserved \
                          but the authoring layer has no typed const for this ID",
@@ -345,6 +375,7 @@ fn check_face_unknown(ir: &ModIR, report: &mut ValidationReport) {
                          build.rs curated table; otherwise verify the source textmod",
                         raw
                     )),
+                    source: Some(source),
                     ..Default::default()
                 });
             }
@@ -369,7 +400,7 @@ fn check_hero_color_uniqueness(ir: &ModIR, report: &mut ValidationReport) {
         if let Some(&existing_name) = seen.get(&hero.color) {
             push_finding(report, Finding {
                 rule_id: V019.to_string(),
-                severity: Severity::Warning,
+                severity: promote_severity(Severity::Warning, Some(hero.source)),
                 message: format!(
                     "Hero '{}' uses color '{}' which is already used by '{}'",
                     hero.mn_name, hero.color, existing_name
@@ -380,6 +411,7 @@ fn check_hero_color_uniqueness(ir: &ModIR, report: &mut ValidationReport) {
                     hero.mn_name, hero.color
                 )),
                 modifier_name: Some(hero.mn_name.clone()),
+                source: Some(hero.source),
                 ..Default::default()
             });
         } else {
@@ -431,7 +463,7 @@ fn check_cross_category_names(ir: &ModIR, report: &mut ValidationReport) {
             let cats_str = cats.join(", ");
             push_finding(report, Finding {
                 rule_id: V020.to_string(),
-                severity: Severity::Error,
+                severity: promote_severity(Severity::Error, None),
                 message: format!(
                     "Name '{}' appears in multiple categories: [{}]",
                     display_name, cats_str
@@ -441,6 +473,7 @@ fn check_cross_category_names(ir: &ModIR, report: &mut ValidationReport) {
                     "Rename the duplicate '{}' so each category has a unique name",
                     display_name
                 )),
+                source: None,
                 ..Default::default()
             });
         }
@@ -470,7 +503,7 @@ fn check_hero_pool_refs(ir: &ModIR, report: &mut ValidationReport) {
                 if !known_heroes.contains(&key) {
                     push_finding(report, Finding {
                         rule_id: V016.to_string(),
-                        severity: Severity::Error,
+                        severity: promote_severity(Severity::Error, Some(structural.source)),
                         message: format!(
                             "Hero pool reference '{}' does not resolve to any hero",
                             href
@@ -480,6 +513,7 @@ fn check_hero_pool_refs(ir: &ModIR, report: &mut ValidationReport) {
                             "Add a hero with internal_name '{}' or remove the reference",
                             href
                         )),
+                        source: Some(structural.source),
                         ..Default::default()
                     });
                 }
@@ -507,7 +541,7 @@ pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport {
         if existing.color == hero.color && existing.mn_name != hero.mn_name {
             push_finding(&mut report, Finding {
                 rule_id: V019.to_string(),
-                severity: Severity::Warning,
+                severity: promote_severity(Severity::Warning, Some(hero.source)),
                 message: format!(
                     "Hero '{}' uses color '{}' which is already used by '{}'",
                     hero.mn_name, hero.color, existing.mn_name
@@ -518,6 +552,7 @@ pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport {
                     hero.mn_name, hero.color
                 )),
                 modifier_name: Some(hero.mn_name.clone()),
+                source: Some(hero.source),
                 ..Default::default()
             });
         }
@@ -529,7 +564,7 @@ pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport {
     if ir.replica_items.iter().any(|r| r.name.to_lowercase() == lower) {
         push_finding(&mut report, Finding {
             rule_id: V020.to_string(),
-            severity: Severity::Error,
+            severity: promote_severity(Severity::Error, Some(hero.source)),
             message: format!(
                 "Hero name '{}' conflicts with an existing replica item",
                 hero.mn_name
@@ -540,6 +575,7 @@ pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport {
                 hero.mn_name
             )),
             modifier_name: Some(hero.mn_name.clone()),
+            source: Some(hero.source),
             ..Default::default()
         });
     }
@@ -547,7 +583,7 @@ pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport {
     if ir.monsters.iter().any(|m| m.name.to_lowercase() == lower) {
         push_finding(&mut report, Finding {
             rule_id: V020.to_string(),
-            severity: Severity::Error,
+            severity: promote_severity(Severity::Error, Some(hero.source)),
             message: format!(
                 "Hero name '{}' conflicts with an existing monster",
                 hero.mn_name
@@ -558,6 +594,7 @@ pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport {
                 hero.mn_name
             )),
             modifier_name: Some(hero.mn_name.clone()),
+            source: Some(hero.source),
             ..Default::default()
         });
     }
@@ -565,7 +602,7 @@ pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport {
     if ir.bosses.iter().any(|b| b.name.to_lowercase() == lower) {
         push_finding(&mut report, Finding {
             rule_id: V020.to_string(),
-            severity: Severity::Error,
+            severity: promote_severity(Severity::Error, Some(hero.source)),
             message: format!(
                 "Hero name '{}' conflicts with an existing boss",
                 hero.mn_name
@@ -576,6 +613,7 @@ pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport {
                 hero.mn_name
             )),
             modifier_name: Some(hero.mn_name.clone()),
+            source: Some(hero.source),
             ..Default::default()
         });
     }
@@ -594,7 +632,7 @@ pub fn check_boss_in_context(boss: &Boss, ir: &ModIR) -> ValidationReport {
     if ir.heroes.iter().any(|h| !h.removed && h.mn_name.to_lowercase() == lower) {
         push_finding(&mut report, Finding {
             rule_id: V020.to_string(),
-            severity: Severity::Error,
+            severity: promote_severity(Severity::Error, Some(boss.source)),
             message: format!(
                 "Boss name '{}' conflicts with an existing hero",
                 boss.name
@@ -605,6 +643,7 @@ pub fn check_boss_in_context(boss: &Boss, ir: &ModIR) -> ValidationReport {
                 boss.name
             )),
             modifier_name: Some(boss.name.clone()),
+            source: Some(boss.source),
             ..Default::default()
         });
     }
@@ -612,7 +651,7 @@ pub fn check_boss_in_context(boss: &Boss, ir: &ModIR) -> ValidationReport {
     if ir.replica_items.iter().any(|r| r.name.to_lowercase() == lower) {
         push_finding(&mut report, Finding {
             rule_id: V020.to_string(),
-            severity: Severity::Error,
+            severity: promote_severity(Severity::Error, Some(boss.source)),
             message: format!(
                 "Boss name '{}' conflicts with an existing replica item",
                 boss.name
@@ -623,6 +662,7 @@ pub fn check_boss_in_context(boss: &Boss, ir: &ModIR) -> ValidationReport {
                 boss.name
             )),
             modifier_name: Some(boss.name.clone()),
+            source: Some(boss.source),
             ..Default::default()
         });
     }
@@ -630,7 +670,7 @@ pub fn check_boss_in_context(boss: &Boss, ir: &ModIR) -> ValidationReport {
     if ir.monsters.iter().any(|m| m.name.to_lowercase() == lower) {
         push_finding(&mut report, Finding {
             rule_id: V020.to_string(),
-            severity: Severity::Error,
+            severity: promote_severity(Severity::Error, Some(boss.source)),
             message: format!(
                 "Boss name '{}' conflicts with an existing monster",
                 boss.name
@@ -641,6 +681,7 @@ pub fn check_boss_in_context(boss: &Boss, ir: &ModIR) -> ValidationReport {
                 boss.name
             )),
             modifier_name: Some(boss.name.clone()),
+            source: Some(boss.source),
             ..Default::default()
         });
     }
@@ -658,6 +699,10 @@ mod tests {
     use crate::ir::*;
 
     /// Helper: create a minimal hero for testing.
+    ///
+    /// Defaults to `Source::Base` so severity-promotion (per §F5) leaves the
+    /// rule's native severity intact; tests that exercise the Custom/Overlay
+    /// escalation set `source` explicitly.
     fn make_hero(name: &str, color: char) -> Hero {
         Hero {
             internal_name: name.to_lowercase(),
@@ -666,7 +711,7 @@ mod tests {
             format: HeroFormat::default(),
             blocks: vec![],
             removed: false,
-            source: Source::Custom,
+            source: Source::Base,
         }
     }
 
@@ -687,7 +732,7 @@ mod tests {
             item_modifiers: None,
             sticker: None,
             toggle_flags: None,
-            source: Source::Custom,
+            source: Source::Base,
         }
     }
 
@@ -702,7 +747,7 @@ mod tests {
             event_phases: None,
             doc: None,
             modifier_chain: None,
-            source: Source::Custom,
+            source: Source::Base,
         }
     }
 
@@ -716,8 +761,21 @@ mod tests {
                 hero_refs: refs.into_iter().map(|s| s.to_string()).collect(),
             },
             derived: false,
-            source: Source::Custom,
+            source: Source::Base,
         }
+    }
+
+    /// Test helper: every finding in the report regardless of severity lane.
+    /// Used by tests that assert a rule fires without caring about the §F5
+    /// severity-promotion policy (which routes findings to different lanes
+    /// based on the offending entity's `source`).
+    fn all_findings(report: &ValidationReport) -> Vec<&Finding> {
+        report
+            .errors
+            .iter()
+            .chain(report.warnings.iter())
+            .chain(report.info.iter())
+            .collect()
     }
 
     // -- V019: Hero color uniqueness --
@@ -837,20 +895,17 @@ mod tests {
 
         let report = check_references(&ir);
 
-        assert_eq!(report.errors.len(), 1, "Expected one error for unresolved hero pool ref");
-        assert_eq!(report.errors[0].rule_id, "V016");
-        assert!(
-            report.errors[0].message.contains("nonexistent"),
-            "Error should mention the unresolved reference"
-        );
-        assert!(
-            report.errors[0].field_path.is_some(),
-            "field_path must be populated"
-        );
-        assert!(
-            report.errors[0].suggestion.is_some(),
-            "suggestion must be populated"
-        );
+        // Base-sourced V016 promotes Error → Warning per §F5.
+        let v016: Vec<_> = all_findings(&report)
+            .into_iter()
+            .filter(|f| f.rule_id == "V016")
+            .collect();
+        assert_eq!(v016.len(), 1, "Expected one V016 finding");
+        assert_eq!(v016[0].severity, Severity::Warning, "Base source demotes V016 to Warning");
+        assert_eq!(v016[0].source, Some(Source::Base));
+        assert!(v016[0].message.contains("nonexistent"));
+        assert!(v016[0].field_path.is_some());
+        assert!(v016[0].suggestion.is_some());
     }
 
     #[test]
@@ -898,11 +953,14 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.replica_items.push(make_replica_item("Pikachu"));
 
-        let new_hero = make_hero("Pikachu", 'a');
+        // Author-added hero (Source::Custom) — §F5 keeps V020's Error severity.
+        let mut new_hero = make_hero("Pikachu", 'a');
+        new_hero.source = Source::Custom;
         let report = check_hero_in_context(&new_hero, &ir);
 
         assert_eq!(report.errors.len(), 1, "Should detect cross-category name conflict");
         assert_eq!(report.errors[0].rule_id, "V020");
+        assert_eq!(report.errors[0].source, Some(Source::Custom));
     }
 
     #[test]
@@ -922,11 +980,14 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Pikachu", 'a'));
 
-        let boss = make_boss("Pikachu");
+        // Author-added boss (Source::Custom) — §F5 keeps V020's Error severity.
+        let mut boss = make_boss("Pikachu");
+        boss.source = Source::Custom;
         let report = check_boss_in_context(&boss, &ir);
 
         assert_eq!(report.errors.len(), 1, "Should detect cross-category name conflict");
         assert_eq!(report.errors[0].rule_id, "V020");
+        assert_eq!(report.errors[0].source, Some(Source::Custom));
     }
 
     #[test]
@@ -995,10 +1056,16 @@ mod tests {
         let mut report = ValidationReport::default();
         check_face_template_compat_with_table(&ir, synthetic, &mut report);
 
-        assert_eq!(report.errors.len(), 1, "expected one X016 finding");
-        assert_eq!(report.errors[0].rule_id, "X016");
-        assert!(report.errors[0].message.contains("170"));
-        assert!(report.errors[0].message.contains("Goblin"));
+        // Base-sourced hero demotes X016 to Warning per §F5.
+        let x016: Vec<_> = all_findings(&report)
+            .into_iter()
+            .filter(|f| f.rule_id == "X016")
+            .collect();
+        assert_eq!(x016.len(), 1, "expected one X016 finding");
+        assert_eq!(x016[0].severity, Severity::Warning);
+        assert_eq!(x016[0].source, Some(Source::Base));
+        assert!(x016[0].message.contains("170"));
+        assert!(x016[0].message.contains("Goblin"));
     }
 
     #[test]
@@ -1036,15 +1103,17 @@ mod tests {
             item_modifiers: None,
             sticker: None,
             toggle_flags: None,
-            source: Source::Custom,
+            source: Source::Base,
         });
 
         let report = check_references(&ir);
 
-        assert_eq!(report.errors.len(), 0, "X017 must be a warning, not an error");
+        // Base source: §F5 policy keeps X017's native Warning severity.
+        assert_eq!(report.errors.len(), 0, "X017 on Base source must stay Warning");
         let x017: Vec<_> = report.warnings.iter().filter(|f| f.rule_id == "X017").collect();
         assert_eq!(x017.len(), 1);
         assert_eq!(x017[0].severity, Severity::Warning);
+        assert_eq!(x017[0].source, Some(Source::Base));
         assert!(x017[0].message.contains("9999"));
     }
 
@@ -1123,7 +1192,7 @@ mod tests {
             doc: None,
             modifier_chain: None,
             balance: None,
-            source: Source::Custom,
+            source: Source::Base,
         });
 
         // Surfaces 5 & 6: FightUnit.sd (id 9005) + FightUnit.nested_units[].sd (id 9006)

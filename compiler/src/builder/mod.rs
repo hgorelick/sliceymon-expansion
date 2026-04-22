@@ -8,6 +8,9 @@ pub mod chain_emitter;
 pub mod reward_emitter;
 pub mod phase_emitter;
 pub mod derived;
+pub mod options;
+
+pub use options::{BuildOptions, SourceFilter, SourceSet};
 
 use crate::error::CompilerError;
 use crate::ir::{ModIR, StructuralType};
@@ -20,119 +23,109 @@ use crate::ir::{ModIR, StructuralType};
 /// gen select, difficulty, end screen, art credits
 ///
 /// Output format: one modifier per line, comma-terminated, with blank spacer lines.
+///
+/// Thin wrapper over [`build_with`]; equivalent to
+/// `build_with(ir, &BuildOptions::default())`.
 pub fn build(ir: &ModIR) -> Result<String, CompilerError> {
-    // Type-based assembly for all mods.
+    build_with(ir, &BuildOptions::default())
+}
+
+/// Build a textmod string from a ModIR, honoring the supplied [`BuildOptions`].
+///
+/// Per PLATFORM_FOUNDATIONS_PLAN §F5, every content-emission site consults
+/// `opts.include.admits(entity.source)` before emitting. Structural modifiers
+/// carry their own `source`; heroes / replica items / monsters / bosses use
+/// their top-level `source`. Derived structurals are regenerated from the
+/// post-filter content set (this function itself emits only what is in `ir`;
+/// `build_complete` owns regeneration).
+pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerError> {
+    let filter = &opts.include;
     let mut modifiers: Vec<String> = Vec::new();
 
+    let emit_structurals =
+        |modifiers: &mut Vec<String>, kind: StructuralType| {
+            for s in ir
+                .structural
+                .iter()
+                .filter(|s| s.modifier_type == kind && filter.admits(s.source))
+            {
+                modifiers.push(structural_emitter::emit(s));
+            }
+        };
+
     // 1. Party config
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::PartyConfig) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::PartyConfig);
 
     // 2. Event modifiers
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::EventModifier) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::EventModifier);
 
     // 3. Dialogs
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::Dialog) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::Dialog);
 
     // 4. Selectors
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::Selector) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::Selector);
 
     // 5. HeroPool base (template list)
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::HeroPoolBase) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::HeroPoolBase);
 
     // 6. Heroes
-    for hero in &ir.heroes {
+    for hero in ir.heroes.iter().filter(|h| filter.admits(h.source)) {
         modifiers.push(hero_emitter::emit(hero)?);
     }
 
     // 7. Level-up action
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::LevelUpAction) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::LevelUpAction);
 
     // 8. Item pools
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::ItemPool) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::ItemPool);
 
     // 9. Replica items (captures, legendaries, etc.)
-    for item in &ir.replica_items {
+    for item in ir.replica_items.iter().filter(|i| filter.admits(i.source)) {
         modifiers.push(replica_item_emitter::emit(item)?);
     }
 
     // 11. Monsters
-    for mon in &ir.monsters {
+    for mon in ir.monsters.iter().filter(|m| filter.admits(m.source)) {
         modifiers.push(monster_emitter::emit_monster(mon)?);
     }
 
     // 12. Bosses
-    for boss in &ir.bosses {
+    for boss in ir.bosses.iter().filter(|b| filter.admits(b.source)) {
         modifiers.push(boss_emitter::emit_boss(boss)?);
     }
 
     // 12b. Pool replacements (structural)
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::PoolReplacement) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::PoolReplacement);
 
     // 13. Boss modifiers
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::BossModifier) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::BossModifier);
 
     // 14. Gen select
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::GenSelect) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::GenSelect);
 
     // 15. Difficulty
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::Difficulty) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::Difficulty);
 
     // 16. End screen
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::EndScreen) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::EndScreen);
 
     // 17. Art credits
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::ArtCredits) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::ArtCredits);
 
     // 18. Phase modifiers
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::PhaseModifier) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::PhaseModifier);
 
     // 19. Choosables
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::Choosable) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::Choosable);
 
     // 20. Value modifiers
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::ValueModifier) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::ValueModifier);
 
     // 21. Hidden modifiers
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::HiddenModifier) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::HiddenModifier);
 
     // 22. Fight modifiers
-    for s in ir.structural.iter().filter(|s| s.modifier_type == StructuralType::FightModifier) {
-        modifiers.push(structural_emitter::emit(s));
-    }
+    emit_structurals(&mut modifiers, StructuralType::FightModifier);
 
     // Join with comma + blank line (sliceymon format)
     let output = modifiers.join(",\n\n");
