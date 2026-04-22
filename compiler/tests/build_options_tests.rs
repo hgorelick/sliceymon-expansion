@@ -105,12 +105,19 @@ fn build_default_equivalent_to_build_with_default_opts() {
 
 #[test]
 fn source_filter_admits_const() {
-    // Compile-time proof that `admits` is `const fn` — if admits were
-    // downgraded to non-const, this expression fails to evaluate in a const
-    // context and the test binary will not build.
-    const ADMITS_BASE: bool = SourceFilter::All.admits(Source::Base);
-    const ADMITS_CUSTOM: bool = SourceFilter::All.admits(Source::Custom);
-    assert!(ADMITS_BASE && ADMITS_CUSTOM);
+    // Compile-time pin: `const _` items force const-evaluation, so if `admits`
+    // were downgraded to a non-const fn these lines fail to compile and the
+    // test binary does not build.
+    const _: bool = SourceFilter::All.admits(Source::Base);
+    const _: bool = SourceFilter::All.admits(Source::Custom);
+    const _: bool = SourceFilter::Only(SourceSet::empty()).admits(Source::Base);
+
+    // Runtime truth: exercises `admits` on real values (not const-eval'd) so
+    // the test body does work even on a successful compile.
+    let only_empty = SourceFilter::Only(SourceSet::empty());
+    let all = SourceFilter::All;
+    assert!(!only_empty.admits(Source::Base));
+    assert!(all.admits(Source::Overlay));
 }
 
 // -- promote_severity helper cross-product ---------------------------------
@@ -153,9 +160,7 @@ fn v019_finding_source_populated() {
     // Two heroes with the same color → V019 fires.
     let mut ir = ModIR::empty();
     ir.heroes.push(minimal_hero("First", 'a', Source::Base));
-    let mut second = minimal_hero("Second", 'a', Source::Custom);
-    second.source = Source::Custom;
-    ir.heroes.push(second);
+    ir.heroes.push(minimal_hero("Second", 'a', Source::Custom));
 
     let report = textmod_compiler::check_references(&ir);
     let v019: Vec<_> = report
