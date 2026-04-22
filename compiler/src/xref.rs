@@ -242,29 +242,40 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
             .push((monster.name.clone(), "monster"));
     }
 
-    for (_key, entries) in &owners {
-        if entries.len() > 1 {
-            let display_name = &entries[0].0;
-            let mut buckets: Vec<&str> = entries.iter().map(|(_, b)| *b).collect();
-            buckets.sort();
-            buckets.dedup();
-            push_finding(report, Finding {
-                rule_id: X003.to_string(),
-                severity: Severity::Error,
-                message: format!(
-                    "Pokemon '{}' appears in multiple buckets: [{}] (SPEC §6.3)",
-                    display_name,
-                    buckets.join(", ")
-                ),
-                field_path: Some(format!("pokemon_buckets[{}]", display_name)),
-                modifier_name: Some(display_name.clone()),
-                suggestion: Some(format!(
-                    "Rename '{}' so it exists in exactly one of: hero, capture, legendary, monster",
-                    display_name
-                )),
-                ..Default::default()
-            });
+    // Sort keys so finding order is deterministic when multiple duplicates
+    // exist (HashMap iteration order is randomized per-process).
+    let mut keys: Vec<&String> = owners.keys().collect();
+    keys.sort();
+
+    for key in keys {
+        let entries = &owners[key];
+        let mut buckets: Vec<&str> = entries.iter().map(|(_, b)| *b).collect();
+        buckets.sort();
+        buckets.dedup();
+        // X003 is a *cross-bucket* check per SPEC §6.3 ("a Pokemon may exist
+        // in at most one of"). Intra-bucket duplicates (e.g., two heroes with
+        // the same name) are V-rule territory; don't emit a confusing
+        // `buckets: [hero]` finding here.
+        if buckets.len() < 2 {
+            continue;
         }
+        let display_name = &entries[0].0;
+        push_finding(report, Finding {
+            rule_id: X003.to_string(),
+            severity: Severity::Error,
+            message: format!(
+                "Pokemon '{}' appears in multiple buckets: [{}] (SPEC §6.3)",
+                display_name,
+                buckets.join(", ")
+            ),
+            field_path: Some(format!("pokemon_buckets[{}]", display_name)),
+            modifier_name: Some(display_name.clone()),
+            suggestion: Some(format!(
+                "Rename '{}' so it exists in exactly one of: hero, capture, legendary, monster",
+                display_name
+            )),
+            ..Default::default()
+        });
     }
 }
 
@@ -1018,6 +1029,23 @@ mod tests {
         let report = check_references(&ir);
         let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
         assert!(x003.is_empty(), "unique names across buckets must produce no X003");
+    }
+
+    #[test]
+    fn x003_silent_on_intra_bucket_duplicate() {
+        // Two replica items with the same name — same bucket (capture). X003
+        // is a cross-bucket check per SPEC §6.3; intra-bucket duplicates are
+        // V-rule territory (V019 etc.), not a Pokemon-bucket collision.
+        let mut ir = ModIR::empty();
+        ir.replica_items.push(make_replica_item("Pikachu"));
+        ir.replica_items.push(make_replica_item("Pikachu"));
+
+        let report = check_references(&ir);
+        let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
+        assert!(
+            x003.is_empty(),
+            "X003 must not fire for intra-bucket duplicates (two captures of the same name)",
+        );
     }
 
     // -- V016: Hero pool references --
