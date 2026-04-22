@@ -114,11 +114,17 @@ fn extract_outer_n_name(modifier: &str) -> Option<String> {
 /// Legendaries carry no container name; `ReplicaItemContainer::Legendary` makes
 /// that unrepresentable at the type level.
 pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
-    // Strip the leading `item.` (case-insensitive).
+    // Strip the leading `item.` (case-insensitive). The classifier's
+    // `ModifierType::Legendary` gate (extractor/classifier.rs) only routes
+    // top-level `item.*` here; if that invariant is ever broken, fail loud
+    // rather than silently parsing garbage as a Legendary body.
     let body = modifier
         .get(5..)
         .filter(|_| modifier.len() >= 5 && modifier[..5].eq_ignore_ascii_case("item."))
-        .unwrap_or(modifier);
+        .expect(
+            "parse_legendary invoked with a modifier that does not start with `item.` — \
+             classifier invariant broken (see extractor/classifier.rs)",
+        );
     // `n.NAME` at depth 0 is the character name for Legendary (no outer
     // container wraps it, so there is only one `.n.`).
     let name = util::find_at_depth0(body, ".n.")
