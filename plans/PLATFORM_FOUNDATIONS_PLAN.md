@@ -411,6 +411,19 @@ Replace each with structured error propagation using the new `CompilerError` sha
 
 Before starting Chunk 7, re-run the audit (`rg '\.unwrap\(\)|\.expect\(|panic!\(|unimplemented!|todo!\(' compiler/src/` with test-block stripping) to confirm the count — the baseline may drift as §F0 and earlier chunks land and add new error paths. SPEC §8.
 
+### F9. V020 restructure — remove overlap with X003 on cross-bucket Pokemon
+
+Post-F7, `X003` (SPEC §6.3) owns cross-bucket Pokemon uniqueness across `hero / capture / legendary / monster`. `V020`'s `check_cross_category_names` (`xref.rs:465-515`) runs the same collision pass on the same data + bosses, so any `hero↔replica`, `hero↔monster`, or `replica↔monster` duplicate emits both V020 and X003 — two findings for one defect. SPEC §3.7 forbids parallel representations; this is a parallel-rule instance.
+
+Fix: V020's `check_cross_category_names` keeps its 4-bucket collection (hero, replica, monster, boss) for single-scan efficiency, but **skips emission when the distinct colliding bucket set is a subset of `{hero, replica_item, monster}` with cardinality ≥2** — X003 owns that slice. V020 still fires for every case X003 cannot own:
+
+- Any collision that includes a boss (`hero↔boss`, `replica↔boss`, `monster↔boss`, `boss↔boss`). SPEC §6.3 scopes Pokemon uniqueness to `{hero, replica items, monster}`; bosses are not Pokemon, so X003 does not cover them.
+- Any intra-bucket duplicate (two heroes same name, two replicas same name, two monsters same name, two bosses same name). X003 was tightened in Chunk 6 to require ≥2 distinct buckets, so intra-bucket duplicates are V020's sole territory.
+
+X003 is unchanged. Each defect now surfaces under exactly one rule ID.
+
+**Scope note.** The single-item CRUD checks (`check_hero_in_context`, `check_boss_in_context` at `xref.rs:593-648` and `:656-714`) validate *one new item* against a loaded IR and do not produce the double-fire (X003 is a whole-IR rule, not a per-item one). They are explicitly out of scope for F9.
+
 ---
 
 ## Implementation Plan
@@ -426,7 +439,7 @@ Before starting Chunk 7, re-run the audit (`rg '\.unwrap\(\)|\.expect\(|panic!\(
   4. Duplicating an identical 4-line incantation across N parser callsites is a plan smell. Either the incantation belongs in one helper (extract the helper as part of the chunk), or there's only one correct line to write (use that one line). Duplication encodes the incantation's wrongness N times; a helper at least concentrates it.
 
 ### Checkpoint Configuration
-- Total chunks: 10 (0, 1, 2, 3a, 3b, 3c, 4, 5, 6, 7).
+- Total chunks: 11 (0, 1, 2, 3a, 3b, 3c, 4, 5, 6, 7, 8).
 - Checkpoint frequency: After Chunk 0 (error type lands), Chunk 2 (SPEC §3.6 amendment + newtypes + IR flip), Chunk 3c (HashMap dropped + sprite consolidation), and Chunk 7 (final). Chunk 2's checkpoint is load-bearing because it lands a SPEC amendment; a missed amendment here invalidates every later chunk that cites the permissive whitelist.
 
 ### Parallel Execution Map — conflict-verified
@@ -443,6 +456,7 @@ File-level conflict matrix (every chunk's primary writes):
 | 5 (merge sig → `&mut`, strips derived, new regenerators, is_derived, unconditional regen) | yes (`is_derived` helper) | yes (merge sig) | — | — | — | — | **yes** | **yes** |
 | 6 (`ReplicaItemContainer` enum replaces `container_name`) | **yes** | — | — | — | yes (X003 new) | — | — | yes (merge match-by-key) |
 | 7 (lib-code unwrap/expect/panic elimination) | no (hits are in extractor/builder only) | no | — | — | — | — | — | — |
+| 8 (V020 restructure — drop cross-bucket Pokemon overlap with X003) | — | — | — | — | **yes** (V020 emission narrowed) | — | — | — |
 
 **True dependency graph (after the conflict matrix):**
 
@@ -455,7 +469,8 @@ Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
   │                       └── Chunk 3c (drop HashMap from public API) ✅ COMPLETE (2026-04-21, PR #6 merged)
   │                             ├── Chunk 4 (BuildOptions + build_with + Finding.source) ✅ COMPLETE (2026-04-22)
   │                             └── Chunk 6 (ReplicaItemContainer enum replaces container_name) ✅ COMPLETE (2026-04-21)
-  │                                   └── Chunk 5 (merge strips + new regenerators + unconditional regen)
+  │                                   ├── Chunk 5 (merge strips + new regenerators + unconditional regen)
+  │                                   └── Chunk 8 (V020 restructure — remove cross-bucket Pokemon overlap) [needs both 4 and 6]
   └── Chunk 7 (lib-code unwrap/expect/panic elimination) [parallel from Chunk 0 completion onward; no shared files with 1..6]
 ```
 
@@ -463,9 +478,10 @@ Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
 - **Sequential foundation**: Chunk 0 → Chunk 1 → Chunk 2 → Chunk 3a → Chunk 3b → Chunk 3c.
 - **Merge checkpoint after Chunk 3c**: Chunks 4 and 6 both touch `xref.rs`, and Chunk 7 touches `builder/hero_emitter.rs` which Chunk 3c also edits. To avoid merge-conflict gymnastics, the branches are prepared in parallel but merged **sequentially in this order**: 4 → 6 → 7. Each merge re-runs the local verification tests before the next merges. This is a **critical checkpoint** per AI-dev persona §Designing for Parallel Multi-Agent Execution rule 6.
 - **Sequential after Chunk 6**: Chunk 5 (depends on Chunk 6's `ReplicaItemContainer` enum, which `generate_hero_item_pool` matches on).
+- **Sequential after Chunks 4 and 6**: Chunk 8 (needs X003 from Chunk 6 to defer to, and V020's `Finding.source` shape from Chunk 4 so its test assertions compile). Parallel with Chunks 5 and 7 — Chunk 8 only touches `xref.rs`; Chunk 5 writes `ir/merge.rs` / `builder/derived.rs` / `builder/mod.rs`; Chunk 7 writes extractor lib-code + post-3c `hero_emitter.rs`. No overlap.
 - **Chunk 7 scope**: runs after Chunk 3c lands (not from round 2), because 3c touches `hero_emitter.rs` which 7 also edits. Running 7 earlier would require re-doing 7's edits after 3c rewrites the function signatures. Chunk 7's scope is therefore fixed at audit time (immediately before it starts), not at plan-write time — the "6 across 5 files" baseline at plan-write is indicative, not binding.
 
-**Honest minimum wall-clock rounds**: 9 rounds for the main track (0 → 1 → 2 → 3a → 3b → 3c → 4 → 6 → {5, 7 parallel — no shared files once 3c/4/6 land}). Chunk 5 touches `ir/merge.rs`, `builder/derived.rs`, `builder/mod.rs`; Chunk 7 touches only lib-code panic sites in extractor/ and the post-3c `hero_emitter.rs`. They are truly parallel at that point.
+**Honest minimum wall-clock rounds**: 9 rounds for the main track (0 → 1 → 2 → 3a → 3b → 3c → 4 → 6 → {5, 7, 8 parallel — no shared files once 3c/4/6 land}). Chunk 5 touches `ir/merge.rs`, `builder/derived.rs`, `builder/mod.rs`; Chunk 7 touches lib-code panic sites in extractor/ and the post-3c `hero_emitter.rs`; Chunk 8 touches `xref.rs` only. All three are truly parallel at that point.
 
 The original plan's "Minimum wall-clock rounds: 3" was false — Chunks 2, 3, and 5/6/7 were not actually parallelizable, and Chunk 3's 11-file scope required sub-chunking.
 
@@ -774,6 +790,44 @@ Callers in the same files or their module roots that previously could not fail m
 
 ---
 
+### Chunk 8: V020 restructure — remove cross-bucket Pokemon overlap with X003 [serial after Chunks 4 and 6; parallel with 5 and 7]
+**Spec**: §F9
+**Files**: `compiler/src/xref.rs` only (production code + in-file `#[cfg(test)]` tests).
+**Dependencies**:
+- Chunk 4 (V020's `Finding.source` retrofit must land so Chunk 8's test assertions compile against `finding.source`).
+- Chunk 6 (X003 must exist so V020 can narrow to the slice X003 does not own).
+**Parallel with**: Chunks 5 and 7 (no shared files).
+**Merge ordering**: merges after 4 and 6. No constraint against 5 or 7.
+
+**Context** — re-state of actual V-rule meanings in code as of plan-write, to prevent drift:
+- V016 = hero pool references resolve (`xref.rs:529`).
+- V019 = hero color uniqueness (`xref.rs:434`).
+- V020 = cross-category name uniqueness (`xref.rs:470`). This chunk narrows V020's emission; its 4-bucket collection (hero / replica / monster / boss) stays intact.
+- X003 = SPEC §6.3 Pokemon uniqueness across `{hero, capture, legendary, monster}` (`xref.rs:192`). Does not include bosses.
+
+**Requirements**:
+- Update `check_cross_category_names` at `xref.rs:465-515`. After bucket collection, compute the distinct bucket-label set for the colliding entries. Skip emission iff that set is a subset of `{hero, replica_item, monster}` with cardinality ≥2 — X003 owns that slice. Otherwise emit V020 as today. No other V020 behavior changes.
+- Do **not** introduce a new rule ID. V020's scope remains "cross-category name uniqueness"; F9 narrows its emission predicate, not its semantics.
+- Do **not** modify the single-item CRUD checks (`check_hero_in_context`, `check_boss_in_context`). They validate one new item and don't produce the whole-IR double-fire.
+- Update the two existing V020 tests that currently assert cross-bucket `hero↔replica` firings (`test_v020_cross_category_duplicate` and `test_v020_case_insensitive` at `xref.rs:841-874`, which — after Chunk 6 landed — already filter by `rule_id == "V020"` because X003 fires alongside). Post-F9, V020 must NOT fire on those inputs; X003 is the sole owner. Rewrite the assertions accordingly.
+- The `modifier_name` field on each retained V020 finding must populate from the offending entity (not `None`), for parity with X003 and other V-rules post-Chunk 4.
+
+**Verification — specific tests**:
+- [ ] `xref::v020_silent_on_cross_bucket_pokemon` — ModIR with hero "Pikachu" + capture "Pikachu" → `report.errors.iter().filter(|f| f.rule_id == "V020").count() == 0` AND `report.errors.iter().filter(|f| f.rule_id == "X003").count() == 1`. Same for `hero+monster` and `capture+monster` pairs.
+- [ ] `xref::v020_still_fires_on_boss_hero_collision` — hero "Pikachu" + boss "Pikachu" → V020 fires exactly once; X003 is silent (SPEC §6.3 excludes bosses). Source-vs-IR proof: invent a boss name that cannot appear in any registry lookup (e.g. "Zzzboss") to rule out a regression that routed the boss through a Pokemon-bucket.
+- [ ] `xref::v020_still_fires_on_boss_replica_collision` — replica (Capture *and* Legendary variants, separate sub-cases) + boss with same name → V020 fires; X003 does not.
+- [ ] `xref::v020_still_fires_on_intra_bucket_duplicate_heroes` — two heroes with same name → V020 fires exactly once. (X003 is already tightened to require ≥2 distinct buckets in Chunk 6 and does not fire here.)
+- [ ] `xref::v020_still_fires_on_intra_bucket_duplicate_replicas` — two Capture replicas with same name → V020 fires; X003 silent.
+- [ ] `xref::v020_still_fires_on_intra_bucket_duplicate_monsters` — two monsters with same name → V020 fires; X003 silent.
+- [ ] `xref::v020_still_fires_on_intra_bucket_duplicate_bosses` — two bosses with same name → V020 fires; X003 silent.
+- [ ] `xref::v020_and_x003_coexist_when_collision_spans_boss_and_pokemon_buckets` — hero + capture + boss all named "Pikachu" → V020 fires (boss involvement) AND X003 fires (2 distinct Pokemon buckets). This case deliberately keeps both findings because each describes a different invariant: V020 reports the boss-involving name collision; X003 reports the SPEC §6.3 Pokemon collision. Document this in the test body so a future "dedup everything" refactor doesn't silently collapse them.
+- [ ] `xref::no_double_fire_on_working_mods` — an integration-style assertion over `check_references(&ir)` for each of the 4 working mods: for every pair `(f1, f2)` of errors where `f1.modifier_name == f2.modifier_name`, the rule IDs must differ by *invariant class*, not by redundant coverage — today, the only permitted co-fire pattern is the one in the test above.
+- [ ] All 4 working mods IR-equal roundtrip. `check_references` produces the same set of errors as pre-chunk with zero added V020 findings and the same (or strictly fewer) total findings.
+
+**Structural check (per the chunk-impl hook)**: F9 does **not** collapse two paths with different invariants. Before F9, V020 and X003 produce *identical-scope* findings on the `{hero, replica_item, monster}` cross-bucket slice — that is the parallel representation SPEC §3.7 forbids, and this chunk removes it. V020's retained scope (boss cross-category + intra-bucket) is strictly disjoint from X003's (Pokemon cross-bucket), so both rules remain single-purpose. No spec amendment is needed — SPEC §3.7 is already the authority; F9 brings the implementation back under it.
+
+---
+
 ## Final Verification
 
 - [ ] `cargo test --all` passes with no regressions.
@@ -784,6 +838,7 @@ Callers in the same files or their module roots that previously could not fail m
 - [ ] No `std::fs` / `std::process` in `compiler/src/authoring/` or any other library file.
 - [ ] Lib-code audit (`rg` with `#[cfg(test)]` stripping, enforced via `xtask`/`build.rs`) shows zero `unwrap()` / `expect()` / `panic!` / `unimplemented!` / `todo!` hits.
 - [ ] Every new xref rule (X003, X010, X016, X017) populates `field_path`, `suggestion`, and `source` on its `Finding`s. Every existing V-rule (V016, V019, V020) populates `source`.
+- [ ] V020 and X003 do not double-fire on cross-bucket Pokemon collisions (`{hero, replica_item, monster}` slice is X003's sole territory). V020 retains emission only for boss-involving collisions and intra-bucket duplicates. (Chunk 8, §F9.)
 - [ ] `merge` signature: `pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError>` (matches SPEC §5 verbatim). Warnings surface via `ModIR.warnings: Vec<Finding>`.
 - [x] `ReplicaItem` has no `container_name: String` field and no `kind: ReplicaItemKind` field; the only container-related field is `container: ReplicaItemContainer`. (Chunk 6, 2026-04-21)
 - [ ] SPEC §3.6 has been amended to name the permissive whitelist + `Unknown(raw)` variant as the spec-blessed design; SPEC §3.6's pips type annotation reads `i16`.
