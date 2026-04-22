@@ -162,7 +162,12 @@ pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
     let speech = util::extract_simple_prop(body, ".speech.");
     let abilitydata = util::extract_nested_prop(body, ".cast.")
         .map(|s| crate::ir::AbilityData::parse(&s));
-    let item_modifiers = util::extract_modifier_chain(body)
+    // Chain must also scope to before_cast: emission places the chain at the
+    // head of the body (before sd/name/cast), so a false `.i.`/`.sticker.`
+    // later in `body` (e.g. a stray `.i.` inside a `.speech.`/`.doc.` value
+    // leftover after simple-prop extraction) cannot legitimately be a chain
+    // segment of this Legendary.
+    let item_modifiers = util::extract_modifier_chain(before_cast)
         .map(|s| crate::ir::ModifierChain::parse(&s));
     let img_data = util::extract_img_data(before_cast);
     let sprite = crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default());
