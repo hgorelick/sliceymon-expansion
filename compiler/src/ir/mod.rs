@@ -422,7 +422,7 @@ impl TriggerHpDef {
         let hp = crate::util::extract_hp(inner, false);
         let sd = crate::util::extract_sd(inner, false)
             .map(|s| DiceFaces::parse(&s));
-        let color = crate::util::extract_color(inner);
+        let color = crate::util::extract_color(inner, false);
         let modifier_chain = crate::util::extract_modifier_chain(inner)
             .map(|s| ModifierChain::parse(&s));
         let img_data = crate::util::extract_img_data(inner);

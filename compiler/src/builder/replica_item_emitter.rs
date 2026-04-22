@@ -42,16 +42,19 @@ fn emit_simple(item: &ReplicaItem, container_name: &str) -> Result<String, Compi
         out.push_str(&hp.to_string());
     }
 
-    if let Some(ref chain) = item.item_modifiers {
-        out.push_str(&chain.emit());
-    }
-
+    // Scalars precede the chain so `parse_simple`'s `scalar_slice` + first-
+    // match extract can't be fooled by a chain-interior `.sd.` / `.img.`
+    // decoy (§F10, Chunk 9).
     out.push_str(".sd.");
     out.push_str(&item.sd.emit());
 
     if !item.sprite.img_data().is_empty() {
         out.push_str(".img.");
         out.push_str(item.sprite.img_data());
+    }
+
+    if let Some(ref chain) = item.item_modifiers {
+        out.push_str(&chain.emit());
     }
 
     // Inner character name
@@ -103,16 +106,19 @@ fn emit_with_ability(item: &ReplicaItem, container_name: &str) -> Result<String,
         out.push_str(&hp.to_string());
     }
 
-    if let Some(ref chain) = item.item_modifiers {
-        out.push_str(&chain.emit());
-    }
-
+    // Scalars precede the chain so `parse_with_ability`'s `scalar_slice` +
+    // first-match extract can't be fooled by a chain-interior `.sd.` /
+    // `.img.` decoy (§F10, Chunk 9).
     out.push_str(".sd.");
     out.push_str(&item.sd.emit());
 
     if !item.sprite.img_data().is_empty() {
         out.push_str(".img.");
         out.push_str(item.sprite.img_data());
+    }
+
+    if let Some(ref chain) = item.item_modifiers {
+        out.push_str(&chain.emit());
     }
 
     // Inner character name
@@ -166,16 +172,20 @@ fn emit_legendary(item: &ReplicaItem) -> Result<String, CompilerError> {
         out.push_str(&hp.to_string());
     }
 
-    if let Some(ref chain) = item.item_modifiers {
-        out.push_str(&chain.emit());
-    }
-
+    // Scalars precede the chain so `parse_legendary`'s `scalar_slice` +
+    // depth-aware extract has a chain-and-cast-free prefix to scan (§F10,
+    // Chunk 9). A chain-interior `.sd.` / `.img.` decoy therefore cannot
+    // appear before the legit top-level value.
     out.push_str(".sd.");
     out.push_str(&item.sd.emit());
 
     if !item.sprite.img_data().is_empty() {
         out.push_str(".img.");
         out.push_str(item.sprite.img_data());
+    }
+
+    if let Some(ref chain) = item.item_modifiers {
+        out.push_str(&chain.emit());
     }
 
     out.push_str(".n.");

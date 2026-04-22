@@ -189,10 +189,23 @@ pub fn extract_hp(content: &str, depth_aware: bool) -> Option<u16> {
 }
 
 /// Extract the first `.col.X` where X is a lowercase letter, skipping `.i.col.` patterns.
-pub fn extract_color(content: &str) -> Option<char> {
+///
+/// When `depth_aware` is true, only matches at paren depth 0 — i.e. the scan
+/// ignores any `.col.X` inside a nested paren group. Non-replica callers
+/// (hero/monster/boss parsers) pass `false` to preserve legacy behavior.
+pub fn extract_color(content: &str, depth_aware: bool) -> Option<char> {
     let bytes = content.as_bytes();
     let marker = b".col.";
+    let mut depth: i32 = 0;
     for i in 0..bytes.len() {
+        match bytes[i] {
+            b'(' => { depth += 1; continue; }
+            b')' => { depth -= 1; continue; }
+            _ => {}
+        }
+        if depth_aware && depth != 0 {
+            continue;
+        }
         if i + marker.len() < bytes.len() && &bytes[i..i + marker.len()] == marker {
             if i >= 2 && &bytes[i - 2..i] == b".i" {
                 continue;
@@ -208,7 +221,40 @@ pub fn extract_color(content: &str) -> Option<char> {
 
 /// Check if a modifier contains a hero with the given color letter.
 pub fn has_color(modifier: &str, target: char) -> bool {
-    extract_color(modifier) == Some(target)
+    extract_color(modifier, false) == Some(target)
+}
+
+/// Return the prefix of `body` preceding the first depth-0 occurrence of any
+/// chain / cast / ability marker: `.i.`, `.sticker.`, `.cast.`,
+/// `.abilitydata.`. When none exist at depth 0, returns the full `body` slice.
+///
+/// Replica parsers feed the result to scalar extractors for `hp` / `color` /
+/// `sd` / `img` so chain sub-entries (`.i.` / `.sticker.` — free-form
+/// `.sidesc.` / `.enchant.` text) and cast / ability effect bodies cannot
+/// leak interior `.hp.N` / `.col.X` / `.sd.FACES` / `.img.DATA` substrings
+/// into top-level fields. Emission places every scalar field before the
+/// chain / cast region, so the prefix is sufficient.
+///
+/// `.abilitydata.` is included as a fourth marker because the Capture
+/// parsers read the outer cast region under that name (the Capture emitter
+/// writes `.cast.` inside the replica parens, so the outer cast-like region
+/// parsed as `.abilitydata.` is at depth 0 in the raw modifier). This is a
+/// strict superset of the plan's three markers — no callsite becomes less
+/// restrictive, and the Capture-cast leak class is closed.
+pub fn slice_before_chain_and_cast(body: &str) -> &str {
+    let mut earliest: Option<usize> = None;
+    for marker in [".i.", ".sticker.", ".cast.", ".abilitydata."] {
+        if let Some(pos) = find_at_depth0(body, marker) {
+            earliest = Some(match earliest {
+                Some(prev) => prev.min(pos),
+                None => pos,
+            });
+        }
+    }
+    match earliest {
+        Some(pos) => &body[..pos],
+        None => body,
+    }
 }
 
 /// Extract `replica.TEMPLATE` — the template name after `replica.`.
@@ -461,6 +507,58 @@ mod tests {
     fn extract_img_data_missing() {
         let content = "replica.Lost.sd.0:0:0:0:0:0.n.Gible";
         assert_eq!(extract_img_data(content), None);
+    }
+
+    #[test]
+    fn slice_before_chain_and_cast_no_markers_returns_full_body() {
+        // No `.i.` / `.sticker.` / `.cast.` anywhere → the full body is
+        // returned verbatim. Pins the no-op path so a future change can't
+        // silently truncate legendary bodies that have no chain or cast.
+        let body = "Alpha.hp.5.sd.0:0:0:0:0:0.n.Mew";
+        assert_eq!(slice_before_chain_and_cast(body), body);
+    }
+
+    #[test]
+    fn slice_before_chain_and_cast_skips_nested_markers() {
+        // `.cast.(a.i.b)`: `.i.` is at depth 1 (inside the cast parens),
+        // `.cast.` is at depth 0. The slice must end at `.cast.`, not at
+        // the nested `.i.`. Pins the depth-aware scan.
+        let body = "Alpha.cast.(a.i.b)";
+        let cast_pos = body.find(".cast.").unwrap();
+        assert_eq!(slice_before_chain_and_cast(body), &body[..cast_pos]);
+    }
+
+    #[test]
+    fn slice_before_chain_and_cast_returns_earliest_of_three_markers() {
+        // Of `.i.` / `.sticker.` / `.cast.`, the earliest depth-0 occurrence
+        // wins — the slice cuts at whichever appears first.
+        let body = "Alpha.sticker.Foo.i.hat.pad.cast.(x)";
+        let sticker_pos = body.find(".sticker.").unwrap();
+        assert_eq!(slice_before_chain_and_cast(body), &body[..sticker_pos]);
+    }
+
+    #[test]
+    fn extract_color_depth_aware_skips_parens() {
+        // `depth_aware = true` must skip matches inside parentheses.
+        // First depth-0 `.col.` is `.col.b`; the `.col.c` inside
+        // `(...)` is at depth 1 and must be ignored.
+        let content = "a.col.b.(.col.c)";
+        assert_eq!(extract_color(content, true), Some('b'));
+        // Without depth-awareness, the legacy first-match behavior is
+        // preserved: both scans walk into `.col.b` first anyway, but the
+        // flag is observable on shapes where the in-paren match is the
+        // FIRST match textually.
+        let content2 = "(.col.c).col.b";
+        assert_eq!(
+            extract_color(content2, false),
+            Some('c'),
+            "non-depth-aware must pick the first match regardless of paren depth",
+        );
+        assert_eq!(
+            extract_color(content2, true),
+            Some('b'),
+            "depth-aware must skip the depth-1 match and pick the depth-0 one",
+        );
     }
 
     #[test]

@@ -52,7 +52,7 @@ fn parse_grouped(modifier: &str, _modifier_index: usize) -> Hero {
             s
         });
 
-    let color = util::extract_color(modifier).unwrap_or('?');
+    let color = util::extract_color(modifier, false).unwrap_or('?');
 
     // Find heropool content
     let hp_marker = find_heropool_marker(modifier);
@@ -194,8 +194,8 @@ fn try_parse_grouped_block(block: &str) -> Option<HeroBlock> {
         .or_else(|| util::extract_sd(&outside_combined, true))
         .map(|s| crate::ir::DiceFaces::parse(&s))
         .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
-    let block_color = util::extract_color(&template_flat)
-        .or_else(|| util::extract_color(&outside_combined));
+    let block_color = util::extract_color(&template_flat, false)
+        .or_else(|| util::extract_color(&outside_combined, false));
 
     let abilitydata = util::extract_nested_prop(&template_flat, ".abilitydata.")
         .or_else(|| util::extract_nested_prop(&outside_combined, ".abilitydata."))
@@ -338,7 +338,7 @@ fn try_parse_sliceymon(modifier: &str, modifier_index: usize) -> Result<Hero, Co
         }
     }
 
-    let color = util::extract_color(heropool_content).unwrap_or('?');
+    let color = util::extract_color(heropool_content, false).unwrap_or('?');
 
     let mn_name = util::extract_mn_name(modifier)
         .or_else(|| util::extract_last_n_name(modifier))
@@ -511,7 +511,7 @@ fn parse_tier_block(
     let sd = util::extract_sd(replica_content, true)
         .map(|s| crate::ir::DiceFaces::parse(&s))
         .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
-    let block_color = util::extract_color(replica_content);
+    let block_color = util::extract_color(replica_content, false);
     let img_data = util::extract_img_data(replica_content)
         .or_else(|| util::extract_img_data(outside_content));
 
@@ -753,9 +753,9 @@ mod tests {
     #[test]
     fn test_find_hero_color() {
         let content = "(replica.Lost.col.a.hp.5.sd.0:0:0:0:0:0)";
-        assert_eq!(util::extract_color(content), Some('a'));
+        assert_eq!(util::extract_color(content, false), Some('a'));
         // .i.col should NOT be detected as color
         let content2 = "(replica.Lost.i.col.k.pain.col.b)";
-        assert_eq!(util::extract_color(content2), Some('b'));
+        assert_eq!(util::extract_color(content2, false), Some('b'));
     }
 }
