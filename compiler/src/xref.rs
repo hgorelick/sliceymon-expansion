@@ -260,9 +260,14 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
             continue;
         }
         let display_name = &entries[0].0;
+        // X003 is a global cross-bucket finding: there is no single offending
+        // entity whose `source` would be authoritative. Mirrors the Chunk 4
+        // precedent for V020's `check_cross_category_names` (plan §F5 —
+        // "global — source: None because there is no single offending entity;
+        // severity stays Error"). `promote_severity(Error, None)` = Error.
         push_finding(report, Finding {
             rule_id: X003.to_string(),
-            severity: Severity::Error,
+            severity: promote_severity(Severity::Error, None),
             message: format!(
                 "Pokemon '{}' appears in multiple buckets: [{}] (SPEC §6.3)",
                 display_name,
@@ -274,6 +279,7 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
                 "Rename '{}' so it exists in exactly one of: hero, capture, legendary, monster",
                 display_name
             )),
+            source: None,
             ..Default::default()
         });
     }
@@ -1029,6 +1035,24 @@ mod tests {
         let report = check_references(&ir);
         let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
         assert!(x003.is_empty(), "unique names across buckets must produce no X003");
+    }
+
+    #[test]
+    fn x003_finding_is_global_source_none() {
+        // X003 is a cross-bucket finding: no single offending entity, so
+        // `source` stays None and severity stays Error — mirrors V020's
+        // cross-category behavior (Chunk 4 §F5). Pin this so a future
+        // "retrofit source on every X-rule" sweep doesn't silently attribute
+        // the collision to one entity's bucket.
+        let mut ir = ModIR::empty();
+        ir.heroes.push(make_hero("Pikachu", 'a'));
+        ir.replica_items.push(make_replica_item("Pikachu"));
+
+        let report = check_references(&ir);
+        let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
+        assert_eq!(x003.len(), 1);
+        assert_eq!(x003[0].source, None, "global X003 finding carries source=None");
+        assert_eq!(x003[0].severity, Severity::Error);
     }
 
     #[test]
