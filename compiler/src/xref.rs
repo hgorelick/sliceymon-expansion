@@ -12,7 +12,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::authoring::FaceIdValue;
-use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, Source, StructuralContent};
+use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, ReplicaItemContainer, Source, StructuralContent};
 
 // ---------------------------------------------------------------------------
 // Rule ID constants
@@ -21,6 +21,7 @@ use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, Source, Struc
 const V016: &str = "V016";
 const V019: &str = "V019";
 const V020: &str = "V020";
+pub const X003: &str = "X003";
 pub const X016: &str = "X016";
 pub const X017: &str = "X017";
 
@@ -194,11 +195,94 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
 
     check_hero_color_uniqueness(ir, &mut report);
     check_cross_category_names(ir, &mut report);
+    check_duplicate_pokemon_buckets(ir, &mut report);
     check_hero_pool_refs(ir, &mut report);
     check_face_template_compat(ir, &mut report);
     check_face_unknown(ir, &mut report);
 
     report
+}
+
+// ---------------------------------------------------------------------------
+// X003: No duplicate Pokemon across heroes / captures / legendaries / monsters
+// ---------------------------------------------------------------------------
+
+/// SPEC §6.3 — "A Pokemon may exist in at most one of: heroes, replica items
+/// (captures / legendaries), monsters." This rule matches on
+/// `ReplicaItem.container` to route items into per-kind buckets, which V020
+/// does not — V020 collapses captures and legendaries into a single
+/// `replica_item` bucket. X003 is strictly more granular.
+fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
+    // (bucket_label, original_name) pairs keyed by lowercase name.
+    let mut owners: HashMap<String, Vec<(String, &'static str)>> = HashMap::new();
+
+    for hero in &ir.heroes {
+        if hero.removed {
+            continue;
+        }
+        owners
+            .entry(hero.mn_name.to_lowercase())
+            .or_default()
+            .push((hero.mn_name.clone(), "hero"));
+    }
+    for item in &ir.replica_items {
+        let bucket = match &item.container {
+            ReplicaItemContainer::Capture { .. } => "capture",
+            ReplicaItemContainer::Legendary => "legendary",
+        };
+        owners
+            .entry(item.name.to_lowercase())
+            .or_default()
+            .push((item.name.clone(), bucket));
+    }
+    for monster in &ir.monsters {
+        owners
+            .entry(monster.name.to_lowercase())
+            .or_default()
+            .push((monster.name.clone(), "monster"));
+    }
+
+    // Sort keys so finding order is deterministic when multiple duplicates
+    // exist (HashMap iteration order is randomized per-process).
+    let mut keys: Vec<&String> = owners.keys().collect();
+    keys.sort();
+
+    for key in keys {
+        let entries = &owners[key];
+        let mut buckets: Vec<&str> = entries.iter().map(|(_, b)| *b).collect();
+        buckets.sort();
+        buckets.dedup();
+        // X003 is a *cross-bucket* check per SPEC §6.3 ("a Pokemon may exist
+        // in at most one of"). Intra-bucket duplicates (e.g., two heroes with
+        // the same name) are V-rule territory; don't emit a confusing
+        // `buckets: [hero]` finding here.
+        if buckets.len() < 2 {
+            continue;
+        }
+        let display_name = &entries[0].0;
+        // X003 is a global cross-bucket finding: there is no single offending
+        // entity whose `source` would be authoritative. Mirrors the Chunk 4
+        // precedent for V020's `check_cross_category_names` (plan §F5 —
+        // "global — source: None because there is no single offending entity;
+        // severity stays Error"). `promote_severity(Error, None)` = Error.
+        push_finding(report, Finding {
+            rule_id: X003.to_string(),
+            severity: promote_severity(Severity::Error, None),
+            message: format!(
+                "Pokemon '{}' appears in multiple buckets: [{}] (SPEC §6.3)",
+                display_name,
+                buckets.join(", ")
+            ),
+            field_path: Some(format!("pokemon_buckets[{}]", display_name)),
+            modifier_name: Some(display_name.clone()),
+            suggestion: Some(format!(
+                "Rename '{}' so it exists in exactly one of: hero, capture, legendary, monster",
+                display_name
+            )),
+            source: None,
+            ..Default::default()
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -719,7 +803,7 @@ mod tests {
     fn make_replica_item(name: &str) -> ReplicaItem {
         ReplicaItem {
             name: name.to_string(),
-            container_name: name.to_string(),
+            container: ReplicaItemContainer::Capture { name: name.to_string() },
             template: "Slime".to_string(),
             hp: Some(4),
             sd: DiceFaces { faces: vec![DiceFace::Blank] },
@@ -836,18 +920,19 @@ mod tests {
 
         let report = check_references(&ir);
 
-        assert_eq!(report.errors.len(), 1, "Expected exactly one error for cross-category duplicate");
-        assert_eq!(report.errors[0].rule_id, "V020");
+        // X003 (per-bucket) also fires on this IR; filter to V020 alone here.
+        let v020: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "V020").collect();
+        assert_eq!(v020.len(), 1, "Expected exactly one V020 finding for cross-category duplicate");
         assert!(
-            report.errors[0].message.contains("Pikachu"),
+            v020[0].message.contains("Pikachu"),
             "Error should mention the conflicting name"
         );
         assert!(
-            report.errors[0].field_path.is_some(),
+            v020[0].field_path.is_some(),
             "field_path must be populated"
         );
         assert!(
-            report.errors[0].suggestion.is_some(),
+            v020[0].suggestion.is_some(),
             "suggestion must be populated"
         );
     }
@@ -859,7 +944,8 @@ mod tests {
         ir.replica_items.push(make_replica_item("pikachu"));
 
         let report = check_references(&ir);
-        assert_eq!(report.errors.len(), 1, "Cross-category check should be case-insensitive");
+        let v020: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "V020").collect();
+        assert_eq!(v020.len(), 1, "Cross-category check should be case-insensitive");
     }
 
     #[test]
@@ -883,6 +969,107 @@ mod tests {
 
         let report = check_references(&ir);
         assert!(report.errors.is_empty(), "No errors when all names are unique");
+    }
+
+    // -- X003: No duplicate Pokemon across hero/capture/legendary/monster buckets --
+
+    fn make_legendary_replica_item(name: &str) -> ReplicaItem {
+        ReplicaItem {
+            name: name.to_string(),
+            container: ReplicaItemContainer::Legendary,
+            template: "Alpha".to_string(),
+            hp: Some(10),
+            sd: DiceFaces { faces: vec![DiceFace::Blank] },
+            sprite: crate::authoring::SpriteId::owned(name.to_lowercase(), ""),
+            color: None,
+            tier: None,
+            doc: None,
+            speech: None,
+            abilitydata: None,
+            item_modifiers: None,
+            sticker: None,
+            toggle_flags: None,
+            source: Source::Custom,
+        }
+    }
+
+    #[test]
+    fn x003_duplicate_pokemon_across_kinds() {
+        // Pikachu as both Hero and Capture — X003 must fire even though V020
+        // also catches this case. X003 reports per-bucket granularity.
+        let mut ir = ModIR::empty();
+        ir.heroes.push(make_hero("Pikachu", 'a'));
+        ir.replica_items.push(make_replica_item("Pikachu"));
+
+        let report = check_references(&ir);
+
+        let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
+        assert_eq!(x003.len(), 1, "expected one X003 finding");
+        assert!(x003[0].message.contains("Pikachu"));
+        assert!(x003[0].message.contains("hero"));
+        assert!(x003[0].message.contains("capture"));
+        assert_eq!(x003[0].modifier_name.as_deref(), Some("Pikachu"));
+    }
+
+    #[test]
+    fn x003_distinguishes_capture_from_legendary_buckets() {
+        // Same Pokemon as both Capture and Legendary — still two buckets.
+        let mut ir = ModIR::empty();
+        ir.replica_items.push(make_replica_item("Mewtwo"));
+        ir.replica_items.push(make_legendary_replica_item("Mewtwo"));
+
+        let report = check_references(&ir);
+        let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
+        assert_eq!(x003.len(), 1, "capture+legendary of same name must fire X003");
+        assert!(x003[0].message.contains("capture"));
+        assert!(x003[0].message.contains("legendary"));
+    }
+
+    #[test]
+    fn x003_silent_when_names_unique() {
+        let mut ir = ModIR::empty();
+        ir.heroes.push(make_hero("Charmander", 'a'));
+        ir.replica_items.push(make_replica_item("Pikachu"));
+        ir.replica_items.push(make_legendary_replica_item("Mew"));
+
+        let report = check_references(&ir);
+        let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
+        assert!(x003.is_empty(), "unique names across buckets must produce no X003");
+    }
+
+    #[test]
+    fn x003_finding_is_global_source_none() {
+        // X003 is a cross-bucket finding: no single offending entity, so
+        // `source` stays None and severity stays Error — mirrors V020's
+        // cross-category behavior (Chunk 4 §F5). Pin this so a future
+        // "retrofit source on every X-rule" sweep doesn't silently attribute
+        // the collision to one entity's bucket.
+        let mut ir = ModIR::empty();
+        ir.heroes.push(make_hero("Pikachu", 'a'));
+        ir.replica_items.push(make_replica_item("Pikachu"));
+
+        let report = check_references(&ir);
+        let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
+        assert_eq!(x003.len(), 1);
+        assert_eq!(x003[0].source, None, "global X003 finding carries source=None");
+        assert_eq!(x003[0].severity, Severity::Error);
+    }
+
+    #[test]
+    fn x003_silent_on_intra_bucket_duplicate() {
+        // Two replica items with the same name — same bucket (capture). X003
+        // is a cross-bucket check per SPEC §6.3; intra-bucket duplicates are
+        // V-rule territory (V019 etc.), not a Pokemon-bucket collision.
+        let mut ir = ModIR::empty();
+        ir.replica_items.push(make_replica_item("Pikachu"));
+        ir.replica_items.push(make_replica_item("Pikachu"));
+
+        let report = check_references(&ir);
+        let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
+        assert!(
+            x003.is_empty(),
+            "X003 must not fire for intra-bucket duplicates (two captures of the same name)",
+        );
     }
 
     // -- V016: Hero pool references --
@@ -1085,7 +1272,7 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.replica_items.push(ReplicaItem {
             name: "UnknownFaceItem".to_string(),
-            container_name: "UnknownFaceItem".to_string(),
+            container: ReplicaItemContainer::Capture { name: "UnknownFaceItem".to_string() },
             template: "Slime".to_string(),
             hp: Some(4),
             sd: DiceFaces {
@@ -1246,7 +1433,7 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.replica_items.push(ReplicaItem {
             name: "KnownFaceItem".to_string(),
-            container_name: "KnownFaceItem".to_string(),
+            container: ReplicaItemContainer::Capture { name: "KnownFaceItem".to_string() },
             template: "Slime".to_string(),
             hp: Some(4),
             sd: DiceFaces {

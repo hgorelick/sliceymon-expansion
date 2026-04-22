@@ -62,6 +62,9 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
             ModifierType::ReplicaItemWithAbility => {
                 replica_items.push(replica_item_parser::parse_with_ability(modifier, i));
             }
+            ModifierType::Legendary => {
+                replica_items.push(replica_item_parser::parse_legendary(modifier, i));
+            }
             ModifierType::HeroPoolBase => {
                 structural.push(make_structural(StructuralType::HeroPoolBase, modifier.clone()));
             }
