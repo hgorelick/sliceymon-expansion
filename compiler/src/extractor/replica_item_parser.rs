@@ -312,20 +312,18 @@ mod tests {
 
     #[test]
     fn legendary_sd_ignores_chain_interior_sidesc() {
-        // Top-level `.sd.0:0:0:0:0:0` is the real sd; the chain's sidesc
-        // text carries a decoy `.sd.999-1:0:0:0:0:0`. Ordering: real sd
-        // MUST appear before the chain (emission always places scalars
-        // before the chain/cast). A non-depth-aware scan would pick
-        // whichever `.sd.` comes first in the raw string — here, the real
-        // one — only because of ordering. The stronger invariant is that
-        // `slice_before_chain_and_cast` excludes the chain region entirely,
-        // so the decoy could never win regardless of ordering.
-        let modifier = "item.Alpha.sd.0:0:0:0:0:0.sticker.sidesc.sd.999-1:0:0:0:0:0.n.Mew";
+        // No top-level `.sd.`; the chain's sidesc text carries a decoy
+        // `.sd.999-1:0:0:0:0:0`. With `scalar_slice` applied, the slice
+        // ends at the depth-0 `.sticker.` so the decoy never enters the
+        // scan — expected `sd` is the empty `DiceFaces`. A non-depth-aware
+        // first-match on the full body would return the decoy and fail
+        // this assertion (source-vs-IR divergence, per chunk-impl rule 2).
+        let modifier = "item.Alpha.sticker.sidesc.sd.999-1:0:0:0:0:0.n.Mew";
         let item = parse_legendary(modifier, 0);
         assert_eq!(
             item.sd,
-            crate::ir::DiceFaces::parse("0:0:0:0:0:0"),
-            "chain-interior decoy .sd. must not win over the real top-level .sd.",
+            crate::ir::DiceFaces { faces: vec![] },
+            "chain-interior decoy .sd. must not leak into top-level sd when no top-level .sd. exists",
         );
     }
 
@@ -359,8 +357,13 @@ mod tests {
     fn capture_color_ignores_cast_interior() {
         // Capture-with-ability path (parse_with_ability): no top-level
         // `.col.`; the `.abilitydata.(...)` cast effect carries `.col.x`
-        // at depth ≥ 2. Only `depth_aware = true` + `scalar_slice`
-        // together close this leak.
+        // at depth ≥ 2. `scalar_slice` closes this leak: because
+        // `slice_before_chain_and_cast` lists `.abilitydata.` as a
+        // depth-0 trim marker (util.rs), the slice ends before the cast
+        // effect and the scan never sees the decoy. `depth_aware = false`
+        // is the correct flag here because legit Capture scalars live at
+        // depth ≥ 2 inside `((hat.(replica...)))`; `depth_aware = true`
+        // would skip them.
         let modifier = "itempool.((hat.(replica.Alpha.sd.0:0:0:0:0:0.n.Mewtwo))).abilitydata.(Fey.sd.0:0:0:0:0:0.(.col.x.hp.9).n.Psy).n.ZZZ.mn.Mewtwo";
         let item = parse_with_ability(modifier, 0);
         assert_eq!(item.color, None, "cast-interior .col.x at depth ≥ 2 must not leak into top-level color");
