@@ -424,6 +424,21 @@ X003 is unchanged. Each defect now surfaces under exactly one rule ID.
 
 **Scope note.** The single-item CRUD checks (`check_hero_in_context`, `check_boss_in_context` at `xref.rs:593-648` and `:656-714`) validate *one new item* against a loaded IR and do not produce the double-fire (X003 is a whole-IR rule, not a per-item one). They are explicitly out of scope for F9.
 
+### F10. Replica-parser chain-interior leakage — depth-and-chain-aware scalar extraction
+
+Chunk 6's round-3 tribunal (PR #7) fixed three Legendary-specific parse leaks by scoping `parse_legendary`'s scalar extractors to a `before_cast` slice (`compiler/src/extractor/replica_item_parser.rs:128-167`). One class of leak was identified but explicitly deferred and is owned here: chain sub-entries can emit free-form text (sidesc, cast-effect, enchant — see `compiler/src/builder/chain_emitter.rs:59-63`) that may contain literal `.hp.` / `.col.` / `.sd.` / `.img.` substrings at paren-depth 0. The current extractors (`compiler/src/util.rs:147-207`, `:388-...`) find matches inside that free-form text, silently flipping `None` top-level fields to `Some(<chain-interior value>)` at parse time.
+
+**Why this is a §F / SPEC issue, not a local Chunk 6 patch**: the same class affects all three replica parsers — `parse_simple`, `parse_with_ability`, `parse_legendary` — because they all call the non-depth-aware `extract_hp(modifier, false)` / `extract_color(modifier)` / `extract_sd(modifier, false)` pattern. For Captures the working mods happen not to exercise it today (all four `working-mods/*.txt` contain zero replica items; `cargo run --example roundtrip_diag` reports `Replicas ir1=0` for each), but SPEC §3.3 ("self-contained IR — extracted IR has everything required to rebuild the mod") is the authority: any valid modifier emitted by this compiler's own emitters must round-trip, chain content included. That is presently false. The plan's own Chunk 3b lesson (§"Lessons from prior chunks", item 2) already blessed this as the right failure mode to hunt for: *"IR-equality baselines alone are insufficient. Add at least one test whose failure mode is source-vs-IR divergence, not IR-vs-IR divergence."*
+
+**Fix**: make scalar extraction in `util.rs` depth-and-chain-aware. Two conceptual tools, chosen because extracting a helper is strictly better than pasting the same N-line incantation across 3 parsers (plan's "Lessons", item 4):
+
+1. `util::slice_before_chain_and_cast(body: &str) -> &str` — returns the longest prefix of `body` that precedes the first depth-0 occurrence of any of `.i.`, `.sticker.`, `.cast.`. When no such marker exists, returns the full slice. Callers (`parse_simple` / `parse_with_ability` / `parse_legendary`) feed this slice to the scalar extractors for `hp` / `color` / `sd` / `img`. Correctness follows from the emitters' field order: top-level scalars are always emitted before the chain and cast blocks.
+2. `util::extract_color(content, depth_aware)` — add the `depth_aware: bool` flag already present on `extract_hp` / `extract_sd`, and route every replica-parser callsite through `depth_aware = true`. This closes the remaining leak for modifiers whose top-level `.col.X` is absent AND whose chain / cast content contains `.col.X` at depth ≥1.
+
+**Non-scope**: this chunk does not collapse the extract path and the authoring path (SPEC §3.3 / §6.1). Both remain split. The new helper and the flag bit only exist for the extract side; the authoring side has no scalar-hunt problem to solve.
+
+**Structural check (per the chunk-impl hook)**: the two tools are not parallel representations. `slice_before_chain_and_cast` narrows *where* to scan; the `depth_aware` flag narrows *how* to scan — they compose, not duplicate. They are introduced together because either one alone fails a known case: (a) a top-level-absent `.hp.` with chain-interior `.hp.` at depth 0 needs the slice; (b) a top-level-absent `.col.` with cast-interior `.col.` at depth ≥1 needs the flag (the slice already excludes cast). Both are needed to eliminate the full class.
+
 ---
 
 ## Implementation Plan
@@ -439,7 +454,7 @@ X003 is unchanged. Each defect now surfaces under exactly one rule ID.
   4. Duplicating an identical 4-line incantation across N parser callsites is a plan smell. Either the incantation belongs in one helper (extract the helper as part of the chunk), or there's only one correct line to write (use that one line). Duplication encodes the incantation's wrongness N times; a helper at least concentrates it.
 
 ### Checkpoint Configuration
-- Total chunks: 11 (0, 1, 2, 3a, 3b, 3c, 4, 5, 6, 7, 8).
+- Total chunks: 12 (0, 1, 2, 3a, 3b, 3c, 4, 5, 6, 7, 8, 9).
 - Checkpoint frequency: After Chunk 0 (error type lands), Chunk 2 (SPEC §3.6 amendment + newtypes + IR flip), Chunk 3c (HashMap dropped + sprite consolidation), and Chunk 7 (final). Chunk 2's checkpoint is load-bearing because it lands a SPEC amendment; a missed amendment here invalidates every later chunk that cites the permissive whitelist.
 
 ### Parallel Execution Map — conflict-verified
@@ -457,6 +472,7 @@ File-level conflict matrix (every chunk's primary writes):
 | 6 (`ReplicaItemContainer` enum replaces `container_name`) | **yes** | — | — | — | yes (X003 new) | — | — | yes (merge match-by-key) |
 | 7 (lib-code unwrap/expect/panic elimination) | no (hits are in extractor/builder only) | no | — | — | — | — | — | — |
 | 8 (V020 restructure — drop cross-bucket Pokemon overlap with X003) | — | — | — | — | **yes** (V020 emission narrowed) | — | — | — |
+| 9 (replica-parser chain-and-depth-aware scalar extraction) | — | — | — | — | — | — | — | — |
 
 **True dependency graph (after the conflict matrix):**
 
@@ -470,7 +486,8 @@ Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
   │                             ├── Chunk 4 (BuildOptions + build_with + Finding.source) ✅ COMPLETE (2026-04-22)
   │                             └── Chunk 6 (ReplicaItemContainer enum replaces container_name) ✅ COMPLETE (2026-04-21)
   │                                   ├── Chunk 5 (merge strips + new regenerators + unconditional regen)
-  │                                   └── Chunk 8 (V020 restructure — remove cross-bucket Pokemon overlap) [needs both 4 and 6]
+  │                                   ├── Chunk 8 (V020 restructure — remove cross-bucket Pokemon overlap) [needs both 4 and 6]
+  │                                   └── Chunk 9 (replica-parser chain-and-depth-aware scalar extraction) [needs 6's before_cast landed]
   └── Chunk 7 (lib-code unwrap/expect/panic elimination) [parallel from Chunk 0 completion onward; no shared files with 1..6]
 ```
 
@@ -479,9 +496,10 @@ Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
 - **Merge checkpoint after Chunk 3c**: Chunks 4 and 6 both touch `xref.rs`, and Chunk 7 touches `builder/hero_emitter.rs` which Chunk 3c also edits. To avoid merge-conflict gymnastics, the branches are prepared in parallel but merged **sequentially in this order**: 4 → 6 → 7. Each merge re-runs the local verification tests before the next merges. This is a **critical checkpoint** per AI-dev persona §Designing for Parallel Multi-Agent Execution rule 6.
 - **Sequential after Chunk 6**: Chunk 5 (depends on Chunk 6's `ReplicaItemContainer` enum, which `generate_hero_item_pool` matches on).
 - **Sequential after Chunks 4 and 6**: Chunk 8 (needs X003 from Chunk 6 to defer to, and V020's `Finding.source` shape from Chunk 4 so its test assertions compile). Parallel with Chunks 5 and 7 — Chunk 8 only touches `xref.rs`; Chunk 5 writes `ir/merge.rs` / `builder/derived.rs` / `builder/mod.rs`; Chunk 7 writes extractor lib-code + post-3c `hero_emitter.rs`. No overlap.
+- **Sequential after Chunk 6**: Chunk 9 (depends on Chunk 6's `before_cast` scoping pattern in `parse_legendary` — Chunk 9 generalizes it into a `util.rs` helper and applies it to `parse_simple` / `parse_with_ability`). Parallel with Chunks 5, 7, 8 — Chunk 9 writes `compiler/src/util.rs` + `compiler/src/extractor/replica_item_parser.rs` (no other chunk touches either), so no file conflicts.
 - **Chunk 7 scope**: runs after Chunk 3c lands (not from round 2), because 3c touches `hero_emitter.rs` which 7 also edits. Running 7 earlier would require re-doing 7's edits after 3c rewrites the function signatures. Chunk 7's scope is therefore fixed at audit time (immediately before it starts), not at plan-write time — the "6 across 5 files" baseline at plan-write is indicative, not binding.
 
-**Honest minimum wall-clock rounds**: 9 rounds for the main track (0 → 1 → 2 → 3a → 3b → 3c → 4 → 6 → {5, 7, 8 parallel — no shared files once 3c/4/6 land}). Chunk 5 touches `ir/merge.rs`, `builder/derived.rs`, `builder/mod.rs`; Chunk 7 touches lib-code panic sites in extractor/ and the post-3c `hero_emitter.rs`; Chunk 8 touches `xref.rs` only. All three are truly parallel at that point.
+**Honest minimum wall-clock rounds**: 9 rounds for the main track (0 → 1 → 2 → 3a → 3b → 3c → 4 → 6 → {5, 7, 8, 9 parallel — no shared files once 3c/4/6 land}). Chunk 5 touches `ir/merge.rs`, `builder/derived.rs`, `builder/mod.rs`; Chunk 7 touches lib-code panic sites in extractor/ and the post-3c `hero_emitter.rs`; Chunk 8 touches `xref.rs` only; Chunk 9 touches `util.rs` + `extractor/replica_item_parser.rs` only. All four are truly parallel at that point.
 
 The original plan's "Minimum wall-clock rounds: 3" was false — Chunks 2, 3, and 5/6/7 were not actually parallelizable, and Chunk 3's 11-file scope required sub-chunking.
 
@@ -828,6 +846,48 @@ Callers in the same files or their module roots that previously could not fail m
 
 ---
 
+### Chunk 9: Replica-parser chain-and-depth-aware scalar extraction [serial after Chunk 6; parallel with 5, 7, 8]
+**Spec**: §F10 (grounds in SPEC §3.3 self-contained IR).
+**Files**: `compiler/src/util.rs` (add helper + extend `extract_color` signature), `compiler/src/extractor/replica_item_parser.rs` (all three parsers route scalars through the new helper). No other file changes.
+**Dependencies**: Chunk 6 (the `before_cast` scoping in `parse_legendary` is the pattern this chunk generalizes).
+**Parallel with**: Chunks 5, 7, 8 (no shared files).
+**Merge ordering**: merges after 6. No constraint against 5, 7, 8.
+
+**Context** — re-state of the leak class as of plan-write, to prevent drift:
+- `util::extract_hp(modifier, false)` (`util.rs:165`) and `util::extract_sd(modifier, false)` (`util.rs:147`) call `content.find(marker)` — no depth tracking, no chain awareness.
+- `util::extract_color(content)` (`util.rs:192`) has no `depth_aware` flag at all.
+- `util::extract_img_data(content)` (`util.rs:388`) uses `find_last_at_depth0` (depth-aware already), but matches the *last* depth-0 hit — a chain `sidesc` carrying `.img.X` at depth 0 could still be the last hit if the Legendary has no top-level `.img.`.
+- `chain_emitter.rs:59-63` shows chain sub-entries emit `cast.{effect}`, `enchant.{modifier}`, `sidesc.{text}` where the text portion is free-form and can legitimately contain any `.{marker}.` substring.
+- `parse_legendary`'s Chunk-6 `before_cast` slicing (`extractor/replica_item_parser.rs:128-167`) only closes the cast-interior subset of the class. Chain-interior leakage at depth 0 (before cast) remains.
+
+**Requirements**:
+- Add `pub fn slice_before_chain_and_cast(body: &str) -> &str` to `util.rs`. Semantics: scan for the first depth-0 occurrence of any of the three literal markers `.i.`, `.sticker.`, `.cast.` and return `&body[..pos]`; when no such marker exists at depth 0, return the full `body` slice. Depth tracking follows the existing `find_at_depth0` idiom — paren balance.
+- Extend `extract_color` signature to `pub fn extract_color(content: &str, depth_aware: bool) -> Option<char>`. When `depth_aware = true`, skip matches at paren depth > 0. `depth_aware = false` preserves the current behavior so non-replica callsites are unchanged.
+- In `parse_simple`, `parse_with_ability`, `parse_legendary`, compute `let scalar_slice = util::slice_before_chain_and_cast(body_or_modifier);` once, then route every scalar extractor through that slice with `depth_aware = true`: `extract_hp(scalar_slice, true)`, `extract_sd(scalar_slice, true)`, `extract_color(scalar_slice, true)`, `extract_img_data(scalar_slice)` (already depth-aware).
+- The `before_cast` local in `parse_legendary` (added in Chunk 6) is replaced by the new helper's result — the helper is strictly broader (slices before chain AND cast), so the replacement preserves Chunk 6's correctness and extends it.
+- Chain and cast extraction themselves do **not** route through the new slice — they need to see the chain / cast regions of the body. `extract_modifier_chain` still scans for `.i.` / `.sticker.` at depth 0, `extract_nested_prop(body, ".cast.")` still scans for cast at depth 0. Unchanged.
+- Audit every other callsite of `extract_color` outside the three replica parsers and confirm whether `depth_aware = true` is correct there too. If the semantics differ (e.g. hero/monster parsing relies on the current non-depth-aware behavior), preserve the caller's choice — this chunk does not change non-replica semantics.
+
+**Verification — specific tests**:
+
+Each test is a *source-vs-IR divergence* test by construction (per §F10 / Chunk 3b lesson item 2): the input's top-level scalar is absent, and the chain / cast contains a substring whose byte-for-byte interpretation would flip the parsed field if extraction reached for chain-interior bytes.
+
+- [ ] `extractor::legendary_hp_ignores_chain_interior_sidesc` — `item.Alpha.sticker.sidesc.hp.99.sd.0:0:0:0:0:0.n.Mew` — assert `parsed.hp == None`. Invented sticker value on purpose (no registry carries `sidesc.hp.99`).
+- [ ] `extractor::legendary_color_ignores_chain_interior_sidesc` — same shape with `.sticker.sidesc.col.z.sd....`, assert `parsed.color == None`.
+- [ ] `extractor::legendary_sd_ignores_chain_interior_sidesc` — same shape with `.sticker.sidesc.sd.999-1:0:0:0:0:0.sd.0:0:0:0:0:0.n.Mew` (chain's sidesc text contains a decoy `.sd.` *before* the real depth-0 `.sd.`). Assert `parsed.sd == DiceFaces::parse("0:0:0:0:0:0")`.
+- [ ] `extractor::legendary_img_ignores_chain_interior_sidesc` — same pattern for `.img.`, asserting `parsed.sprite.img_data() == ""` when top-level `.img.` is absent.
+- [ ] `extractor::capture_hp_ignores_chain_interior_sidesc` — analogous test using `parse_simple` (or `parse_with_ability`) with a Capture shape whose chain's sidesc text contains `.hp.5` at depth 2. Asserts the Capture-path leak is also closed.
+- [ ] `extractor::capture_color_ignores_cast_interior` — analogous for `parse_with_ability` with a `.cast.(...)` block containing `.col.X` at depth ≥3. Asserts the cast-interior path is closed for Captures too.
+- [ ] `util::slice_before_chain_and_cast_no_markers_returns_full_body` — input with no `.i.`/`.sticker.`/`.cast.` at depth 0 returns the full slice. Pins the no-op path.
+- [ ] `util::slice_before_chain_and_cast_skips_nested_markers` — input like `item.Alpha.cast.(a.i.b)` — the `.i.` is at depth 1, the `.cast.` is at depth 0, so the slice ends at `.cast.`. Pins depth tracking.
+- [ ] `util::extract_color_depth_aware_skips_parens` — `a.col.b.( .col.c )` with `depth_aware = true` returns `Some('b')`; `depth_aware = false` preserves the existing behavior (returns `Some('b')` because it's the first match). Pins the new flag.
+- [ ] All 4 working mods IR-equal roundtrip (`cargo run --example roundtrip_diag` reports `ROUNDTRIP OK` for each). None of the working mods currently contain replica items, so this chunk must not add `Replicas ir1>0` findings spuriously; the assertion is that the mods' existing state is preserved.
+- [ ] `cargo test --all` passes with no regressions in hero / monster / boss parsers (the `extract_color` callsites outside the replica parsers).
+
+**Structural check (per the chunk-impl hook)**: Chunk 9 does **not** collapse two paths. `parse_simple` / `parse_with_ability` / `parse_legendary` remain three distinct functions with distinct container-shape responsibilities; the shared helper narrows *where* to scan for scalars, not *what* the parsers return. The `depth_aware` flag on `extract_color` mirrors the flag that already exists on `extract_hp` / `extract_sd` — this is symmetry being restored, not a new abstraction. Duplicating the `scalar_slice = slice_before_chain_and_cast(...)` line across three parsers is the "one correct line to write" case from the plan's "Lessons" item 4, not the forbidden N-line incantation — the helper *is* the consolidation.
+
+---
+
 ## Final Verification
 
 - [ ] `cargo test --all` passes with no regressions.
@@ -839,6 +899,7 @@ Callers in the same files or their module roots that previously could not fail m
 - [ ] Lib-code audit (`rg` with `#[cfg(test)]` stripping, enforced via `xtask`/`build.rs`) shows zero `unwrap()` / `expect()` / `panic!` / `unimplemented!` / `todo!` hits.
 - [ ] Every new xref rule (X003, X010, X016, X017) populates `field_path`, `suggestion`, and `source` on its `Finding`s. Every existing V-rule (V016, V019, V020) populates `source`.
 - [ ] V020 and X003 do not double-fire on cross-bucket Pokemon collisions (`{hero, replica_item, monster}` slice is X003's sole territory). V020 retains emission only for boss-involving collisions and intra-bucket duplicates. (Chunk 8, §F9.)
+- [ ] Replica parsers (`parse_simple` / `parse_with_ability` / `parse_legendary`) route scalar extraction through `util::slice_before_chain_and_cast` + `depth_aware = true`; chain-interior `.hp.` / `.col.` / `.sd.` / `.img.` substrings in sidesc / cast-effect / enchant text do not leak into top-level fields. (Chunk 9, §F10.)
 - [ ] `merge` signature: `pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError>` (matches SPEC §5 verbatim). Warnings surface via `ModIR.warnings: Vec<Finding>`.
 - [x] `ReplicaItem` has no `container_name: String` field and no `kind: ReplicaItemKind` field; the only container-related field is `container: ReplicaItemContainer`. (Chunk 6, 2026-04-21)
 - [ ] SPEC §3.6 has been amended to name the permissive whitelist + `Unknown(raw)` variant as the spec-blessed design; SPEC §3.6's pips type annotation reads `i16`.
