@@ -310,4 +310,58 @@ mod tests {
         assert!(!output.contains(".mn."), "Legendary must NOT emit the `.mn.` container-side suffix");
         assert!(output.contains(".n.Mew"));
     }
+
+    #[test]
+    fn legendary_emit_parse_roundtrip_with_all_fields() {
+        // End-to-end roundtrip: build a fully-populated Legendary, emit,
+        // re-parse, and assert every scalar field survives. No working-mod
+        // in `working-mods/*.txt` contains a top-level `item.*` modifier
+        // (verified: `grep -E '(^|[,(])\s*item\.' working-mods/*.txt`
+        // returns 0 matches), so `roundtrip_diag` cannot exercise this
+        // path — this test is the only thing pinning emit/parse parity
+        // for Legendary.
+        use crate::extractor::replica_item_parser::parse_legendary;
+
+        let item = ReplicaItem {
+            name: "Mew".into(),
+            container: ReplicaItemContainer::Legendary,
+            tier: None,
+            template: "Alpha".into(),
+            hp: Some(12),
+            sd: DiceFaces::parse("15-1:0:0:0:0:0"),
+            sprite: SpriteId::owned("Mew", "bas170:55"),
+            color: Some('c'),
+            item_modifiers: None,
+            sticker: None,
+            toggle_flags: None,
+            doc: Some("Psychic Legendary".into()),
+            speech: Some("Mew!".into()),
+            abilitydata: Some(crate::ir::AbilityData::parse(
+                "(Spell.sd.150-1:0:0:0:0:0.n.Psychic)",
+            )),
+            source: Source::Base,
+        };
+
+        let emitted = emit(&item).unwrap();
+        let parsed = parse_legendary(&emitted, 0);
+
+        assert_eq!(parsed.container, item.container, "container variant");
+        assert_eq!(parsed.name, item.name, "name");
+        assert_eq!(parsed.template, item.template, "template");
+        assert_eq!(parsed.hp, item.hp, "hp");
+        assert_eq!(parsed.color, item.color, "color");
+        assert_eq!(parsed.sd, item.sd, "sd");
+        assert_eq!(parsed.doc, item.doc, "doc");
+        assert_eq!(parsed.speech, item.speech, "speech");
+        assert_eq!(
+            parsed.sprite.img_data(),
+            item.sprite.img_data(),
+            "sprite img_data",
+        );
+        assert_eq!(
+            parsed.abilitydata.as_ref().map(|a| a.emit()),
+            item.abilitydata.as_ref().map(|a| a.emit()),
+            "abilitydata (compared via re-emit)",
+        );
+    }
 }
