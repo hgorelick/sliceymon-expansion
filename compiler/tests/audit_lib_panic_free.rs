@@ -141,6 +141,57 @@ fn contains_forbidden(line: &str) -> bool {
 }
 
 #[test]
+#[should_panic(expected = "audit stripper cannot handle single-line")]
+fn stripper_panics_on_cfg_test_use_item() {
+    // R3 regression: a `#[cfg(test)] use foo;` pattern between `#[cfg(test)]`
+    // and the next item's `{` would cause the stripper to latch onto the
+    // FOLLOWING (non-test) item's brace and silently strip production code.
+    // The stripper must panic instead.
+    let src = "#[cfg(test)]\nuse some_panicky_helper;\n\nfn production_fn() {\n    panic!(\"oh no\");\n}\n";
+    let _ = lines_outside_test_gates(src, "synthetic.rs");
+}
+
+#[test]
+#[should_panic(expected = "audit stripper cannot handle single-line")]
+fn stripper_panics_on_cfg_test_const_item() {
+    // Same class of drift, const variant.
+    let src = "#[cfg(test)]\nconst TEST_ONLY: u32 = 1;\n\nfn production() { panic!(\"leaks\"); }\n";
+    let _ = lines_outside_test_gates(src, "synthetic.rs");
+}
+
+#[test]
+#[should_panic(expected = "`#[cfg(not(test))]` is unsupported")]
+fn stripper_panics_on_cfg_not_test() {
+    // The `starts_with("#[cfg(") && contains("test")` heuristic would falsely
+    // treat `#[cfg(not(test))]` as a test gate and strip production code.
+    let src = "#[cfg(not(test))]\nmod production_only {\n    fn leaks() { panic!(); }\n}\n";
+    let _ = lines_outside_test_gates(src, "synthetic.rs");
+}
+
+#[test]
+fn stripper_strips_standard_mod_tests_block() {
+    // Positive: the normal `#[cfg(test)] mod tests { ... }` shape is stripped
+    // cleanly; production code above/below is preserved.
+    let src = "fn keep_me() {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn inner() { panic!(\"stripped\"); }\n}\n\nfn also_keep_me() {}\n";
+    let kept: Vec<&str> = lines_outside_test_gates(src, "synthetic.rs")
+        .into_iter()
+        .map(|(_, t)| t)
+        .collect();
+    let joined = kept.join("\n");
+    assert!(joined.contains("fn keep_me"), "pre-test production preserved");
+    assert!(joined.contains("fn also_keep_me"), "post-test production preserved");
+    assert!(!joined.contains("stripped"), "test-block body stripped");
+}
+
+#[test]
+fn stripper_allows_attribute_and_comment_lines_between_gate_and_brace() {
+    // `#[cfg(test)]` followed by doc comments and additional attributes before
+    // the `mod tests {` line is a normal shape in real code — must NOT panic.
+    let src = "#[cfg(test)]\n// A comment about the tests below.\n#[allow(clippy::pedantic)]\nmod tests {\n    fn inner() {}\n}\n";
+    let _ = lines_outside_test_gates(src, "synthetic.rs");
+}
+
+#[test]
 fn audit_no_lib_panic_or_unwrap() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let src_dir = PathBuf::from(manifest_dir).join("src");
