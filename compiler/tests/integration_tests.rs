@@ -407,19 +407,6 @@ fn extract_preserves_monster_img_data_on_registry_name_collision() {
     assert_eq!(sprite.img_data(), "TRIBUNAL_NOVEL_IMG");
 }
 
-#[test]
-fn extract_preserves_replica_item_img_data_on_registry_name_collision() {
-    // `ModifierType::ReplicaItem` isn't produced by the top-level classifier yet
-    // (items currently survive as `StructuralType::ItemPool` raw text), so test
-    // the parser directly — same data-loss surface, just reached by whichever
-    // future caller routes here.
-    use textmod_compiler::extractor::replica_item_parser;
-    let modifier = "!mitempool.((ritemx.1697d.part.0)).n.Upgrade.tier.3.img.TRIBUNAL_NOVEL_IMG.part.1&hidden.mn.Pikachu@2!m(skip&hidden&temporary)";
-    let item = replica_item_parser::parse_simple(modifier, 0);
-    assert_eq!(item.sprite.name(), "Pikachu");
-    assert_eq!(item.sprite.img_data(), "TRIBUNAL_NOVEL_IMG");
-}
-
 // ---------------------------------------------------------------------------
 // Chunk 3c: `sprites: &HashMap` dropped from the public API
 // ---------------------------------------------------------------------------

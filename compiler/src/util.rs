@@ -228,9 +228,9 @@ pub fn has_color(modifier: &str, target: char) -> bool {
 /// §F10-MARKER — the canonical set `{.i., .sticker., .abilitydata.}`. When
 /// none exist at depth 0, returns the full `body` slice.
 ///
-/// Replica parsers feed the result to scalar extractors for `hp` / `color` /
-/// `sd` / `img` so chain sub-entries (`.i.` / `.sticker.` — free-form
-/// `.sidesc.` / `.enchant.` text) and ability-effect bodies
+/// `parse_legendary` feeds the result to scalar extractors for `hp` /
+/// `color` / `sd` / `img` so chain sub-entries (`.i.` / `.sticker.` —
+/// free-form `.sidesc.` / `.enchant.` text) and ability-effect bodies
 /// (`.abilitydata.(...)`) cannot leak interior `.hp.N` / `.col.X` /
 /// `.sd.FACES` / `.img.DATA` substrings into top-level fields. Emission
 /// places every scalar field before the chain and ability region, so the
@@ -241,11 +241,10 @@ pub fn has_color(modifier: &str, target: char) -> bool {
 /// in the corpus is a chain keyword (guide lines 642-645), not a property
 /// marker.
 ///
-/// Capture callers (`parse_simple` / `parse_with_ability`) apply this
-/// **after** `replica_inner_body`, so the scan runs in a frame where the
-/// chain's `.i.` / `.sticker.` are at body-relative depth 0.
-/// `parse_legendary` applies it directly — its `item.TEMPLATE…` body is
-/// flat at depth 0 with no outer paren wrap.
+/// `parse_legendary` applies this directly — its `item.TEMPLATE…` body is
+/// flat at depth 0 with no outer paren wrap. Capture-shaped items are not
+/// parsed into `ReplicaItem` (chunk-impl rule 3: no corpus instance), so
+/// this helper is Legendary-only in its live callsites.
 pub fn slice_before_chain_and_cast(body: &str) -> &str {
     let mut earliest: Option<usize> = None;
     for marker in [".i.", ".sticker.", ".abilitydata."] {
@@ -260,40 +259,6 @@ pub fn slice_before_chain_and_cast(body: &str) -> &str {
         Some(pos) => &body[..pos],
         None => body,
     }
-}
-
-/// Return the content of the innermost `(…)` that wraps the first `replica.`
-/// token in `modifier`, stripped of its outer parens. For the Capture shapes
-/// `itempool.((hat.replica.TEMPLATE…))…` and
-/// `itempool.((hat.(replica.TEMPLATE…)))…`, this yields the body inside which
-/// scalars and the chain live at body-relative depth 0 — the shape
-/// `slice_before_chain_and_cast` is designed to scan.
-///
-/// Returns `None` when there is no `replica.` token or no paren wraps it; the
-/// caller is expected to fall back to the raw modifier in that case.
-///
-/// Without this scoping, `slice_before_chain_and_cast` applied to the raw
-/// modifier would see the Capture's chain at raw paren depth ≥ 2 and its
-/// `find_at_depth0`-based scan would skip it, leaving chain-interior
-/// `.hp.` / `.col.` substrings free to leak into top-level scalars via
-/// non-depth-aware `content.find(…)` — the §F10 leak class Chunk 9 set out
-/// to close for replica parsers.
-pub fn replica_inner_body(modifier: &str) -> Option<&str> {
-    let r_pos = modifier.find("replica.")?;
-    let open = modifier[..r_pos].rfind('(')?;
-    let close = find_matching_close_paren(modifier, open)?;
-    Some(&modifier[open + 1..close])
-}
-
-/// Extract `replica.TEMPLATE` — the template name after `replica.`.
-pub fn extract_template(content: &str) -> Option<String> {
-    let marker = "replica.";
-    let pos = content.find(marker)?;
-    let start = pos + marker.len();
-    let remaining = &content[start..];
-    let end = remaining.find('.').unwrap_or(remaining.len());
-    let name = &remaining[..end];
-    if name.is_empty() { None } else { Some(name.to_string()) }
 }
 
 /// Extract a nested property like `.abilitydata.(...)` at depth 0.
@@ -596,42 +561,6 @@ mod tests {
         assert_eq!(extract_img_data(content), Some("HERO_SPRITE".to_string()));
     }
 
-    #[test]
-    fn replica_inner_body_simple_shape_strips_outer_parens() {
-        // `((hat.replica.TEMPLATE…))` — inner `(` is the second char in `((`,
-        // matching inner `)` is the first `)` in `))`. Body is everything
-        // between, so the chain's `.i.` lives at body-relative depth 0.
-        let m = "itempool.((hat.replica.Hat.sd.0:0:0:0:0:0.i.hat.statue#sidesc.foo.n.Pika)).n.Ball.mn.Pika";
-        assert_eq!(
-            replica_inner_body(m),
-            Some("hat.replica.Hat.sd.0:0:0:0:0:0.i.hat.statue#sidesc.foo.n.Pika"),
-        );
-    }
-
-    #[test]
-    fn replica_inner_body_with_ability_shape_strips_to_innermost_replica() {
-        // `((hat.(replica.TEMPLATE…)))` — the `(` immediately before
-        // `replica.` wraps the scalar-bearing body. The surrounding
-        // `hat.(…)` paren is outside it.
-        let m = "itempool.((hat.(replica.Alpha.sd.0:0:0:0:0:0.n.Mew.cast.(X)))).n.Ball.mn.Mew";
-        assert_eq!(
-            replica_inner_body(m),
-            Some("replica.Alpha.sd.0:0:0:0:0:0.n.Mew.cast.(X)"),
-        );
-    }
-
-    #[test]
-    fn replica_inner_body_no_replica_token_returns_none() {
-        // Callers fall back to the raw modifier — this pins the None path.
-        assert_eq!(replica_inner_body("item.Alpha.sd.0:0:0:0:0:0.n.Mew"), None);
-    }
-
-    #[test]
-    fn replica_inner_body_replica_without_enclosing_paren_returns_none() {
-        // `replica.X` appearing without a wrapping `(` — the caller must
-        // fall back rather than extract a misleading slice.
-        assert_eq!(replica_inner_body("replica.Alpha.sd.0:0:0:0:0:0"), None);
-    }
 }
 
 /// Extract facade values from a modifier chain string.

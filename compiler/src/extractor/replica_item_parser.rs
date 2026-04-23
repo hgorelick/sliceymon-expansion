@@ -1,164 +1,11 @@
-use crate::ir::{ReplicaItem, ReplicaItemContainer, Source};
+use crate::ir::{ReplicaItem, Source};
 use crate::util;
 
-/// Parse a simple replica item (no ability) from a modifier string.
-/// Format: itempool.((hat.replica.TEMPLATE...)).n.CONTAINER_NAME.mn.NAME
-pub fn parse_simple(modifier: &str, _modifier_index: usize) -> ReplicaItem {
-    // Scalar fields (hp/sd/color/img) must only be scanned in the prefix
-    // preceding any chain / cast / ability block. Chain sub-entries carry
-    // free-form `.sidesc.` / `.enchant.` text which can contain `.hp.N` /
-    // `.col.X` / `.sd.FACES` / `.img.DATA` substrings; none of those may
-    // leak into top-level IR fields. (§F10, Chunk 9.)
-    //
-    // The Capture emitter wraps its scalars and chain inside
-    // `((hat.replica...))`, so both live at raw paren depth 2. A depth-0
-    // scan on the raw modifier is blind to the chain's `.i.` / `.sticker.`
-    // tokens — they sit at depth 2 — and `slice_before_chain_and_cast`
-    // therefore cannot trim them. To land the scan in a frame where the
-    // chain's markers ARE at depth 0, scope to the innermost replica body:
-    // `replica_inner_body` returns the content of the `(...)` that wraps
-    // the `replica.` token, with its outer parens stripped. Inside that
-    // body the chain sits at depth 0, `slice_before_chain_and_cast` catches
-    // it, and non-depth-aware scalar scans are safe because the slice no
-    // longer contains any chain bytes.
-    let body = util::replica_inner_body(modifier).unwrap_or(modifier);
-    let scalar_slice = util::slice_before_chain_and_cast(body);
-    let name = util::extract_mn_name(modifier).unwrap_or_default();
-    let sd = util::extract_sd(scalar_slice, false)
-        .map(|s| crate::ir::DiceFaces::parse(&s))
-        .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
-    let template = util::extract_template(modifier).unwrap_or_default();
-    let hp = util::extract_hp(scalar_slice, false);
-    let color = util::extract_color(scalar_slice, false);
-    let tier = util::extract_simple_prop(modifier, ".tier.")
-        .and_then(|v| v.parse::<u8>().ok());
-    // Chain lives inside the inner replica body — the emitter writes it
-    // inside `((hat.replica…))` at raw depth 2. `extract_modifier_chain` is
-    // depth-0-only at the passed string, so we must scan the inner body
-    // (where chain markers sit at body-relative depth 0), not the outer
-    // modifier.
-    let item_modifiers = util::extract_modifier_chain(body)
-        .map(|s| crate::ir::ModifierChain::parse(&s));
-    let sticker = util::extract_simple_prop(modifier, ".sticker.");
-    let toggle_flags = extract_toggle_flags(modifier);
-    let img_data = util::extract_img_data(scalar_slice);
-    let sprite = crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default());
-
-    ReplicaItem {
-        name,
-        container: ReplicaItemContainer::Capture {
-            name: extract_container_name(modifier).unwrap_or_default(),
-        },
-        tier,
-        template,
-        hp,
-        sd,
-        sprite,
-        color,
-        item_modifiers,
-        sticker,
-        toggle_flags,
-        // Simple items don't have these
-        doc: None,
-        speech: None,
-        abilitydata: None,
-        source: Source::Base,
-    }
-}
-
-/// Parse a replica item with ability from a modifier string.
-/// Format: itempool.((hat.(replica.TEMPLATE...cast.ABILITY...))).n.CONTAINER_NAME.mn.NAME
-pub fn parse_with_ability(modifier: &str, _modifier_index: usize) -> ReplicaItem {
-    // See `parse_simple` for the full §F10 rationale. Same shape in
-    // miniature: `((hat.(replica.TEMPLATE...)))` — scalars and chain live
-    // at raw depth 3, so we scope to the innermost replica body (content
-    // of `(replica.TEMPLATE...)`) before applying `slice_before_chain_and_cast`.
-    // Inside that body the chain's `.i.` / `.sticker.` / the `.cast.` block
-    // sit at body-relative depth 0.
-    let body = util::replica_inner_body(modifier).unwrap_or(modifier);
-    let scalar_slice = util::slice_before_chain_and_cast(body);
-    let name = util::extract_mn_name(modifier).unwrap_or_default();
-    let sd = util::extract_sd(scalar_slice, false)
-        .map(|s| crate::ir::DiceFaces::parse(&s))
-        .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
-    let hp = util::extract_hp(scalar_slice, false);
-    let color = util::extract_color(scalar_slice, false);
-    let doc = util::extract_simple_prop(modifier, ".doc.");
-    let speech = util::extract_simple_prop(modifier, ".speech.");
-    // Ability body lives inside the inner replica body at body-relative
-    // depth 0. The textmod guide (reference/textmod_guide.md §Abilitydata,
-    // lines 747 / 857 / 975-981) uses `.abilitydata.(body)` as the
-    // authoritative property for attaching an ability — `cast.TRIGGER` is
-    // a chain keyword (guide lines 642-645), not a property marker. Reading
-    // from the inner body keeps the scan in the frame where `.abilitydata.`
-    // sits at body-relative depth 0, consistent with `replica_inner_body` +
-    // `slice_before_chain_and_cast` scoping for scalars.
-    let abilitydata = util::extract_nested_prop(body, ".abilitydata.")
-        .map(|s| crate::ir::AbilityData::parse(&s));
-    // Chain extraction scopes to the pre-ability region of the inner body
-    // so ability-body tokens cannot be mistaken for top-level chain
-    // segments. Mirrors `parse_legendary`'s `before_cast` pattern.
-    let before_ability = util::find_at_depth0(body, ".abilitydata.")
-        .map(|pos| &body[..pos])
-        .unwrap_or(body);
-    let item_modifiers = util::extract_modifier_chain(before_ability)
-        .map(|s| crate::ir::ModifierChain::parse(&s));
-    let img_data = util::extract_img_data(scalar_slice);
-    let sprite = crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default());
-
-    // Container name: the outer .n. (last one at depth 0, outside replica)
-    let container_name = extract_outer_n_name(modifier).unwrap_or_default();
-
-    ReplicaItem {
-        name,
-        container: ReplicaItemContainer::Capture { name: container_name },
-        template: util::extract_template(modifier).unwrap_or_default(),
-        hp,
-        sd,
-        sprite,
-        color,
-        doc,
-        speech,
-        abilitydata,
-        item_modifiers,
-        // With-ability items typically don't have these (but fields exist if needed)
-        tier: None,
-        sticker: None,
-        toggle_flags: None,
-        source: Source::Base,
-    }
-}
-
-/// Extract the container name (first .n. at depth 0, outside replica block).
-fn extract_container_name(modifier: &str) -> Option<String> {
-    let pos = util::find_at_depth0(modifier, ".n.")?;
-    let start = pos + 3;
-    let remaining = &modifier[start..];
-    let end = remaining
-        .find('.')
-        .or_else(|| remaining.find('+'))
-        .or_else(|| remaining.find(')'))
-        .unwrap_or(remaining.len());
-    let name = &remaining[..end];
-    if name.is_empty() { None } else { Some(name.to_string()) }
-}
-
-/// Extract the outer .n. name (last at depth 0) for items with deeper nesting.
-fn extract_outer_n_name(modifier: &str) -> Option<String> {
-    let pos = util::find_last_at_depth0(modifier, ".n.")?;
-    let start = pos + 3;
-    let remaining = &modifier[start..];
-    let end = remaining
-        .find(['.', '+', ')', '&', '@', ','])
-        .unwrap_or(remaining.len());
-    let name = &remaining[..end];
-    if name.is_empty() { None } else { Some(name.to_string()) }
-}
-
-/// Parse a top-level Legendary replica item: `item.TEMPLATE.[props].n.NAME[.cast.ABILITY]`.
+/// Parse a top-level Legendary replica item: `item.TEMPLATE.[props].n.NAME[.abilitydata.ABILITY]`.
 ///
-/// Legendaries carry no container name; `ReplicaItemContainer::Legendary` makes
-/// that unrepresentable at the type level.
+/// Legendaries are the only replica shape the classifier produces; Capture-shaped
+/// items route as `ItemPool` structurals because no corpus instance has ever
+/// been observed in the 4 working mods (chunk-impl rule 3).
 pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
     // Strip the leading `item.` (case-insensitive). The classifier's
     // `ModifierType::Legendary` gate (extractor/classifier.rs) only routes
@@ -229,7 +76,6 @@ pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
 
     ReplicaItem {
         name,
-        container: ReplicaItemContainer::Legendary,
         template,
         hp,
         sd,
@@ -256,82 +102,44 @@ mod tests {
     //! IR-vs-IR roundtrip and still be silently wrong — these tests catch
     //! that by using an invented ball name no registry would produce.
     use super::*;
-    use crate::ir::ReplicaItemContainer;
 
     #[test]
-    fn classifies_capture_into_enum_with_container_name_from_source() {
-        // Minimal sliceymon-shaped capture. The outer `.n.Quux` is an
-        // invented ball name on purpose — if the extractor reached for a
-        // registry of "known balls", this would come back wrong.
-        let modifier = "itempool.((hat.replica.Thief.n.Zoroark.sd.0:0:0:0:0:0)).n.Quux.tier.3.mn.Zoroark";
-        let item = parse_simple(modifier, 0);
-        assert_eq!(item.name, "Zoroark");
-        assert_eq!(
-            item.container,
-            ReplicaItemContainer::Capture { name: "Quux".into() },
-            "container name must come from the source `.n.` bytes, not a registry lookup"
-        );
-    }
-
-    #[test]
-    fn classifies_capture_with_ability_into_enum() {
-        // Emitter-realistic shape: `emit_with_ability` writes
-        // `.abilitydata.(…)` inside the triple-paren group at body-relative
-        // depth 0, per the textmod guide (reference/textmod_guide.md lines
-        // 747 / 857 / 975-981). `ZZZ` as the outer `.n.` is invented so a
-        // registry-lookup regression would fail here.
-        let modifier = "itempool.((hat.(replica.Alpha.sd.0:0:0:0:0:0.n.Mewtwo.abilitydata.(Fey.sd.0:0:0:0:0:0.n.Psy)))).n.ZZZ.mn.Mewtwo";
-        let item = parse_with_ability(modifier, 0);
-        assert_eq!(item.name, "Mewtwo");
-        assert_eq!(
-            item.container,
-            ReplicaItemContainer::Capture { name: "ZZZ".into() },
-            "with-ability path must still produce a Capture, carrying the outer .n. source bytes"
-        );
-        assert!(
-            item.abilitydata.is_some(),
-            "`.abilitydata.(…)` inside the inner replica body must be read as abilitydata"
-        );
-    }
-
-    #[test]
-    fn classifies_legendary_into_enum() {
+    fn parses_legendary_from_top_level_item() {
         let modifier = "item.Alpha.sd.0:0:0:0:0:0.n.Mew";
         let item = parse_legendary(modifier, 0);
         assert_eq!(item.name, "Mew");
-        assert_eq!(item.container, ReplicaItemContainer::Legendary);
         assert_eq!(item.template, "Alpha");
     }
 
     #[test]
-    fn legendary_name_is_last_depth0_n_before_cast() {
+    fn legendary_name_is_last_depth0_n_before_ability() {
         // A `.i.` chain segment can carry a depth-0 `.n.NAME` (e.g. an item
         // with a named reference). Emission always places the character
-        // `.n.NAME` *after* the chain and *before* `.cast.`, so the LAST
-        // pre-cast depth-0 `.n.` is the character name. First-match would
-        // incorrectly pick the chain's internal `.n.`.
+        // `.n.NAME` *after* the chain and *before* `.abilitydata.`, so the
+        // LAST pre-ability depth-0 `.n.` is the character name. First-match
+        // would incorrectly pick the chain's internal `.n.`.
         let modifier = "item.Alpha.hp.9.i.hat.statue.n.Viscera.sd.0:0:0:0:0:0.n.Mew";
         let item = parse_legendary(modifier, 0);
-        assert_eq!(item.name, "Mew", "character name must be the last pre-cast `.n.`, not a chain-internal `.n.`");
+        assert_eq!(item.name, "Mew", "character name must be the last pre-ability `.n.`, not a chain-internal `.n.`");
     }
 
     // ---------------------------------------------------------------------
     // Chunk 9 / §F10 — chain-interior scalar leakage tests.
     //
     // Every test below is source-vs-IR divergent by construction: the
-    // modifier's chain / cast region carries a literal `.hp.` / `.col.` /
+    // modifier's chain / ability region carries a literal `.hp.` / `.col.` /
     // `.sd.` / `.img.` substring whose byte interpretation would flip the
     // corresponding top-level IR field if the parser reached for bytes
     // beyond `slice_before_chain_and_cast`. An IR-vs-IR roundtrip baseline
     // would not catch this class — both extract passes would resolve the
     // leak the same way. These tests fail only when the parser walks into
-    // chain / cast bytes it shouldn't.
+    // chain / ability bytes it shouldn't.
     // ---------------------------------------------------------------------
 
     #[test]
     fn legendary_hp_ignores_chain_interior_sidesc() {
         // `.sticker.sidesc.hp.99` is free-form chain text; only the
-        // top-level (pre-chain, pre-cast) region may supply `.hp.`. No
+        // top-level (pre-chain, pre-ability) region may supply `.hp.`. No
         // top-level `.hp.` → `None`. A non-depth-aware `extract_hp` would
         // wrongly return `Some(99)`.
         let modifier = "item.Alpha.sticker.sidesc.hp.99.sd.0:0:0:0:0:0.n.Mew";
@@ -378,257 +186,6 @@ mod tests {
         );
     }
 
-    // Capture emit→parse source-vs-IR tests. The prior hand-rolled shapes
-    // placed decoys at raw depth 0, which the emitter cannot produce — the
-    // Capture emitter buries scalars and chain inside `((hat.replica...))`
-    // at depth ≥ 2. These tests build a real `ReplicaItem`, pass it through
-    // the emitter, and re-parse, so a regression in the scoping of
-    // `replica_inner_body` or `slice_before_chain_and_cast` flips an
-    // `Option::None` into a `Some(_)` and fails here.
-    #[test]
-    fn capture_emit_parse_hp_absent_when_chain_sidesc_has_decoy_hp() {
-        use crate::builder::replica_item_emitter::emit;
-        use crate::ir::{DiceFaces, ModifierChain};
-
-        let item = ReplicaItem {
-            name: "Pika".into(),
-            container: ReplicaItemContainer::Capture { name: "Ball".into() },
-            tier: None,
-            template: "Hat".into(),
-            hp: None,
-            sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite: crate::authoring::SpriteId::owned("Pika", ""),
-            color: None,
-            item_modifiers: Some(ModifierChain::parse(".i.hat.statue.sidesc.decoy.hp.99")),
-            sticker: None,
-            toggle_flags: None,
-            doc: None,
-            speech: None,
-            abilitydata: None,
-            source: Source::Base,
-        };
-        let emitted = emit(&item).unwrap();
-        let parsed = parse_simple(&emitted, 0);
-        assert_eq!(
-            parsed.hp, None,
-            "chain-interior .hp.99 must not leak into top-level hp; emitted={}",
-            emitted,
-        );
-    }
-
-    #[test]
-    fn capture_emit_parse_color_absent_when_chain_sidesc_has_decoy_color() {
-        use crate::builder::replica_item_emitter::emit;
-        use crate::ir::{DiceFaces, ModifierChain};
-
-        let item = ReplicaItem {
-            name: "Pika".into(),
-            container: ReplicaItemContainer::Capture { name: "Ball".into() },
-            tier: None,
-            template: "Hat".into(),
-            hp: None,
-            sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite: crate::authoring::SpriteId::owned("Pika", ""),
-            color: None,
-            item_modifiers: Some(ModifierChain::parse(".i.hat.statue.sidesc.decoy.col.z")),
-            sticker: None,
-            toggle_flags: None,
-            doc: None,
-            speech: None,
-            abilitydata: None,
-            source: Source::Base,
-        };
-        let emitted = emit(&item).unwrap();
-        let parsed = parse_simple(&emitted, 0);
-        assert_eq!(
-            parsed.color, None,
-            "chain-interior .col.z must not leak into top-level color; emitted={}",
-            emitted,
-        );
-    }
-
-    #[test]
-    fn capture_with_ability_emit_parse_hp_absent_when_chain_sidesc_has_decoy_hp() {
-        use crate::builder::replica_item_emitter::emit;
-        use crate::ir::{AbilityData, DiceFaces, ModifierChain};
-
-        let item = ReplicaItem {
-            name: "Mewtwo".into(),
-            container: ReplicaItemContainer::Capture { name: "MasterBall".into() },
-            tier: None,
-            template: "Alpha".into(),
-            hp: None,
-            sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite: crate::authoring::SpriteId::owned("Mewtwo", ""),
-            color: None,
-            item_modifiers: Some(ModifierChain::parse(".i.hat.statue.sidesc.decoy.hp.99")),
-            sticker: None,
-            toggle_flags: None,
-            doc: None,
-            speech: None,
-            abilitydata: Some(AbilityData::parse("(Fey.sd.0:0:0:0:0:0.n.Psy)")),
-            source: Source::Base,
-        };
-        let emitted = emit(&item).unwrap();
-        let parsed = parse_with_ability(&emitted, 0);
-        assert_eq!(
-            parsed.hp, None,
-            "chain-interior .hp.99 must not leak through parse_with_ability; emitted={}",
-            emitted,
-        );
-    }
-
-    #[test]
-    fn capture_with_ability_emit_parse_color_absent_when_chain_sidesc_has_decoy_color() {
-        use crate::builder::replica_item_emitter::emit;
-        use crate::ir::{AbilityData, DiceFaces, ModifierChain};
-
-        let item = ReplicaItem {
-            name: "Mewtwo".into(),
-            container: ReplicaItemContainer::Capture { name: "MasterBall".into() },
-            tier: None,
-            template: "Alpha".into(),
-            hp: None,
-            sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite: crate::authoring::SpriteId::owned("Mewtwo", ""),
-            color: None,
-            item_modifiers: Some(ModifierChain::parse(".i.hat.statue.sidesc.decoy.col.z")),
-            sticker: None,
-            toggle_flags: None,
-            doc: None,
-            speech: None,
-            abilitydata: Some(AbilityData::parse("(Fey.sd.0:0:0:0:0:0.n.Psy)")),
-            source: Source::Base,
-        };
-        let emitted = emit(&item).unwrap();
-        let parsed = parse_with_ability(&emitted, 0);
-        assert_eq!(
-            parsed.color, None,
-            "chain-interior .col.z must not leak through parse_with_ability; emitted={}",
-            emitted,
-        );
-    }
-
-    // ---------------------------------------------------------------------
-    // Round-trip tests that catch silent field drops on emit→parse.
-    // These are the siblings of `legendary_emit_parse_roundtrip_*`: without
-    // them, parse_simple / parse_with_ability can (and did) silently drop
-    // `item_modifiers` and `abilitydata` because the only assertions on
-    // Capture emit→parse checked scalar fields the drop left untouched.
-    // ---------------------------------------------------------------------
-
-    #[test]
-    fn capture_emit_parse_item_modifiers_roundtrip() {
-        use crate::builder::replica_item_emitter::emit;
-        use crate::ir::{DiceFaces, ModifierChain};
-
-        // `parse_simple` must read the chain from the *inner replica body*,
-        // where chain markers sit at body-relative depth 0. Scanning the
-        // outer modifier at depth 0 (the pre-fix behavior) silently drops
-        // the chain — the only depth-0 content in the outer modifier is
-        // `itempool.` / `.n.Ball.mn.Pika`, none of which are chain tokens.
-        let chain_src = ".i.left.k.scared#facade.bas170:55";
-        let item = ReplicaItem {
-            name: "Pika".into(),
-            container: ReplicaItemContainer::Capture { name: "Ball".into() },
-            tier: None,
-            template: "Hat".into(),
-            hp: None,
-            sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite: crate::authoring::SpriteId::owned("Pika", ""),
-            color: None,
-            item_modifiers: Some(ModifierChain::parse(chain_src)),
-            sticker: None,
-            toggle_flags: None,
-            doc: None,
-            speech: None,
-            abilitydata: None,
-            source: Source::Base,
-        };
-        let emitted = emit(&item).unwrap();
-        let parsed = parse_simple(&emitted, 0);
-        assert_eq!(
-            parsed.item_modifiers.as_ref().map(|c| c.emit()),
-            item.item_modifiers.as_ref().map(|c| c.emit()),
-            "item_modifiers must round-trip; emitted={}",
-            emitted,
-        );
-    }
-
-    #[test]
-    fn capture_with_ability_emit_parse_item_modifiers_roundtrip() {
-        use crate::builder::replica_item_emitter::emit;
-        use crate::ir::{AbilityData, DiceFaces, ModifierChain};
-
-        // Same as above for the with-ability path: chain scope must be
-        // `before_ability` (the inner body trimmed at `.abilitydata.`), not
-        // the outer modifier.
-        let chain_src = ".i.right.k.shield#facade.spe71:0";
-        let item = ReplicaItem {
-            name: "Mewtwo".into(),
-            container: ReplicaItemContainer::Capture { name: "MasterBall".into() },
-            tier: None,
-            template: "Alpha".into(),
-            hp: None,
-            sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite: crate::authoring::SpriteId::owned("Mewtwo", ""),
-            color: None,
-            item_modifiers: Some(ModifierChain::parse(chain_src)),
-            sticker: None,
-            toggle_flags: None,
-            doc: None,
-            speech: None,
-            abilitydata: Some(AbilityData::parse("(Fey.sd.0:0:0:0:0:0.n.Psy)")),
-            source: Source::Base,
-        };
-        let emitted = emit(&item).unwrap();
-        let parsed = parse_with_ability(&emitted, 0);
-        assert_eq!(
-            parsed.item_modifiers.as_ref().map(|c| c.emit()),
-            item.item_modifiers.as_ref().map(|c| c.emit()),
-            "item_modifiers must round-trip through parse_with_ability; emitted={}",
-            emitted,
-        );
-    }
-
-    #[test]
-    fn capture_with_ability_emit_parse_abilitydata_roundtrip() {
-        use crate::builder::replica_item_emitter::emit;
-        use crate::ir::{AbilityData, DiceFaces};
-
-        // Emit writes `.abilitydata.(body)` at body-relative depth 0 per
-        // the textmod guide (reference/textmod_guide.md lines 747 / 857 /
-        // 975-981). Parse must read the same marker from the same frame —
-        // the pre-fix code wrote `.cast.(body)` and read `.abilitydata.`
-        // from the outer modifier, so every emit→parse cycle silently
-        // dropped the ability.
-        let item = ReplicaItem {
-            name: "Mewtwo".into(),
-            container: ReplicaItemContainer::Capture { name: "MasterBall".into() },
-            tier: None,
-            template: "Alpha".into(),
-            hp: None,
-            sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite: crate::authoring::SpriteId::owned("Mewtwo", ""),
-            color: None,
-            item_modifiers: None,
-            sticker: None,
-            toggle_flags: None,
-            doc: None,
-            speech: None,
-            abilitydata: Some(AbilityData::parse("(Fey.sd.34-1:0.img.spark.n.Psychic)")),
-            source: Source::Base,
-        };
-        let emitted = emit(&item).unwrap();
-        let parsed = parse_with_ability(&emitted, 0);
-        assert_eq!(
-            parsed.abilitydata.as_ref().map(|a| a.emit()),
-            item.abilitydata.as_ref().map(|a| a.emit()),
-            "abilitydata must round-trip through emit→parse; emitted={}",
-            emitted,
-        );
-    }
-
     #[test]
     fn legendary_ignores_abilitydata_interior_hp_color_sd_img() {
         // Top-level Legendary declares NO hp / color / img / sd. Its
@@ -655,20 +212,4 @@ mod tests {
         );
         assert!(item.abilitydata.is_some(), "ability body still parses into abilitydata");
     }
-}
-
-/// Extract #tog toggle flags from modifier.
-fn extract_toggle_flags(modifier: &str) -> Option<String> {
-    let mut flags = Vec::new();
-    let mut search_from = 0;
-    while let Some(pos) = modifier[search_from..].find("#tog") {
-        let abs_pos = search_from + pos;
-        let remaining = &modifier[abs_pos..];
-        let end = remaining[1..].find(['#', '.', ',', ')'])
-            .map(|e| e + 1)
-            .unwrap_or(remaining.len());
-        flags.push(remaining[..end].to_string());
-        search_from = abs_pos + end;
-    }
-    if flags.is_empty() { None } else { Some(flags.join("")) }
 }

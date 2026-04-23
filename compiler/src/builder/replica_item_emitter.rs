@@ -1,167 +1,17 @@
 use crate::error::CompilerError;
-use crate::ir::{ReplicaItem, ReplicaItemContainer};
+use crate::ir::ReplicaItem;
 
 /// Emit a ReplicaItem as a modifier string.
 ///
-/// Dispatch is driven by `item.container`:
-/// - `Capture { name }`   → `itempool.((...)).n.{name}.mn.{name}` (double- or
-///   triple-paren depending on whether `abilitydata` is present).
-/// - `Legendary`          → top-level `item.TEMPLATE...n.NAME[.cast.ABILITY]`.
-///
-/// The match is exhaustive by variant — no `_` arm — so adding a future
-/// `ReplicaItemContainer` variant is a compile error here, not a silent
-/// fallthrough (SPEC §3.6).
+/// Only the Legendary shape is modelled — Capture-shaped items route as
+/// `ItemPool` structurals because no corpus instance exists for a
+/// Capture-specific `ReplicaItem` variant (chunk-impl rule 3).
 pub fn emit(item: &ReplicaItem) -> Result<String, CompilerError> {
-    match &item.container {
-        ReplicaItemContainer::Capture { name } => {
-            if item.abilitydata.is_some() {
-                emit_with_ability(item, name)
-            } else {
-                emit_simple(item, name)
-            }
-        }
-        ReplicaItemContainer::Legendary => emit_legendary(item),
-    }
-}
-
-/// Emit a simple Capture replica item (no ability).
-/// Format: itempool.((hat.replica.Template...)).n.ContainerName.mn.Name
-fn emit_simple(item: &ReplicaItem, container_name: &str) -> Result<String, CompilerError> {
-    let mut out = String::new();
-
-    out.push_str("itempool.((hat.replica.");
-    out.push_str(&item.template);
-
-    if let Some(c) = item.color {
-        out.push_str(".col.");
-        out.push(c);
-    }
-
-    if let Some(hp) = item.hp {
-        out.push_str(".hp.");
-        out.push_str(&hp.to_string());
-    }
-
-    // Scalars precede the chain so `parse_simple`'s `scalar_slice` + first-
-    // match extract can't be fooled by a chain-interior `.sd.` / `.img.`
-    // decoy (§F10, Chunk 9).
-    out.push_str(".sd.");
-    out.push_str(&item.sd.emit());
-
-    if !item.sprite.img_data().is_empty() {
-        out.push_str(".img.");
-        out.push_str(item.sprite.img_data());
-    }
-
-    if let Some(ref chain) = item.item_modifiers {
-        out.push_str(&chain.emit());
-    }
-
-    // Inner character name
-    out.push_str(".n.");
-    out.push_str(&item.name);
-
-    out.push_str("))");
-
-    // Container name outside
-    out.push_str(".n.");
-    out.push_str(container_name);
-
-    if let Some(tier) = item.tier {
-        out.push_str(".tier.");
-        out.push_str(&tier.to_string());
-    }
-
-    if let Some(ref sticker) = item.sticker {
-        out.push_str(".sticker.");
-        out.push_str(sticker);
-    }
-
-    if let Some(ref tog) = item.toggle_flags {
-        out.push_str(tog);
-    }
-
-    // .mn. suffix
-    out.push_str(".mn.");
-    out.push_str(&item.name);
-
-    Ok(out)
-}
-
-/// Emit a Capture replica item with ability (cast block).
-/// Format: itempool.((hat.(replica.Template...cast.ABILITY...))).n.ContainerName.mn.Name
-fn emit_with_ability(item: &ReplicaItem, container_name: &str) -> Result<String, CompilerError> {
-    let mut out = String::new();
-
-    out.push_str("itempool.((hat.(replica.");
-    out.push_str(&item.template);
-
-    if let Some(c) = item.color {
-        out.push_str(".col.");
-        out.push(c);
-    }
-
-    if let Some(hp) = item.hp {
-        out.push_str(".hp.");
-        out.push_str(&hp.to_string());
-    }
-
-    // Scalars precede the chain so `parse_with_ability`'s `scalar_slice` +
-    // first-match extract can't be fooled by a chain-interior `.sd.` /
-    // `.img.` decoy (§F10, Chunk 9).
-    out.push_str(".sd.");
-    out.push_str(&item.sd.emit());
-
-    if !item.sprite.img_data().is_empty() {
-        out.push_str(".img.");
-        out.push_str(item.sprite.img_data());
-    }
-
-    if let Some(ref chain) = item.item_modifiers {
-        out.push_str(&chain.emit());
-    }
-
-    // Inner character name
-    out.push_str(".n.");
-    out.push_str(&item.name);
-
-    // Ability body. The textmod guide (reference/textmod_guide.md lines
-    // 747 / 857 / 975-981) writes `.abilitydata.(body)` as the
-    // authoritative property for attaching an ability to a replica body.
-    // Earlier code emitted `.cast.` which is a chain-interior keyword
-    // (guide lines 642-645), not a property marker — `parse_with_ability`
-    // silently dropped the ability because the literal it reads
-    // (`.abilitydata.`) was never emitted.
-    if let Some(ref ability) = item.abilitydata {
-        out.push_str(".abilitydata.");
-        out.push_str(&ability.emit());
-    }
-
-    if let Some(ref speech) = item.speech {
-        out.push_str(".speech.");
-        out.push_str(speech);
-    }
-
-    if let Some(ref doc) = item.doc {
-        out.push_str(".doc.");
-        out.push_str(doc);
-    }
-
-    out.push_str(")))");
-
-    // Container name outside
-    out.push_str(".n.");
-    out.push_str(container_name);
-
-    // .mn. suffix
-    out.push_str(".mn.");
-    out.push_str(&item.name);
-
-    Ok(out)
+    emit_legendary(item)
 }
 
 /// Emit a Legendary replica item — top-level `item.` shape, no container name.
-/// Format: `item.TEMPLATE[.col.C][.hp.N][chain].sd.SD[.img.IMG].n.NAME[.cast.ABILITY]`.
+/// Format: `item.TEMPLATE[.col.C][.hp.N][.sd.SD][.img.IMG][chain].n.NAME[.abilitydata.ABILITY]`.
 fn emit_legendary(item: &ReplicaItem) -> Result<String, CompilerError> {
     let mut out = String::new();
 
@@ -179,9 +29,9 @@ fn emit_legendary(item: &ReplicaItem) -> Result<String, CompilerError> {
     }
 
     // Scalars precede the chain so `parse_legendary`'s `scalar_slice` +
-    // depth-aware extract has a chain-and-cast-free prefix to scan (§F10,
-    // Chunk 9). A chain-interior `.sd.` / `.img.` decoy therefore cannot
-    // appear before the legit top-level value.
+    // depth-aware extract has a chain-and-ability-free prefix to scan
+    // (§F10, Chunk 9). A chain-interior `.sd.` / `.img.` decoy therefore
+    // cannot appear before the legit top-level value.
     out.push_str(".sd.");
     out.push_str(&item.sd.emit());
 
@@ -225,93 +75,9 @@ mod tests {
     use crate::ir::{DiceFaces, Source};
 
     #[test]
-    fn emit_simple_replica_item() {
-        let item = ReplicaItem {
-            name: "Pikachu".into(),
-            container: ReplicaItemContainer::Capture { name: "Ball".into() },
-            tier: None,
-            template: "Hat".into(),
-            hp: None,
-            sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite: SpriteId::owned("Pikachu", ""),
-            color: None,
-            item_modifiers: None,
-            sticker: None,
-            toggle_flags: None,
-            doc: None,
-            speech: None,
-            abilitydata: None,
-            source: Source::Base,
-        };
-        let output = emit(&item).unwrap();
-        assert!(output.contains("itempool."), "Should produce valid item");
-        assert!(output.contains(".n.Pikachu"), "Should have character name");
-        assert!(output.contains("hat.replica"), "Simple format uses hat.replica");
-        assert!(!output.contains("hat.(replica"), "Simple format should NOT use triple parens");
-    }
-
-    #[test]
-    fn emit_simple_with_tier_and_sticker() {
-        let item = ReplicaItem {
-            name: "Pikachu".into(),
-            container: ReplicaItemContainer::Capture { name: "PokeBall".into() },
-            tier: Some(2),
-            template: "Hat".into(),
-            hp: Some(5),
-            sd: DiceFaces::parse("34-1:0:0:0:0:0"),
-            sprite: SpriteId::owned("Pikachu", ""),
-            color: Some('y'),
-            item_modifiers: None,
-            sticker: None,
-            toggle_flags: None,
-            doc: None,
-            speech: None,
-            abilitydata: None,
-            source: Source::Base,
-        };
-        let output = emit(&item).unwrap();
-        assert!(output.contains("itempool."));
-        assert!(output.contains("hat.replica"));
-        assert!(output.contains(".n.Pikachu"));
-        assert!(output.contains(".n.PokeBall"));
-        assert!(output.contains(".tier.2"));
-    }
-
-    #[test]
-    fn emit_with_ability() {
-        let item = ReplicaItem {
-            name: "Mewtwo".into(),
-            container: ReplicaItemContainer::Capture { name: "MasterBall".into() },
-            tier: None,
-            template: "Alpha".into(),
-            hp: Some(20),
-            sd: DiceFaces::parse("34-3:34-3:34-3:0:0:0"),
-            sprite: SpriteId::owned("Mewtwo", ""),
-            color: Some('p'),
-            doc: None,
-            speech: None,
-            abilitydata: Some(crate::ir::AbilityData::parse("(Fey.sd.34-1:0.img.spark.n.Psychic)")),
-            item_modifiers: None,
-            sticker: None,
-            toggle_flags: None,
-            source: Source::Base,
-        };
-        let output = emit(&item).unwrap();
-        assert!(output.contains("itempool."));
-        assert!(output.contains("hat.(replica"), "With-ability format uses hat.(replica");
-        assert!(
-            output.contains(".abilitydata."),
-            "ability body emitted as `.abilitydata.(…)` per textmod guide, not `.cast.`"
-        );
-        assert!(output.contains(".n.Mewtwo"));
-        assert!(output.contains(".n.MasterBall"));
-    }
-
-    #[test]
     fn emit_legendary_uses_top_level_item() {
         let item = ReplicaItem {
             name: "Mew".into(),
-            container: ReplicaItemContainer::Legendary,
             tier: None,
             template: "Alpha".into(),
             hp: Some(12),
@@ -346,7 +112,6 @@ mod tests {
 
         let item = ReplicaItem {
             name: "Mew".into(),
-            container: ReplicaItemContainer::Legendary,
             tier: None,
             template: "Alpha".into(),
             hp: Some(12),
@@ -367,7 +132,6 @@ mod tests {
         let emitted = emit(&item).unwrap();
         let parsed = parse_legendary(&emitted, 0);
 
-        assert_eq!(parsed.container, item.container, "container variant");
         assert_eq!(parsed.name, item.name, "name");
         assert_eq!(parsed.template, item.template, "template");
         assert_eq!(parsed.hp, item.hp, "hp");
@@ -400,7 +164,6 @@ mod tests {
         let chain_src = ".i.left.k.scared#facade.bas170:55";
         let item = ReplicaItem {
             name: "Mew".into(),
-            container: ReplicaItemContainer::Legendary,
             tier: None,
             template: "Alpha".into(),
             hp: Some(9),
@@ -419,7 +182,6 @@ mod tests {
         let emitted = emit(&item).unwrap();
         let parsed = parse_legendary(&emitted, 0);
 
-        assert_eq!(parsed.container, item.container, "container variant");
         assert_eq!(parsed.name, item.name, "name");
         assert_eq!(parsed.template, item.template, "template");
         assert_eq!(parsed.hp, item.hp, "hp");

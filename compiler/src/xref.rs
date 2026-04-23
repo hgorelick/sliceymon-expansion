@@ -12,7 +12,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::authoring::FaceIdValue;
-use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, ReplicaItemContainer, Source, StructuralContent};
+use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, Source, StructuralContent};
 
 // ---------------------------------------------------------------------------
 // Rule ID constants
@@ -226,14 +226,10 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
             .push((hero.mn_name.clone(), "hero"));
     }
     for item in &ir.replica_items {
-        let bucket = match &item.container {
-            ReplicaItemContainer::Capture { .. } => "capture",
-            ReplicaItemContainer::Legendary => "legendary",
-        };
         owners
             .entry(item.name.to_lowercase())
             .or_default()
-            .push((item.name.clone(), bucket));
+            .push((item.name.clone(), "legendary"));
     }
     for monster in &ir.monsters {
         owners
@@ -803,7 +799,6 @@ mod tests {
     fn make_replica_item(name: &str) -> ReplicaItem {
         ReplicaItem {
             name: name.to_string(),
-            container: ReplicaItemContainer::Capture { name: name.to_string() },
             template: "Slime".to_string(),
             hp: Some(4),
             sd: DiceFaces { faces: vec![DiceFace::Blank] },
@@ -971,32 +966,17 @@ mod tests {
         assert!(report.errors.is_empty(), "No errors when all names are unique");
     }
 
-    // -- X003: No duplicate Pokemon across hero/capture/legendary/monster buckets --
-
-    fn make_legendary_replica_item(name: &str) -> ReplicaItem {
-        ReplicaItem {
-            name: name.to_string(),
-            container: ReplicaItemContainer::Legendary,
-            template: "Alpha".to_string(),
-            hp: Some(10),
-            sd: DiceFaces { faces: vec![DiceFace::Blank] },
-            sprite: crate::authoring::SpriteId::owned(name.to_lowercase(), ""),
-            color: None,
-            tier: None,
-            doc: None,
-            speech: None,
-            abilitydata: None,
-            item_modifiers: None,
-            sticker: None,
-            toggle_flags: None,
-            source: Source::Custom,
-        }
-    }
+    // -- X003: No duplicate Pokemon across hero/legendary/monster buckets --
+    //
+    // The former `capture` bucket was removed along with `ReplicaItemContainer`
+    // (chunk-impl rule 3: zero corpus instances for `ReplicaItem::Capture`).
+    // All `ReplicaItem` instances are now Legendary-shaped.
 
     #[test]
     fn x003_duplicate_pokemon_across_kinds() {
-        // Pikachu as both Hero and Capture — X003 must fire even though V020
-        // also catches this case. X003 reports per-bucket granularity.
+        // Pikachu as both Hero and Legendary replica item — X003 must fire
+        // even though V020 also catches this case. X003 reports per-bucket
+        // granularity.
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Pikachu", 'a'));
         ir.replica_items.push(make_replica_item("Pikachu"));
@@ -1007,22 +987,8 @@ mod tests {
         assert_eq!(x003.len(), 1, "expected one X003 finding");
         assert!(x003[0].message.contains("Pikachu"));
         assert!(x003[0].message.contains("hero"));
-        assert!(x003[0].message.contains("capture"));
-        assert_eq!(x003[0].modifier_name.as_deref(), Some("Pikachu"));
-    }
-
-    #[test]
-    fn x003_distinguishes_capture_from_legendary_buckets() {
-        // Same Pokemon as both Capture and Legendary — still two buckets.
-        let mut ir = ModIR::empty();
-        ir.replica_items.push(make_replica_item("Mewtwo"));
-        ir.replica_items.push(make_legendary_replica_item("Mewtwo"));
-
-        let report = check_references(&ir);
-        let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
-        assert_eq!(x003.len(), 1, "capture+legendary of same name must fire X003");
-        assert!(x003[0].message.contains("capture"));
         assert!(x003[0].message.contains("legendary"));
+        assert_eq!(x003[0].modifier_name.as_deref(), Some("Pikachu"));
     }
 
     #[test]
@@ -1030,7 +996,7 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Charmander", 'a'));
         ir.replica_items.push(make_replica_item("Pikachu"));
-        ir.replica_items.push(make_legendary_replica_item("Mew"));
+        ir.replica_items.push(make_replica_item("Mew"));
 
         let report = check_references(&ir);
         let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
@@ -1272,7 +1238,6 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.replica_items.push(ReplicaItem {
             name: "UnknownFaceItem".to_string(),
-            container: ReplicaItemContainer::Capture { name: "UnknownFaceItem".to_string() },
             template: "Slime".to_string(),
             hp: Some(4),
             sd: DiceFaces {
@@ -1433,7 +1398,6 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.replica_items.push(ReplicaItem {
             name: "KnownFaceItem".to_string(),
-            container: ReplicaItemContainer::Capture { name: "KnownFaceItem".to_string() },
             template: "Slime".to_string(),
             hp: Some(4),
             sd: DiceFaces {

@@ -56,12 +56,6 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
             ModifierType::BossEncounter => {
                 bosses.push(boss_parser::parse_encounter(modifier, i));
             }
-            ModifierType::ReplicaItem => {
-                replica_items.push(replica_item_parser::parse_simple(modifier, i));
-            }
-            ModifierType::ReplicaItemWithAbility => {
-                replica_items.push(replica_item_parser::parse_with_ability(modifier, i));
-            }
             ModifierType::Legendary => {
                 replica_items.push(replica_item_parser::parse_legendary(modifier, i));
             }

@@ -9,11 +9,12 @@ pub enum ModifierType {
     Monster,
     Boss,
     BossEncounter,
-    ReplicaItem,
-    ReplicaItemWithAbility,
     /// Top-level `item.(...)` — a Legendary replica item (persistent ally with
-    /// spell). Distinct from `ReplicaItem` / `ReplicaItemWithAbility`, which
-    /// are both Capture-shaped (wrapped in `itempool.(...)`).
+    /// spell). Capture-shaped items (wrapped in `itempool.(...)`) route as
+    /// `ItemPool` structurals — there is no `ReplicaItem::Capture` variant
+    /// because no corpus instance exists for it (chunk-impl rule 3:
+    /// "Every IR variant discriminator must have at least one corpus
+    /// instance per variant before it ships").
     Legendary,
     ItemPool,
     PartyConfig,
