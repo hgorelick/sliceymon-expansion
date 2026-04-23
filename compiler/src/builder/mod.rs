@@ -41,7 +41,7 @@ pub fn build(ir: &ModIR) -> Result<String, CompilerError> {
 /// Derived-structural policy (SPEC §4): `build` strips any
 /// `StructuralModifier` with `derived: true` from the IR before emission and
 /// appends regenerated forms. `Source::Custom`-origin derived structurals are
-/// rejected with [`CompilerError::DerivedStructuralAuthored`];
+/// rejected with [`CompilerError::derived_structural_authored`];
 /// `Source::Base` / `Source::Overlay` are stripped with an `X010` warning.
 /// The strip-regenerate cycle operates on a local clone so the caller's IR
 /// is not mutated; callers that need the warnings should use `merge` (which

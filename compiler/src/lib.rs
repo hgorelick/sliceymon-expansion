@@ -45,7 +45,7 @@ pub fn build_complete(ir: &ModIR) -> Result<String, CompilerError> {
 /// Overlay items replace base items matched by identity key; new keys are
 /// appended. Derived structurals (char selection, hero pool base, pool
 /// replacement, hero-bound item pool) are stripped per SPEC §4's
-/// provenance-gated rule — `Source::Custom` → [`CompilerError::DerivedStructuralAuthored`],
+/// provenance-gated rule — `Source::Custom` → [`CompilerError::derived_structural_authored`],
 /// `Source::Base`/`Source::Overlay` → strip + `X010` warning on `base.warnings`.
 pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
     ir::merge::merge(base, overlay)

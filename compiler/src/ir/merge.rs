@@ -6,30 +6,21 @@ use crate::ir::{ModIR, Source, StructuralModifier, StructuralType};
 /// `PoolReplacement`, hero-bound `ItemPool`) present in IR. Authoring derived
 /// structurals is unsupported; they are regenerated from content. For
 /// `Source::Base` / `Source::Overlay` input we strip + warn. For
-/// `Source::Custom` input it is a [`CompilerError::DerivedStructuralAuthored`]
-/// (see SPEC §4 derived-structural rule).
+/// `Source::Custom` input it is a
+/// [`CompilerError::derived_structural_authored`] (backed by
+/// [`crate::error::ErrorKind::DerivedStructuralAuthored`]) — see SPEC §4
+/// derived-structural rule.
 pub const X010: &str = "X010";
 
 const X010_SUGGESTION: &str = "Derived structurals are regenerated at build time; authoring them directly is unsupported.";
 
-/// Strip derived structurals from `ir.structural` according to SPEC §4's
-/// provenance-gated rule:
-///
-/// - `Source::Custom` → returns `Err(CompilerError::DerivedStructuralAuthored)`.
-/// - `Source::Base` / `Source::Overlay` → strip and append an `X010` `Warning`
-///   to `ir.warnings`.
-///
-/// `label` names the input side ("base" / "overlay") and is used in the
-/// finding's `field_path` so downstream tools can attribute the strip.
-///
-/// The hero list comes from `heroes_ref` so hero-bound `ItemPool` modifiers
-/// (whose derived-ness depends on whether the pool name matches a hero) can
-/// be classified correctly. Pass the post-merge hero set when merging so both
-/// sides see the same classification.
 /// Scan `structural` for a `Source::Custom` derived modifier; if found,
 /// return the SPEC §4 category error with a `{label}.structural[{orig_i}]`
 /// `field_path`. Used as a preflight by `merge` so the error path is
 /// transactional across the whole merge (not just the individual strip call).
+///
+/// Derived-ness is decided by [`StructuralModifier::is_derived`] (flag +
+/// kind match); see that method's docs for the classification contract.
 pub fn check_no_custom_derived(
     structural: &[StructuralModifier],
     label: &str,
@@ -50,6 +41,20 @@ pub fn check_no_custom_derived(
     Ok(())
 }
 
+/// Strip derived structurals from `structural` according to SPEC §4's
+/// provenance-gated rule:
+///
+/// - `Source::Custom` → returns `Err(CompilerError::DerivedStructuralAuthored)`
+///   (see [`check_no_custom_derived`] — this function runs the same scan as a
+///   preflight before any mutation).
+/// - `Source::Base` / `Source::Overlay` → strip and append an `X010`
+///   `Severity::Warning` `Finding` to `warnings`. The finding's `field_path`
+///   uses the caller's ORIGINAL input index (via drain+enumerate); its
+///   `modifier_index` mirrors it.
+///
+/// `label` names the input side (`"base"` / `"overlay"` / `"build"`) and is
+/// used in the finding's `field_path` so downstream tools can attribute the
+/// strip. Derived-ness is decided by [`StructuralModifier::is_derived`].
 pub fn strip_derived_structurals(
     structural: &mut Vec<StructuralModifier>,
     warnings: &mut Vec<Finding>,
