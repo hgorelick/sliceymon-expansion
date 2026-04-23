@@ -14,7 +14,7 @@ This plan delivers the IR schema, type-system, and build-API foundations that `P
 - `merge` retains SPEC §5's `pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError>` shape. Warnings emitted when merge strips derived structurals are written into a new `ModIR.warnings: Vec<Finding>` sidecar field so the signature stays as SPEC §5 specifies.
 - Authoring of new xref rules `X003`, `X010`, `X016`, `X017` (these do not exist today — current xref uses `V016`/`V019`/`V020` only). No X001 demo rule.
 - Merge semantics that strip derived structurals so `build` regenerates them unconditionally, plus the two missing derived generators (`pool_replacement`, `hero_item_pool`).
-- `panic!`/`unwrap`/`expect` elimination in library code (SPEC §8) — scoped to the 6 lib-code occurrences across 5 files that a verified audit found, NOT the `ir/mod.rs:284` site (which is inside `#[cfg(test)]`).
+- `panic!`/`unwrap`/`expect` elimination in library code (SPEC §8) — see §F8 below for the landed audit count, per-file resolutions, and enforcement mechanism (do not restate here).
 
 All items here satisfy SPEC §3.7 (no parallel representations, no deferred replacement). Each is implementable against today's codebase, with explicit prerequisites where the current type shape does not yet support the target design.
 
@@ -779,7 +779,7 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 - [x] `extractor::hero_parser::tests::hero_parser_malformed_propagates_error`.
 - [x] `extractor::phase_parser::tests::phase_parser_malformed_propagates_error`.
 - [x] `extractor::reward_parser::tests::reward_parser_malformed_propagates_error`.
-- [x] `extractor::fight_parser::tests::fight_parser_malformed_propagates_error` (pins the `starts_with(template)` guard, the happy-path direct-offset math, and the single-paren `.(child)` shape; the in-code comment is the authoritative account of how old `find` and new arithmetic relate — they agree on realistic templates and the new code is strictly more correct under pathological templates embedding `.((`/`.(`).
+- [x] `extractor::fight_parser::tests::fight_parser_malformed_propagates_error` (pins the `starts_with(template)` guard, the happy-path direct-offset math, and the single-paren `.(child)` shape; see the Landed files bullet above and the in-code comment for the old-vs-new equivalence narrative — do not restate it here).
 - [x] `extractor::replica_item_parser::tests::legendary_without_item_prefix_propagates_error`.
 - [x] All 4 working mods IR-equal roundtrip (`baseline_sliceymon`, `baseline_pansaer`, `baseline_punpuns`, `baseline_community`).
 
@@ -873,7 +873,7 @@ Each test is a *source-vs-IR divergence* test by construction (per §F10 / Chunk
 - [ ] `cargo run -- schema` produces a JSON Schema that includes `FaceId`, `FaceIdValue`, `Pips`, `SpriteId`, and `ReplicaItemContainer` types.
 - [ ] `compiler/src/authoring/` contains only: `mod.rs`, `face_id.rs`, `face_id_generated.rs`, `sprite.rs`, `sprite_registry.rs`. No builders, no macros, no `HeroReplica` — those are owned by `AUTHORING_ERGONOMICS_PLAN.md`.
 - [ ] No `std::fs` / `std::process` in `compiler/src/authoring/` or any other library file.
-- [ ] Lib-code audit (`rg` with `#[cfg(test)]` stripping, enforced via `xtask`/`build.rs`) shows zero `unwrap()` / `expect()` / `panic!` / `unimplemented!` / `todo!` hits.
+- [x] Lib-code audit shows zero `unwrap()` / `expect()` / `panic!` / `unimplemented!` / `todo!` hits outside `#[cfg(test)]` gates. (Chunk 7, 2026-04-22 — enforcement landed as `compiler/tests/audit_lib_panic_free.rs::audit_no_lib_panic_or_unwrap`, not `xtask`/`build.rs`; see §F8.)
 - [ ] Every new xref rule (X003, X010, X016, X017) populates `field_path`, `suggestion`, and `source` on its `Finding`s. Every existing V-rule (V016, V019, V020) populates `source`.
 - [ ] V020 and X003 do not double-fire on cross-bucket Pokemon collisions (`{hero, replica_item, monster}` slice is X003's sole territory). V020 retains emission only for boss-involving collisions and intra-bucket duplicates. (Chunk 8, §F9.)
 - [ ] Replica parsers (`parse_simple` / `parse_with_ability` / `parse_legendary`) route scalar extraction through `util::slice_before_chain_and_cast` + `depth_aware = true`; chain-interior `.hp.` / `.col.` / `.sd.` / `.img.` substrings in sidesc / cast-effect / enchant text do not leak into top-level fields. (Chunk 9, §F10.)
