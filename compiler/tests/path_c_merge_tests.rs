@@ -270,6 +270,91 @@ fn build_errors_on_custom_authored_derived_structural() {
     }
 }
 
+// -- field_path carries ORIGINAL input index, not post-remove running index --
+
+// If `strip_derived_structurals` used the running index after `Vec::remove`
+// collapses, two head-of-list strips would both report `structural[0]`.
+// Downstream tools would see a meaningless field_path. This test pins the
+// original-index semantics so a future refactor that reintroduces the
+// running-index bug fails here, not in a downstream tool.
+#[test]
+fn strip_findings_carry_original_index_not_running_index() {
+    use textmod_compiler::ir::merge::strip_derived_structurals;
+
+    let mut structural = vec![
+        derived_char_selection(Source::Base),            // original index 0
+        non_derived_selector(Source::Base, "keep me"),   // original index 1
+        derived_char_selection(Source::Base),            // original index 2
+        non_derived_selector(Source::Base, "and me"),    // original index 3
+    ];
+    let mut warnings: Vec<Finding> = Vec::new();
+
+    strip_derived_structurals(&mut structural, &mut warnings, "base")
+        .expect("Base-source derived strips are warnings, not errors");
+
+    // The two non-derived items must survive, in original order.
+    assert_eq!(structural.len(), 2);
+    assert_eq!(structural[0].name.as_deref(), Some("keep me"));
+    assert_eq!(structural[1].name.as_deref(), Some("and me"));
+
+    // Exactly two X010 findings, and their field_paths must be the ORIGINAL
+    // input indices [0, 2] — not [0, 0] (the running-index bug) and not
+    // [0, 1] (post-remove-then-skip).
+    let x010s: Vec<&Finding> = warnings.iter().filter(|w| w.rule_id == X010).collect();
+    assert_eq!(x010s.len(), 2, "one X010 per derived strip");
+    let paths: Vec<&str> = x010s
+        .iter()
+        .filter_map(|w| w.field_path.as_deref())
+        .collect();
+    assert!(
+        paths.contains(&"base.structural[0]"),
+        "missing field_path for original index 0, got: {:?}",
+        paths
+    );
+    assert!(
+        paths.contains(&"base.structural[2]"),
+        "missing field_path for original index 2 (running-index regression), got: {:?}",
+        paths
+    );
+    // And the modifier_index column mirrors it structurally.
+    let indices: Vec<usize> = x010s.iter().filter_map(|w| w.modifier_index).collect();
+    assert!(indices.contains(&0) && indices.contains(&2), "modifier_index drift: {:?}", indices);
+}
+
+// -- error path is transactional: base.structural is untouched on Custom-err --
+
+// If strip_derived_structurals partially drained the vec before discovering a
+// Custom-derived item, the caller's IR would be left half-stripped on the
+// error path. Pin the transactional contract: pre-error structural state must
+// match post-error structural state byte-for-byte.
+#[test]
+fn strip_custom_error_preserves_structural_vec() {
+    use textmod_compiler::ir::merge::strip_derived_structurals;
+
+    let mut structural = vec![
+        derived_char_selection(Source::Base),            // would be stripped...
+        non_derived_selector(Source::Base, "keep"),
+        derived_char_selection(Source::Custom),          // ...but this errors first
+    ];
+    let snapshot = structural.clone();
+    let mut warnings: Vec<Finding> = Vec::new();
+
+    let err = strip_derived_structurals(&mut structural, &mut warnings, "base")
+        .expect_err("Custom-derived must error");
+    match *err.kind {
+        ErrorKind::DerivedStructuralAuthored { .. } => {}
+        other => panic!("expected DerivedStructuralAuthored, got {:?}", other),
+    }
+    assert_eq!(
+        structural, snapshot,
+        "structural must be unchanged on the error path (no half-strip)"
+    );
+    assert!(
+        warnings.is_empty(),
+        "no X010 warnings should be emitted when the call errored"
+    );
+}
+
 // -- Path C: adding a hero then building regenerates the char selection --
 
 // Confirms the strip-regenerate cycle completes end to end: a Base-origin

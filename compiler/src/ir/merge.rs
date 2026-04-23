@@ -31,40 +31,47 @@ pub fn strip_derived_structurals(
     warnings: &mut Vec<Finding>,
     label: &str,
 ) -> Result<(), CompilerError> {
-    let mut i = 0;
-    while i < structural.len() {
-        if structural[i].is_derived() {
-            let s = &structural[i];
-            if s.source == Source::Custom {
-                return Err(CompilerError::derived_structural_authored(format!(
-                    "{:?}{}",
-                    s.modifier_type,
-                    s.name.as_deref().map(|n| format!(" ({})", n)).unwrap_or_default()
-                ))
-                .with_field_path(format!(
-                    "{}.structural[{}]",
-                    label, i
-                ))
-                .with_suggestion(X010_SUGGESTION));
-            }
-            let name = s.name.clone();
-            let modifier_type = s.modifier_type.clone();
-            structural.remove(i);
+    // Pass 1: error out BEFORE mutating `structural` if any Custom-authored
+    // derived structural is present, so the caller's IR isn't left half-stripped
+    // on the error path. The reported `field_path` is the item's original index.
+    if let Some((orig_i, s)) = structural
+        .iter()
+        .enumerate()
+        .find(|(_, s)| s.is_derived() && s.source == Source::Custom)
+    {
+        return Err(CompilerError::derived_structural_authored(format!(
+            "{:?}{}",
+            s.modifier_type,
+            s.name.as_deref().map(|n| format!(" ({})", n)).unwrap_or_default()
+        ))
+        .with_field_path(format!("{}.structural[{}]", label, orig_i))
+        .with_suggestion(X010_SUGGESTION));
+    }
+
+    // Pass 2: partition into keep/strip. We need the caller's ORIGINAL index
+    // in `field_path` — a running index after `Vec::remove` collapses is
+    // misleading (two head-of-list strips would both report `[0]`). Drain +
+    // enumerate gives us the original index; non-derived items are pushed back
+    // in order.
+    let taken: Vec<(usize, StructuralModifier)> = structural.drain(..).enumerate().collect();
+    for (orig_i, s) in taken {
+        if s.is_derived() {
             warnings.push(Finding {
                 rule_id: X010.to_string(),
                 severity: Severity::Warning,
                 message: format!(
                     "stripped derived structural {:?}{} (regenerated at build time)",
-                    modifier_type,
-                    name.as_deref().map(|n| format!(" \"{}\"", n)).unwrap_or_default()
+                    s.modifier_type,
+                    s.name.as_deref().map(|n| format!(" \"{}\"", n)).unwrap_or_default()
                 ),
-                field_path: Some(format!("{}.structural[{}]", label, i)),
+                field_path: Some(format!("{}.structural[{}]", label, orig_i)),
                 suggestion: Some(X010_SUGGESTION.to_string()),
-                modifier_name: name,
+                modifier_index: Some(orig_i),
+                modifier_name: s.name,
                 ..Default::default()
             });
         } else {
-            i += 1;
+            structural.push(s);
         }
     }
     Ok(())
@@ -223,18 +230,16 @@ pub fn collect_stripped_kinds(structural: &[StructuralModifier]) -> Vec<Structur
 /// arm — a stripped derived PoolReplacement is dropped without regeneration.
 /// This is acceptable today because no regenerator exists yet; it is the
 /// exact ticket for Chunk 5b.
+///
+/// Contract: callers must invoke `strip_derived_structurals` before calling
+/// this — `collect_stripped_kinds` returns a deduped `kinds` list from the
+/// pre-strip structural, and strip guarantees no `derived:true` items remain,
+/// so each regenerated kind is pushed exactly once.
 pub fn regenerate_derived_kinds(ir: &mut ModIR, kinds: &[StructuralType]) {
     if ir.heroes.is_empty() || kinds.is_empty() {
         return;
     }
     for kind in kinds {
-        let already_regenerated = ir
-            .structural
-            .iter()
-            .any(|s| &s.modifier_type == kind && s.derived);
-        if already_regenerated {
-            continue;
-        }
         match kind {
             StructuralType::Selector => {
                 ir.structural
