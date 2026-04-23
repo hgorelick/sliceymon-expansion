@@ -44,8 +44,10 @@ pub fn check_no_custom_derived(
 /// Strip derived structurals from `structural` according to SPEC §4's
 /// provenance-gated rule:
 ///
-/// - `Source::Custom` → returns `Err(CompilerError::DerivedStructuralAuthored)`
-///   (see [`check_no_custom_derived`] — this function runs the same scan as a
+/// - `Source::Custom` → returns `Err(CompilerError)` carrying
+///   [`crate::error::ErrorKind::DerivedStructuralAuthored`] (constructed via
+///   [`CompilerError::derived_structural_authored`]; see
+///   [`check_no_custom_derived`] — this function runs the same scan as a
 ///   preflight before any mutation).
 /// - `Source::Base` / `Source::Overlay` → strip and append an `X010`
 ///   `Severity::Warning` `Finding` to `warnings`. The finding's `field_path`

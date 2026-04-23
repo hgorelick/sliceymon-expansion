@@ -4,7 +4,8 @@
 //! These tests pin the behavior that:
 //! - `merge` takes `&mut base` and returns `Result<(), CompilerError>`.
 //! - Stripping derived structurals is provenance-gated:
-//!     - `Source::Custom` → `CompilerError::DerivedStructuralAuthored`.
+//!     - `Source::Custom` → `ErrorKind::DerivedStructuralAuthored` (via
+//!       `CompilerError::derived_structural_authored`).
 //!     - `Source::Base` / `Source::Overlay` → strip + `X010` Warning onto
 //!       `base.warnings`.
 //! - `build` applies the same provenance gate and regenerates stripped kinds.

@@ -153,7 +153,7 @@ Some structurals are **computed from IR content**, never authored or stored inde
 
 Adding a hero auto-updates these. Their handling is **provenance-gated** (`Source::{Base, Custom, Overlay}`):
 
-- `Source::Custom` — a human hand-authored a derived structural. This is a category error: `build` and `merge` reject it with `CompilerError::DerivedStructuralAuthored`. Authors never write derived structurals directly.
+- `Source::Custom` — a human hand-authored a derived structural. This is a category error: `build` and `merge` reject it with `CompilerError::derived_structural_authored` (`ErrorKind::DerivedStructuralAuthored`). Authors never write derived structurals directly.
 - `Source::Base` — came out of `extract` on a source textmod, which legitimately contains derived structurals. `build` and `merge` strip these before emission. `merge` additionally appends an `X010` `Severity::Warning` `Finding` to `base.warnings` per strip so downstream tools see what was dropped and why; `build` strips on a local clone (its `&ModIR` signature makes writing to the caller's `warnings` impossible) — callers that need the X010 sidecar run `merge` (which takes `&mut base`) or diff `ir.warnings` before and after a merge.
 - `Source::Overlay` — came from an overlay that was either authored or loaded independently (per the Overlay definition in §4). We cannot distinguish hand-authored from extract-then-load at runtime, so `Source::Overlay` is treated the same as `Source::Base` — strip, and (in `merge`) X010 warn.
 

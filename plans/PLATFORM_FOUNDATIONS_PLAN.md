@@ -733,7 +733,7 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 - `ModIR.warnings: Vec<Finding>` sidecar (serde `default, skip_if_empty`).
 - `StructuralModifier::is_derived()` gated on the explicit `derived: bool` flag AND one of the four SPEC §4 kinds. Narrower than a type-only heuristic so authored same-typed modifiers (e.g. sliceymon's 5 boss-fight Selectors with `name: None`) are preserved.
 - `merge(&mut base, overlay) -> Result<(), CompilerError>` in the canonical SPEC §5 shape. `lib.rs` re-export and `main.rs` CLI both updated. Warnings accumulate across successive merges.
-- Provenance-gated strip: `Source::Custom` derived structural → `CompilerError::DerivedStructuralAuthored` (SPEC §4 category error). `Source::Base` / `Source::Overlay` → strip + `X010` `Severity::Warning` finding on `base.warnings` with a side-labeled `field_path` (`base.*` or `overlay.*`).
+- Provenance-gated strip: `Source::Custom` derived structural → `CompilerError::derived_structural_authored` (`ErrorKind::DerivedStructuralAuthored`; SPEC §4 category error). `Source::Base` / `Source::Overlay` → strip + `X010` `Severity::Warning` finding on `base.warnings` with a side-labeled `field_path` (`base.*` or `overlay.*`).
 - `build_with` and `merge` both use the shared `collect_stripped_kinds` → `strip_derived_structurals` → `regenerate_derived_kinds` triplet. Regeneration fires only for kinds present-and-stripped, preserving format-specific roundtrip (no spurious char-selection Selector inserted into sliceymon).
 - Test file `compiler/tests/path_c_merge_tests.rs` pins the truth table, the provenance error path, warning accumulation, source-vs-IR divergence (authored non-derived Selectors are not stripped), and Path C add-hero regeneration.
 
