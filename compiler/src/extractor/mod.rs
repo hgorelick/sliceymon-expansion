@@ -128,5 +128,6 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
         monsters,
         bosses,
         structural,
+        warnings: Vec::new(),
     })
 }
