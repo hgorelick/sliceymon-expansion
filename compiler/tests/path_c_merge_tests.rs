@@ -201,6 +201,43 @@ fn merge_errors_on_custom_authored_derived_structural() {
     }
 }
 
+// -- merge is transactional: overlay-Custom-derived error leaves base untouched --
+
+// If merge were not transactional, base.heroes / replica_items / monsters /
+// bosses would already be merged in and base.structural already stripped with
+// X010 warnings by the time overlay's Custom-derived error fires. The
+// preflight at the top of merge guarantees we error before any mutation.
+#[test]
+fn merge_custom_derived_in_overlay_does_not_mutate_base() {
+    let mut base = ModIR::empty();
+    base.heroes.push(make_hero("Alpha", 'a', Source::Base));
+    base.structural.push(derived_char_selection(Source::Base));
+    let base_snapshot = base.clone();
+
+    let mut overlay = ModIR::empty();
+    overlay.heroes.push(make_hero("Beta", 'b', Source::Base));
+    overlay.structural.push(derived_char_selection(Source::Custom));
+
+    let err = merge(&mut base, overlay).expect_err("Custom derived structural must error");
+    match *err.kind {
+        ErrorKind::DerivedStructuralAuthored { .. } => {}
+        other => panic!("expected DerivedStructuralAuthored, got {:?}", other),
+    }
+
+    assert_eq!(
+        base.heroes, base_snapshot.heroes,
+        "overlay hero Beta must NOT be merged into base on the error path"
+    );
+    assert_eq!(
+        base.structural, base_snapshot.structural,
+        "base.structural must NOT be stripped on the error path"
+    );
+    assert_eq!(
+        base.warnings, base_snapshot.warnings,
+        "base.warnings must NOT accumulate X010 on the error path"
+    );
+}
+
 // -- merge leaves non-derived Selectors alone (source-vs-IR divergence test) --
 
 // If the strip logic were type-only ("Selector ⇒ maybe derived") instead of

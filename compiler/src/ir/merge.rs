@@ -26,14 +26,14 @@ const X010_SUGGESTION: &str = "Derived structurals are regenerated at build time
 /// (whose derived-ness depends on whether the pool name matches a hero) can
 /// be classified correctly. Pass the post-merge hero set when merging so both
 /// sides see the same classification.
-pub fn strip_derived_structurals(
-    structural: &mut Vec<StructuralModifier>,
-    warnings: &mut Vec<Finding>,
+/// Scan `structural` for a `Source::Custom` derived modifier; if found,
+/// return the SPEC §4 category error with a `{label}.structural[{orig_i}]`
+/// `field_path`. Used as a preflight by `merge` so the error path is
+/// transactional across the whole merge (not just the individual strip call).
+pub fn check_no_custom_derived(
+    structural: &[StructuralModifier],
     label: &str,
 ) -> Result<(), CompilerError> {
-    // Pass 1: error out BEFORE mutating `structural` if any Custom-authored
-    // derived structural is present, so the caller's IR isn't left half-stripped
-    // on the error path. The reported `field_path` is the item's original index.
     if let Some((orig_i, s)) = structural
         .iter()
         .enumerate()
@@ -47,6 +47,18 @@ pub fn strip_derived_structurals(
         .with_field_path(format!("{}.structural[{}]", label, orig_i))
         .with_suggestion(X010_SUGGESTION));
     }
+    Ok(())
+}
+
+pub fn strip_derived_structurals(
+    structural: &mut Vec<StructuralModifier>,
+    warnings: &mut Vec<Finding>,
+    label: &str,
+) -> Result<(), CompilerError> {
+    // Pass 1: error out BEFORE mutating `structural` if any Custom-authored
+    // derived structural is present, so the caller's IR isn't left half-stripped
+    // on the error path. The reported `field_path` is the item's original index.
+    check_no_custom_derived(structural, label)?;
 
     // Pass 2: partition into keep/strip. We need the caller's ORIGINAL index
     // in `field_path` — a running index after `Vec::remove` collapses is
@@ -99,6 +111,14 @@ pub fn strip_derived_structurals(
 /// `Result<(), CompilerError>`. Warnings accumulate on `base.warnings` — they
 /// are NOT reset, so successive `merge` calls compose.
 pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
+    // Preflight: scan BOTH sides for Custom-authored derived structurals BEFORE
+    // any mutation. Without this, a Custom-derived item on the overlay side
+    // errors only after base has been partially merged (heroes/items/monsters/
+    // bosses pushed, base.structural already stripped, X010 warnings already
+    // emitted). The preflight keeps `merge` transactional on the error path.
+    check_no_custom_derived(&base.structural, "base")?;
+    check_no_custom_derived(&overlay.structural, "overlay")?;
+
     // Heroes: replace by internal_name, add new, remove marked
     for mut hero in overlay.heroes {
         hero.source = Source::Overlay;
@@ -154,21 +174,14 @@ pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
         "base",
     )?;
 
-    // Strip overlay derived structurals into an intermediate vec so the strip
-    // validates provenance and warnings land on `base.warnings` with an
-    // "overlay"-labeled field_path.
+    // Strip overlay derived structurals into an intermediate vec so warnings
+    // land on `base.warnings` with an "overlay"-labeled field_path. We do NOT
+    // pre-bump overlay item sources before strip: the preflight at the top of
+    // merge already rejected any Custom-derived overlay item, and strip's
+    // classifier treats Source::Base and Source::Overlay identically. The
+    // post-strip merge loop below is the single authority for "overlay items
+    // become Source::Overlay."
     let mut overlay_structural = overlay.structural;
-    // Overlay items picked up Source::Overlay when they were authored or
-    // during an earlier merge; ensure it here so stripping classifies them
-    // correctly.
-    for s in overlay_structural.iter_mut() {
-        // Preserve Source::Custom (author-added) — `strip_derived_structurals`
-        // treats Custom as an error. Bump anything else to Overlay so the
-        // X010 path fires on Base-origin overlays too.
-        if s.source != Source::Custom {
-            s.source = Source::Overlay;
-        }
-    }
     for kind in collect_stripped_kinds(&overlay_structural) {
         if !stripped_kinds.contains(&kind) {
             stripped_kinds.push(kind);
@@ -181,6 +194,8 @@ pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
     )?;
 
     // Structural: replace by (modifier_type, name) pair, append otherwise.
+    // This loop is where overlay items acquire Source::Overlay — no earlier
+    // site should mutate `s.source` for overlay structurals.
     for mut s in overlay_structural {
         s.source = Source::Overlay;
         if let Some(pos) = base
