@@ -5,19 +5,24 @@ use crate::util;
 /// Format: itempool.((hat.replica.TEMPLATE...)).n.CONTAINER_NAME.mn.NAME
 pub fn parse_simple(modifier: &str, _modifier_index: usize) -> ReplicaItem {
     // Scalar fields (hp/sd/color/img) must only be scanned in the prefix
-    // preceding any depth-0 chain / cast / ability block. Chain sub-entries
-    // carry free-form `.sidesc.` / `.enchant.` text and the outer cast-like
-    // `.abilitydata.(...)` region can contain `.hp.` / `.col.` / `.sd.` /
-    // `.img.` substrings at nested depth — none of those may leak into
-    // top-level IR fields. (§F10, Chunk 9.)
+    // preceding any chain / cast / ability block. Chain sub-entries carry
+    // free-form `.sidesc.` / `.enchant.` text which can contain `.hp.N` /
+    // `.col.X` / `.sd.FACES` / `.img.DATA` substrings; none of those may
+    // leak into top-level IR fields. (§F10, Chunk 9.)
     //
-    // Captures keep non-depth-aware scans inside `scalar_slice`: the legit
-    // scalars live at paren depth ≥ 2 (inside the outer `((hat.replica...))`
-    // wrap), so `depth_aware = true` would skip them. Correctness for the
-    // leak class is instead guaranteed by emission order (scalars always
-    // emitted before the replica's chain segment), plus `scalar_slice`
-    // trimming the outer sticker / cast / ability regions.
-    let scalar_slice = util::slice_before_chain_and_cast(modifier);
+    // The Capture emitter wraps its scalars and chain inside
+    // `((hat.replica...))`, so both live at raw paren depth 2. A depth-0
+    // scan on the raw modifier is blind to the chain's `.i.` / `.sticker.`
+    // tokens — they sit at depth 2 — and `slice_before_chain_and_cast`
+    // therefore cannot trim them. To land the scan in a frame where the
+    // chain's markers ARE at depth 0, scope to the innermost replica body:
+    // `replica_inner_body` returns the content of the `(...)` that wraps
+    // the `replica.` token, with its outer parens stripped. Inside that
+    // body the chain sits at depth 0, `slice_before_chain_and_cast` catches
+    // it, and non-depth-aware scalar scans are safe because the slice no
+    // longer contains any chain bytes.
+    let body = util::replica_inner_body(modifier).unwrap_or(modifier);
+    let scalar_slice = util::slice_before_chain_and_cast(body);
     let name = util::extract_mn_name(modifier).unwrap_or_default();
     let sd = util::extract_sd(scalar_slice, false)
         .map(|s| crate::ir::DiceFaces::parse(&s))
@@ -59,11 +64,14 @@ pub fn parse_simple(modifier: &str, _modifier_index: usize) -> ReplicaItem {
 /// Parse a replica item with ability from a modifier string.
 /// Format: itempool.((hat.(replica.TEMPLATE...cast.ABILITY...))).n.CONTAINER_NAME.mn.NAME
 pub fn parse_with_ability(modifier: &str, _modifier_index: usize) -> ReplicaItem {
-    // See parse_simple for rationale (§F10, Chunk 9). Non-depth-aware
-    // because the legit scalars live inside the outer `((hat.(replica...)))`
-    // wrap; `scalar_slice` trims the outer `.abilitydata.(...)` region so
-    // its interior can't leak into top-level fields.
-    let scalar_slice = util::slice_before_chain_and_cast(modifier);
+    // See `parse_simple` for the full §F10 rationale. Same shape in
+    // miniature: `((hat.(replica.TEMPLATE...)))` — scalars and chain live
+    // at raw depth 3, so we scope to the innermost replica body (content
+    // of `(replica.TEMPLATE...)`) before applying `slice_before_chain_and_cast`.
+    // Inside that body the chain's `.i.` / `.sticker.` / the `.cast.` block
+    // sit at body-relative depth 0.
+    let body = util::replica_inner_body(modifier).unwrap_or(modifier);
+    let scalar_slice = util::slice_before_chain_and_cast(body);
     let name = util::extract_mn_name(modifier).unwrap_or_default();
     let sd = util::extract_sd(scalar_slice, false)
         .map(|s| crate::ir::DiceFaces::parse(&s))
@@ -342,32 +350,135 @@ mod tests {
         );
     }
 
+    // Capture emit→parse source-vs-IR tests. The prior hand-rolled shapes
+    // placed decoys at raw depth 0, which the emitter cannot produce — the
+    // Capture emitter buries scalars and chain inside `((hat.replica...))`
+    // at depth ≥ 2. These tests build a real `ReplicaItem`, pass it through
+    // the emitter, and re-parse, so a regression in the scoping of
+    // `replica_inner_body` or `slice_before_chain_and_cast` flips an
+    // `Option::None` into a `Some(_)` and fails here.
     #[test]
-    fn capture_hp_ignores_chain_interior_sidesc() {
-        // Capture path (parse_simple): no top-level `.hp.`; the chain's
-        // sticker sidesc text — wrapped in parens, so the decoy sits at
-        // depth ≥ 2 — carries `.hp.5`. A non-depth-aware or non-sliced
-        // scan would return Some(5).
-        let modifier = "itempool.((hat.replica.Thief.n.Pika.sd.0:0:0:0:0:0)).sticker.(sidesc.(.hp.5)).n.Quux.tier.3.mn.Pika";
-        let item = parse_simple(modifier, 0);
-        assert_eq!(item.hp, None, "chain-interior .hp.5 (depth ≥ 2) must not leak into top-level hp");
+    fn capture_emit_parse_hp_absent_when_chain_sidesc_has_decoy_hp() {
+        use crate::builder::replica_item_emitter::emit;
+        use crate::ir::{DiceFaces, ModifierChain};
+
+        let item = ReplicaItem {
+            name: "Pika".into(),
+            container: ReplicaItemContainer::Capture { name: "Ball".into() },
+            tier: None,
+            template: "Hat".into(),
+            hp: None,
+            sd: DiceFaces::parse("0:0:0:0:0:0"),
+            sprite: crate::authoring::SpriteId::owned("Pika", ""),
+            color: None,
+            item_modifiers: Some(ModifierChain::parse(".i.hat.statue.sidesc.decoy.hp.99")),
+            sticker: None,
+            toggle_flags: None,
+            doc: None,
+            speech: None,
+            abilitydata: None,
+            source: Source::Base,
+        };
+        let emitted = emit(&item).unwrap();
+        let parsed = parse_simple(&emitted, 0);
+        assert_eq!(
+            parsed.hp, None,
+            "chain-interior .hp.99 must not leak into top-level hp; emitted={}",
+            emitted,
+        );
     }
 
     #[test]
-    fn capture_color_ignores_cast_interior() {
-        // Capture-with-ability path (parse_with_ability): no top-level
-        // `.col.`; the `.abilitydata.(...)` cast effect carries `.col.x`
-        // at depth ≥ 2. `scalar_slice` closes this leak: because
-        // `slice_before_chain_and_cast` lists `.abilitydata.` as a
-        // depth-0 trim marker (util.rs), the slice ends before the cast
-        // effect and the scan never sees the decoy. `depth_aware = false`
-        // is the correct flag here because legit Capture scalars live at
-        // depth ≥ 2 inside `((hat.(replica...)))`; `depth_aware = true`
-        // would skip them.
-        let modifier = "itempool.((hat.(replica.Alpha.sd.0:0:0:0:0:0.n.Mewtwo))).abilitydata.(Fey.sd.0:0:0:0:0:0.(.col.x.hp.9).n.Psy).n.ZZZ.mn.Mewtwo";
-        let item = parse_with_ability(modifier, 0);
-        assert_eq!(item.color, None, "cast-interior .col.x at depth ≥ 2 must not leak into top-level color");
-        assert_eq!(item.hp, None, "cast-interior .hp.9 at depth ≥ 2 must not leak into top-level hp");
+    fn capture_emit_parse_color_absent_when_chain_sidesc_has_decoy_color() {
+        use crate::builder::replica_item_emitter::emit;
+        use crate::ir::{DiceFaces, ModifierChain};
+
+        let item = ReplicaItem {
+            name: "Pika".into(),
+            container: ReplicaItemContainer::Capture { name: "Ball".into() },
+            tier: None,
+            template: "Hat".into(),
+            hp: None,
+            sd: DiceFaces::parse("0:0:0:0:0:0"),
+            sprite: crate::authoring::SpriteId::owned("Pika", ""),
+            color: None,
+            item_modifiers: Some(ModifierChain::parse(".i.hat.statue.sidesc.decoy.col.z")),
+            sticker: None,
+            toggle_flags: None,
+            doc: None,
+            speech: None,
+            abilitydata: None,
+            source: Source::Base,
+        };
+        let emitted = emit(&item).unwrap();
+        let parsed = parse_simple(&emitted, 0);
+        assert_eq!(
+            parsed.color, None,
+            "chain-interior .col.z must not leak into top-level color; emitted={}",
+            emitted,
+        );
+    }
+
+    #[test]
+    fn capture_with_ability_emit_parse_hp_absent_when_chain_sidesc_has_decoy_hp() {
+        use crate::builder::replica_item_emitter::emit;
+        use crate::ir::{AbilityData, DiceFaces, ModifierChain};
+
+        let item = ReplicaItem {
+            name: "Mewtwo".into(),
+            container: ReplicaItemContainer::Capture { name: "MasterBall".into() },
+            tier: None,
+            template: "Alpha".into(),
+            hp: None,
+            sd: DiceFaces::parse("0:0:0:0:0:0"),
+            sprite: crate::authoring::SpriteId::owned("Mewtwo", ""),
+            color: None,
+            item_modifiers: Some(ModifierChain::parse(".i.hat.statue.sidesc.decoy.hp.99")),
+            sticker: None,
+            toggle_flags: None,
+            doc: None,
+            speech: None,
+            abilitydata: Some(AbilityData::parse("(Fey.sd.0:0:0:0:0:0.n.Psy)")),
+            source: Source::Base,
+        };
+        let emitted = emit(&item).unwrap();
+        let parsed = parse_with_ability(&emitted, 0);
+        assert_eq!(
+            parsed.hp, None,
+            "chain-interior .hp.99 must not leak through parse_with_ability; emitted={}",
+            emitted,
+        );
+    }
+
+    #[test]
+    fn capture_with_ability_emit_parse_color_absent_when_chain_sidesc_has_decoy_color() {
+        use crate::builder::replica_item_emitter::emit;
+        use crate::ir::{AbilityData, DiceFaces, ModifierChain};
+
+        let item = ReplicaItem {
+            name: "Mewtwo".into(),
+            container: ReplicaItemContainer::Capture { name: "MasterBall".into() },
+            tier: None,
+            template: "Alpha".into(),
+            hp: None,
+            sd: DiceFaces::parse("0:0:0:0:0:0"),
+            sprite: crate::authoring::SpriteId::owned("Mewtwo", ""),
+            color: None,
+            item_modifiers: Some(ModifierChain::parse(".i.hat.statue.sidesc.decoy.col.z")),
+            sticker: None,
+            toggle_flags: None,
+            doc: None,
+            speech: None,
+            abilitydata: Some(AbilityData::parse("(Fey.sd.0:0:0:0:0:0.n.Psy)")),
+            source: Source::Base,
+        };
+        let emitted = emit(&item).unwrap();
+        let parsed = parse_with_ability(&emitted, 0);
+        assert_eq!(
+            parsed.color, None,
+            "chain-interior .col.z must not leak through parse_with_ability; emitted={}",
+            emitted,
+        );
     }
 
     #[test]
