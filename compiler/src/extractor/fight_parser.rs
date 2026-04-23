@@ -569,23 +569,21 @@ mod tests {
         //      must be correct for both `.(` and `.((` because both share
         //      the same leading `.`).
         //
-        // Strictness note (not just panic-removal): for *pathological*
-        // templates whose bytes embed `.((` or `.(` — e.g. a template
-        // `"foo.((extra"` against `content = "foo.((extra.((child)).n.Name"` —
-        // the old `find`-based code would lock onto the first in-template
-        // match (position 4 in that example) and compute a byte offset mid-
-        // template, causing `find_matching_close_paren` to run past end-of-
-        // content with depth > 0 and return `None` — so the old code yielded
-        // `(None, None)` on this input. The arithmetic-based code positions
-        // at the post-template `(` (position 12 in that example) and parses
-        // one child. Corpus check: `grep -oE 'fight\.\([A-Za-z_][A-Za-z_0-9]*'
+        // Strictness note (not just panic-removal): Case (5) below pins the
+        // divergence — see its inline comment for the byte-level trace
+        // (`find(".((")` → in-template offset → paren-matching returns None;
+        // arithmetic → post-template offset → parses one child). The public
+        // API (`parse_fight`) doesn't surface pathological templates; this
+        // test calls the module-private `extract_nested_and_props` directly
+        // via `use super::*;` above, so the strictness claim is testable and
+        // IS tested.
+        //
+        // Corpus check: `grep -oE 'fight\.\([A-Za-z_][A-Za-z_0-9]*'
         // working-mods/*.txt | sort -u` yields `Alpha`, `Dragon`, `egg`,
         // `rmon`, `wolf`, `Wolf` — simple identifiers or dot-segmented
-        // (`rmon.ded`), none embedding `.((` / `.(`. Case (5) below pins the
-        // divergence: the public API (`parse_fight`) doesn't surface pathological
-        // templates, but this test calls the module-private
-        // `extract_nested_and_props` directly (see `use super::*;` above), so
-        // the strictness claim is testable and IS tested.
+        // (`rmon.ded`), none embedding `.((` / `.(`, so the pathological
+        // case is unreachable from the four working mods but is the reason
+        // the arithmetic implementation is preferred over `find`.
 
         // (1) No prefix match.
         let (nested, props) = extract_nested_and_props("wildly.malformed input", "Zzz_fake");
