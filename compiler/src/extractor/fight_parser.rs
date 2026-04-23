@@ -574,16 +574,18 @@ mod tests {
         // `"foo.((extra"` against `content = "foo.((extra.((child)).n.Name"` —
         // the old `find`-based code would lock onto the first in-template
         // match (position 4 in that example) and compute a byte offset mid-
-        // template. The arithmetic-based code correctly positions at the
-        // post-template `.((`/`.(` (position 12). No realistic fight
-        // template in `working-mods/*.txt` embeds `.((`/`.(` (templates are
-        // registry-style identifiers like `CS_Quagmire`, `tann_goodbye`), so
-        // the divergence has never been observed — but the refactor is
-        // strictly more correct under the pathological case, not a no-op.
-        // A test that exhibits the divergence would require injecting a
-        // synthetic template into the parse chain, which the public API
-        // (`parse_fight`) does not expose; we document the invariant here
-        // instead.
+        // template, causing `find_matching_close_paren` to run past end-of-
+        // content with depth > 0 and return `None` — so the old code yielded
+        // `(None, None)` on this input. The arithmetic-based code positions
+        // at the post-template `(` (position 12 in that example) and parses
+        // one child. Corpus check: `grep -oE 'fight\.\([A-Za-z_][A-Za-z_0-9]*'
+        // working-mods/*.txt | sort -u` yields `Alpha`, `Dragon`, `egg`,
+        // `rmon`, `wolf`, `Wolf` — simple identifiers or dot-segmented
+        // (`rmon.ded`), none embedding `.((` / `.(`. Case (5) below pins the
+        // divergence: the public API (`parse_fight`) doesn't surface pathological
+        // templates, but this test calls the module-private
+        // `extract_nested_and_props` directly (see `use super::*;` above), so
+        // the strictness claim is testable and IS tested.
 
         // (1) No prefix match.
         let (nested, props) = extract_nested_and_props("wildly.malformed input", "Zzz_fake");
@@ -611,5 +613,27 @@ mod tests {
         let (nested, props) = extract_nested_and_props(single, "Zzz_fake");
         assert_eq!(nested.as_ref().map(|v| v.len()), Some(1), "single-paren form parses one child");
         assert!(props.is_some());
+
+        // (5) Pathological template whose bytes embed `.((`. This pins the
+        // "strictly more correct, not just panic-removal" claim. Under the old
+        // `content.find(".((").unwrap()` implementation, `find` returned the
+        // in-template position (3) and subsequent paren-matching walked past
+        // end-of-content with depth > 0, yielding `(None, None)`. The
+        // arithmetic-based code positions at the post-template `(` and parses
+        // one child. No realistic template in `working-mods/*.txt` embeds
+        // `.((` — corpus check: `Alpha`, `Dragon`, `egg`, `rmon`, `rmon.ded`,
+        // `wolf`, `Wolf` — so this case is unreachable from `parse_fight` but
+        // is testable via the direct call here.
+        let pathological_content = "foo.((extra.((child)).n.Name";
+        let pathological_template = "foo.((extra";
+        let (nested, props) =
+            extract_nested_and_props(pathological_content, pathological_template);
+        assert_eq!(
+            nested.as_ref().map(|v| v.len()),
+            Some(1),
+            "pathological template embedding `.((` must parse the post-template child \
+             via arithmetic, not the in-template `.((` that `find` would have locked onto"
+        );
+        assert_eq!(props.as_deref(), Some(".n.Name"));
     }
 }
