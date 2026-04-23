@@ -489,7 +489,7 @@ Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
 
 The original plan's "Minimum wall-clock rounds: 3" was false — Chunks 2, 3, and 5/6/7 were not actually parallelizable, and Chunk 3's 11-file scope required sub-chunking.
 
-The original plan's "parallel groups A/B/C" are false — Chunk 2 and Chunk 3 both write `ir/mod.rs`, `build.rs`, and `authoring/mod.rs`. Chunk 5 depends on Chunk 6's `ReplicaItemContainer` enum (needed for `generate_hero_item_pool` bucketing). These parallelism claims were wrong and are corrected here.
+The original plan's "parallel groups A/B/C" are false — Chunk 2 and Chunk 3 both write `ir/mod.rs`, `build.rs`, and `authoring/mod.rs`. Chunk 5 originally depended on Chunk 6's `ReplicaItemContainer` enum for `generate_hero_item_pool` bucketing; post-Chunk-9 (2026-04-23) the enum has been deleted per chunk-impl rule 3, and Chunk 5 now parses `.n.NAME` out of `ItemPool` structurals instead. These parallelism claims were wrong and are corrected here.
 
 ---
 
