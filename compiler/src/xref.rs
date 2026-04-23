@@ -204,14 +204,19 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
 }
 
 // ---------------------------------------------------------------------------
-// X003: No duplicate Pokemon across heroes / captures / legendaries / monsters
+// X003: No duplicate Pokemon across heroes / legendaries / monsters
 // ---------------------------------------------------------------------------
 
 /// SPEC §6.3 — "A Pokemon may exist in at most one of: heroes, replica items
-/// (captures / legendaries), monsters." This rule matches on
-/// `ReplicaItem.container` to route items into per-kind buckets, which V020
-/// does not — V020 collapses captures and legendaries into a single
-/// `replica_item` bucket. X003 is strictly more granular.
+/// (captures / legendaries), monsters."
+///
+/// Post-Chunk-9 (2026-04-23), `ReplicaItem` models Legendaries only; Captures
+/// route as `ItemPool` structurals at the classifier (§F7, chunk-impl rule 3:
+/// no corpus instance for a Capture-shape `ReplicaItem`). X003 therefore
+/// collects buckets as `{hero, legendary, monster}` — narrower than V020's
+/// `{hero, replica_item, monster, boss}`, not more granular: the post-deletion
+/// `legendary` label and V020's `replica_item` label carry the same information
+/// one-to-one, and X003 deliberately excludes `boss` per SPEC §6.3.
 fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
     // (bucket_label, original_name) pairs keyed by lowercase name.
     let mut owners: HashMap<String, Vec<(String, &'static str)>> = HashMap::new();
@@ -272,8 +277,10 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
             field_path: Some(format!("pokemon_buckets[{}]", display_name)),
             modifier_name: Some(display_name.clone()),
             suggestion: Some(format!(
-                "Rename '{}' so it exists in exactly one of: hero, capture, legendary, monster",
-                display_name
+                "Rename one of the colliding '{}' entries so the name appears in at \
+                 most one of these buckets: {}",
+                display_name,
+                buckets.join(" / ")
             )),
             source: None,
             ..Default::default()
@@ -1021,11 +1028,47 @@ mod tests {
         assert_eq!(x003[0].severity, Severity::Error);
     }
 
+    /// X003's `suggestion` string must enumerate only buckets the rule can
+    /// report — never a hypothetical `capture` bucket (deleted per chunk-impl
+    /// rule 3 in Chunk 9) nor `boss` (V020's territory per SPEC §6.3). Pins
+    /// the fix for the Round-12 finding where the user-facing advice listed
+    /// `capture` as a valid rename target; source-vs-IR divergent by
+    /// construction because no ModIR this rule can see contains a `capture`
+    /// bucket, so the suggestion must not reach for one.
+    #[test]
+    fn x003_suggestion_only_enumerates_live_buckets() {
+        let mut ir = ModIR::empty();
+        ir.heroes.push(make_hero("Pikachu", 'a'));
+        ir.replica_items.push(make_replica_item("Pikachu"));
+
+        let report = check_references(&ir);
+        let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
+        assert_eq!(x003.len(), 1);
+        let suggestion = x003[0].suggestion.as_ref().expect("X003 must populate suggestion");
+        assert!(
+            !suggestion.contains("capture"),
+            "suggestion must not reference the deleted `capture` bucket: {}",
+            suggestion,
+        );
+        assert!(
+            !suggestion.contains("boss"),
+            "suggestion must not imply `boss` as a rename target — boss collisions route through V020: {}",
+            suggestion,
+        );
+        // Positive: the suggestion must mirror the buckets X003 actually found.
+        assert!(
+            suggestion.contains("hero") && suggestion.contains("legendary"),
+            "suggestion must mirror the colliding buckets the message reports: {}",
+            suggestion,
+        );
+    }
+
     #[test]
     fn x003_silent_on_intra_bucket_duplicate() {
-        // Two replica items with the same name — same bucket (capture). X003
-        // is a cross-bucket check per SPEC §6.3; intra-bucket duplicates are
-        // V-rule territory (V019 etc.), not a Pokemon-bucket collision.
+        // Two replica items with the same name — both land in the `legendary`
+        // bucket (post-Chunk-9, `ReplicaItem` is Legendary-only). X003 is a
+        // cross-bucket check per SPEC §6.3; intra-bucket duplicates are V-rule
+        // territory (V019 etc.), not a Pokemon-bucket collision.
         let mut ir = ModIR::empty();
         ir.replica_items.push(make_replica_item("Pikachu"));
         ir.replica_items.push(make_replica_item("Pikachu"));
@@ -1034,7 +1077,7 @@ mod tests {
         let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
         assert!(
             x003.is_empty(),
-            "X003 must not fire for intra-bucket duplicates (two captures of the same name)",
+            "X003 must not fire for intra-bucket duplicates (two legendaries of the same name)",
         );
     }
 
