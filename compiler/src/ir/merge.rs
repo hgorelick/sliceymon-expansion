@@ -1,6 +1,6 @@
 use crate::error::CompilerError;
 use crate::finding::{Finding, Severity};
-use crate::ir::{ModIR, Source, StructuralModifier, StructuralType};
+use crate::ir::{Hero, ModIR, Source, StructuralModifier, StructuralType};
 
 /// X010 — derived structural (`CharacterSelection`, `HeroPoolBase`,
 /// `PoolReplacement`, hero-bound `ItemPool`) present in IR. Authoring derived
@@ -219,7 +219,11 @@ pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
     base.warnings.extend(overlay.warnings);
 
     // Regenerate the derived kinds we stripped, against the merged content.
-    regenerate_derived_kinds(base, &stripped_kinds);
+    // Merge operates at the IR level with no build-time filter concept, so
+    // pass the full merged hero set. `build_with` applies its own filter-aware
+    // regen pass on top of a local clone.
+    let heroes = base.heroes.clone();
+    regenerate_derived_kinds(&mut base.structural, &heroes, &stripped_kinds);
 
     Ok(())
 }
@@ -237,13 +241,17 @@ pub fn collect_stripped_kinds(structural: &[StructuralModifier]) -> Vec<Structur
     kinds
 }
 
-/// Regenerate derived structurals for the listed kinds from `ir` content.
+/// Regenerate derived structurals for the listed kinds into `structural`,
+/// deriving from the supplied `heroes` slice.
 ///
-/// Used by both `merge` (post-strip, pre-return) and `build_with`. Only
-/// regenerates kinds that were present-and-stripped — this preserves
-/// format-specific roundtrip (sliceymon's inline `!mheropool.` encoding has
-/// no separate char-selection Selector, and nothing in this function adds
-/// one unless the input already had one marked derived).
+/// Used by both `merge` (post-strip, pre-return — passes the full merged
+/// hero set) and `build_with` (passes the post-`BuildOptions` filter hero
+/// set, so plan §F5's "regenerated from the post-filter content set"
+/// contract is observable). Only regenerates kinds that were
+/// present-and-stripped — this preserves format-specific roundtrip
+/// (sliceymon's inline `!mheropool.` encoding has no separate char-selection
+/// Selector, and nothing in this function adds one unless the input already
+/// had one marked derived).
 ///
 /// The two additional derived kinds (PoolReplacement, hero-bound ItemPool)
 /// will route here once Chunk 5b lands them. Today they hit the `_ => {}`
@@ -251,23 +259,25 @@ pub fn collect_stripped_kinds(structural: &[StructuralModifier]) -> Vec<Structur
 /// This is acceptable today because no regenerator exists yet; it is the
 /// exact ticket for Chunk 5b.
 ///
-/// Contract: callers must invoke `strip_derived_structurals` before calling
-/// this — `collect_stripped_kinds` returns a deduped `kinds` list from the
-/// pre-strip structural, and strip guarantees no `derived:true` items remain,
-/// so each regenerated kind is pushed exactly once.
-pub fn regenerate_derived_kinds(ir: &mut ModIR, kinds: &[StructuralType]) {
-    if ir.heroes.is_empty() || kinds.is_empty() {
+/// Contract: callers must invoke `strip_derived_structurals` on `structural`
+/// before calling this — `collect_stripped_kinds` returns a deduped `kinds`
+/// list from the pre-strip structural, and strip guarantees no `derived:true`
+/// items remain, so each regenerated kind is pushed exactly once.
+pub fn regenerate_derived_kinds(
+    structural: &mut Vec<StructuralModifier>,
+    heroes: &[Hero],
+    kinds: &[StructuralType],
+) {
+    if heroes.is_empty() || kinds.is_empty() {
         return;
     }
     for kind in kinds {
         match kind {
             StructuralType::Selector => {
-                ir.structural
-                    .push(crate::builder::derived::generate_char_selection(&ir.heroes));
+                structural.push(crate::builder::derived::generate_char_selection(heroes));
             }
             StructuralType::HeroPoolBase => {
-                ir.structural
-                    .push(crate::builder::derived::generate_hero_pool_base(&ir.heroes));
+                structural.push(crate::builder::derived::generate_hero_pool_base(heroes));
             }
             // PoolReplacement + ItemPool regenerators deferred to Chunk 5b.
             _ => {}

@@ -47,10 +47,17 @@ pub fn build(ir: &ModIR) -> Result<String, CompilerError> {
 /// is not mutated; callers that need the warnings should use `merge` (which
 /// writes to `base.warnings`).
 pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerError> {
+    let filter = &opts.include;
+
     // SPEC §4: derived structurals are stripped and regenerated. We only
     // clone (and run the strip+regenerate cycle) when the IR actually
     // carries a derived-flagged structural — otherwise this is a no-op cost
     // on every build() call against extracted Base-origin IR.
+    //
+    // Plan §F5 / options.rs contract: "regenerated from the post-filter
+    // content set." We regenerate from heroes admitted by `filter` so the
+    // char-selection / hero-pool reflects the same hero set the emission
+    // loop will actually emit.
     let needs_strip = ir.structural.iter().any(|s| s.is_derived());
     let mut ir_buf;
     let ir: &ModIR = if needs_strip {
@@ -61,21 +68,30 @@ pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerErr
             &mut ir_buf.warnings,
             "build",
         )?;
-        regenerate_derived_kinds(&mut ir_buf, &kinds);
+        let filtered_heroes: Vec<_> = ir_buf
+            .heroes
+            .iter()
+            .filter(|h| filter.admits(h.source))
+            .cloned()
+            .collect();
+        regenerate_derived_kinds(&mut ir_buf.structural, &filtered_heroes, &kinds);
         &ir_buf
     } else {
         ir
     };
 
-    let filter = &opts.include;
     let mut modifiers: Vec<String> = Vec::new();
 
+    // Derived structurals bypass the source filter: they're regenerated from
+    // post-filter content and are tagged `Source::Base` by construction, so
+    // a filter that excludes `Base` would silently drop them. Plan §F5 /
+    // options.rs: "they do not carry their own Source filter."
     let emit_structurals =
         |modifiers: &mut Vec<String>, kind: StructuralType| {
             for s in ir
                 .structural
                 .iter()
-                .filter(|s| s.modifier_type == kind && filter.admits(s.source))
+                .filter(|s| s.modifier_type == kind && (s.derived || filter.admits(s.source)))
             {
                 modifiers.push(structural_emitter::emit(s));
             }

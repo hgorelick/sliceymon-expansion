@@ -415,3 +415,40 @@ fn path_c_merge_adds_hero_regenerates_selector() {
     assert!(output.contains("@1Beta"), "regenerated selector missing Beta");
     assert!(output.contains("@1Gamma"), "regenerated selector missing Gamma");
 }
+
+// -- filter × derived-regen interaction (Round 7) --
+//
+// Plan §F5 / options.rs contract: "Derived structurals are regenerated from
+// the post-filter content set; they do not carry their own Source filter."
+// Before round 7, `regenerate_derived_kinds` derived from the full hero set
+// and tagged output `Source::Base`, so a non-default filter that excluded
+// `Base` silently dropped the regen output. This test pins both halves of
+// the contract: regen uses ONLY filter-admitted heroes, and emission emits
+// the regen output regardless of its `Source`.
+#[test]
+fn build_with_filter_regenerates_derived_from_post_filter_heroes() {
+    use textmod_compiler::builder::{BuildOptions, SourceFilter, SourceSet};
+    use textmod_compiler::build_with;
+
+    let mut ir = ModIR::empty();
+    ir.heroes.push(make_hero("BaseHero", 'a', Source::Base));
+    ir.heroes.push(make_hero("OverlayHero", 'b', Source::Overlay));
+    // Input derived Selector — triggers build_with's strip+regen path.
+    ir.structural.push(derived_char_selection(Source::Base));
+
+    let opts = BuildOptions {
+        include: SourceFilter::Only(SourceSet::single(Source::Overlay)),
+    };
+    let out = build_with(&ir, &opts).expect("build_with should succeed");
+
+    assert!(
+        out.contains("@1OverlayHero"),
+        "regen under Only(Overlay) must include admitted heroes — got:\n{}",
+        out
+    );
+    assert!(
+        !out.contains("@1BaseHero"),
+        "regen under Only(Overlay) must NOT include filtered-out heroes — got:\n{}",
+        out
+    );
+}
