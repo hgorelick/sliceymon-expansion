@@ -9,7 +9,7 @@ This plan delivers the IR schema, type-system, and build-API foundations that `P
 - The empty `compiler/src/authoring/` module skeleton.
 - Typed whitelist newtypes `FaceId` and `SpriteId` with their generators, and the new `Pips` newtype used by `DiceFace::Active`.
 - IR field consolidation that makes sprite-bearing types self-contained (SPEC §3.3).
-- `ReplicaItem` container-shape refactor: replace the stringly-typed `container_name: String` with a `ReplicaItemContainer { Capture { name: String }, Legendary }` enum, making invalid states unrepresentable (SPEC §3.6, §3.7). No separate `kind` discriminator.
+- `ReplicaItem` container-shape refactor (§F7) — **superseded by Chunk 9 (2026-04-23)**: Chunk 6 shipped a `ReplicaItemContainer { Capture { name }, Legendary }` enum, then Chunk 9 deleted it per chunk-impl rule 3 (zero corpus instances for `Capture`). Today `ReplicaItem` models Legendaries only; Captures route as `ItemPool` structurals at the classifier. Keep this bullet in the goal list only as a historical pointer — the live shape is the no-`container` struct.
 - The provenance-filtered build API (`BuildOptions` / `SourceFilter` / `build_with`) and xref-finding provenance.
 - `merge` retains SPEC §5's `pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError>` shape. Warnings emitted when merge strips derived structurals are written into a new `ModIR.warnings: Vec<Finding>` sidecar field so the signature stays as SPEC §5 specifies.
 - Authoring of new xref rules `X003`, `X010`, `X016`, `X017` (these do not exist today — current xref uses `V016`/`V019`/`V020` only). No X001 demo rule.
@@ -74,7 +74,7 @@ pub enum ErrorKind {
 }
 ```
 
-`ReplicaItemKindMismatch` is intentionally absent: §F7 replaces `container_name: String` with a `ReplicaItemContainer` enum, so the former Capture-without-container / Legendary-with-container invariants are unrepresentable at the type level and need no runtime error variant.
+`ReplicaItemKindMismatch` is intentionally absent. Originally justified by §F7's `ReplicaItemContainer` enum making the former Capture-without-container / Legendary-with-container invariants unrepresentable. After Chunk 9 deleted the `Capture` variant entirely (chunk-impl rule 3), there is only one replica shape (Legendary) and the invariant class is vacuous — still no runtime error variant needed.
 
 Constructor helpers (`CompilerError::build(component, message)`, `::paren(...)`, etc.) build the common fields in one call. The `Display` impl handles `field_path` / `suggestion` printing in a single shared tail. Every existing construction site migrates to the new shape in the same PR (the extractor, builder, and ops files).
 
@@ -90,7 +90,7 @@ Types that **cannot** derive `Default` after F3/F4 because they gain `FaceId` / 
 |---|---|---|
 | `Hero` | `color: char` has no safe default (any char we pick creates a false "valid hero") | No `Default`. `::new(internal_name, mn_name, color)` is the only construction. |
 | `HeroBlock` | `sprite: SpriteId` post-F4 (no safe empty whitelist entry), `sd: DiceFaces` | No `Default`. `::new(template, sprite, sd)` — `tier`, `hp`, `color` default via options. |
-| `ReplicaItem` | `sprite: SpriteId` post-F4, `container: ReplicaItemContainer` post-F7 (non-`Default`-able enum with no inherently safe variant) | No `Default`. `::new(name, container, template, sprite, sd)`. |
+| `ReplicaItem` | `sprite: SpriteId` post-F4. Post-Chunk-9, `ReplicaItem` models Legendaries only (no `container` field) — the former §F7 `ReplicaItemContainer::Capture` variant was deleted per chunk-impl rule 3. | No `Default` (sprite is required). `::new(name, template, sprite, sd)`. |
 | `Monster` | `sprite: Option<SpriteId>` (Option — so a none-sprite monster is expressible) | `Default` allowed; `sprite` defaults to `None`. |
 | `AbilityData` | `sprite: Option<SpriteId>` post-F4 | `Default` allowed. |
 | `TriggerHpDef` | `sprite: Option<SpriteId>` post-F4 | `Default` allowed. |
@@ -100,7 +100,7 @@ Types that **cannot** derive `Default` after F3/F4 because they gain `FaceId` / 
 
 - `Hero::new(internal_name: impl Into<String>, mn_name: impl Into<String>, color: char) -> Self`
 - `HeroBlock::new(template: impl Into<String>, sprite: SpriteId, sd: DiceFaces) -> Self`
-- `ReplicaItem::new(name: impl Into<String>, container: ReplicaItemContainer, template: impl Into<String>, sprite: SpriteId, sd: DiceFaces) -> Self`
+- `ReplicaItem::new(name: impl Into<String>, template: impl Into<String>, sprite: SpriteId, sd: DiceFaces) -> Self` (Legendary-only post-Chunk-9)
 - `Monster::new(name: impl Into<String>, base_template: impl Into<String>, floor_range: impl Into<String>) -> Self`
 - `Boss::new(name: impl Into<String>, level: Option<u8>) -> Self`
 - `FightDefinition::new() -> Self` (via `Default`)
@@ -352,9 +352,9 @@ Derived structural inventory (current state in `builder/derived.rs`):
 | Character Selection (`ch.`/`cs.`) | Heroes sorted by color | `builder::derived::generate_char_selection` | **exists** |
 | HeroPoolBase (bare-name `heropool.`) | Hero internal_names | `builder::derived::generate_hero_pool_base` | **exists** |
 | PoolReplacement (tier-constrained heropool) | Heroes grouped by color + tier | `builder::derived::generate_pool_replacement` | **to build** |
-| Hero-bound ItemPool | `ReplicaItem` entries whose `container` is `ReplicaItemContainer::Capture { name }` where `name` matches a hero | `builder::derived::generate_hero_item_pool` | **to build** |
+| Hero-bound ItemPool | `StructuralModifier` entries of kind `ItemPool` whose wrapping container-`.n.NAME` matches a hero `internal_name` — Captures currently route as `ItemPool` structurals at the classifier, not as `ReplicaItem`s (chunk-impl rule 3: no corpus instance for a Capture replica variant). | `builder::derived::generate_hero_item_pool` | **to build** |
 
-Chunk 5 authors the two missing regenerators. Acceptance criterion for each: running it against `working-mods/sliceymon.txt` (post-F7, where `ReplicaItem.container: ReplicaItemContainer` — the `Capture { name }` variant carries what was the old `container_name`) reproduces the base mod's existing PoolReplacement / hero-bound ItemPool modifiers byte-for-byte. If it doesn't, the chunk is incomplete.
+Chunk 5 authors the two missing regenerators. Acceptance criterion for each: running it against `working-mods/sliceymon.txt` reproduces the base mod's existing PoolReplacement / hero-bound ItemPool modifiers byte-for-byte. If it doesn't, the chunk is incomplete. **Note (post-Chunk-9, 2026-04-23)**: the original plan prescribed bucketing hero-bound items by matching `ReplicaItem.container: ReplicaItemContainer::Capture { name }`. That variant was deleted per chunk-impl rule 3; Chunk 5 now buckets by parsing the `.n.NAME` out of `ItemPool` structural modifiers (the shape the classifier actually produces for Captures).
 
 **Classification helper**: add `fn is_derived(&self) -> bool` to `StructuralModifier` in `ir/mod.rs` (not `builder/derived.rs`, because merge lives in `ir/`). Matches on `modifier_type` against the four derived kinds above.
 
@@ -362,35 +362,15 @@ Chunk 5 authors the two missing regenerators. Acceptance criterion for each: run
 
 `build` and `build_complete` regenerate derived structurals from the post-merge content set unconditionally. The "when absent" gate in `build_complete` (`compiler/src/builder/mod.rs:161-168` — the `if !ir.structural.iter().any(|s| s.modifier_type == StructuralType::Selector)` and `HeroPoolBase` checks) is REMOVED: regeneration strips any pre-existing derived structural from `ir.structural` first, then appends the regenerated form. `build` (not just `build_complete`) also performs this strip-and-regenerate.
 
-### F7. `ReplicaItemContainer` — collapse kind + container_name into one enum
+### F7. `ReplicaItemContainer` enum — SUPERSEDED by Chunk 9 (2026-04-23)
 
-```rust
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-pub enum ReplicaItemContainer {
-    /// Source-level `itempool.(X).n.Y` — the capturable ball shape. The `name`
-    /// is the outer container's `.n.` value (`X` above). By construction a
-    /// Capture cannot exist without it.
-    Capture { name: String },
-    /// Source-level top-level `item.` — persistent ally with spell. By
-    /// construction a Legendary carries no container name.
-    Legendary,
-}
-```
+**Status**: enum existed between Chunk 6 (2026-04-21) and Chunk 9 (2026-04-23). Deleted in chunk 9 commit `77b802b` per chunk-impl rule 3 ("Every IR variant discriminator must have at least one corpus instance per variant before it ships. Zero instances for a variant means the variant is a hypothesis masquerading as a model — delete the variant rather than carry unevidenced cases"). No corpus mod contained a Capture-shaped `ReplicaItem`; the classifier never produced `ModifierType::ReplicaItem` / `ReplicaItemWithAbility`; Captures route as `ItemPool` structurals. Both variants and all Capture parsing/emitting paths were deleted.
 
-**Schema replacement.** Current IR: `ReplicaItem.container_name: String` (ir/mod.rs:570). Replace with a single field `pub container: ReplicaItemContainer`. No separate `kind` discriminator — the variant IS the discriminator.
+**Current state**: `ReplicaItem` models Legendaries only. There is no `container` field. The former `Capture { name: String }` data is recovered at extraction time from the source-level `itempool.(X).n.Y` as an `ItemPool` structural modifier; its `.n.NAME` is parsed out by downstream consumers (e.g. the hero-bound ItemPool regenerator in Chunk 5) rather than carried as a typed IR variant.
 
-Why a single enum instead of `kind: ReplicaItemKind` + `container_name: Option<String>`:
-- **Makes invalid states unrepresentable (SPEC §3.6)**. Capture-without-container and Legendary-with-container are type errors, not runtime `CompilerError` paths. No `ReplicaItemKindMismatch` variant needed on `ErrorKind`.
-- **SPEC §3.7 — no parallel representations.** `kind` and `container_name.is_some()` encoded the same source-level distinction; keeping them separate was exactly the parallel-field pattern SPEC §3.7 forbids.
-- **Forward compatibility is cheap.** If `reference/textmod_guide.md` ever documents a named Legendary, extend the enum (`Legendary { name: Option<String> }`) at that time; this is a one-line schema change with `#[serde(default)]`, not a type-system redesign.
+**Do not resurrect**: the chunk-impl rule is explicit. If a future corpus instance appears (e.g. if `reference/textmod_guide.md` grows a case that requires a typed Capture replica), model the new variant against that instance's actual shape — not this section's pre-chunk-9 design.
 
-Callsite blast radius: every emitter / extractor / xref site touching `container_name`. Enumerated via grep: `compiler/src/extractor/replica_item_parser.rs`, `compiler/src/builder/replica_item_emitter.rs`, `compiler/src/xref.rs`, `compiler/src/ir/ops.rs` (constructor sites), `compiler/src/ir/merge.rs` (match-by-key logic). Each updates in the same PR.
-
-Extractor classifier reads the source-level modifier kind directly and constructs the enum: `itempool.(X).n.Y` → `ReplicaItemContainer::Capture { name: X }`; top-level `item.` → `ReplicaItemContainer::Legendary`. Builder dispatches emission with a `match` on `container` — a non-exhaustive match is a compile error, so new variants cannot silently fail to emit.
-
-No build-time invariant check is needed; the type system already enforces Capture⇔container-name and Legendary⇔no-container.
-
-New xref rule **X003** (no duplicate Pokemon across heroes / captures / legendaries / monsters — SPEC §6.3) is authored as part of this chunk. It does **not** exist today; current xref uses V-prefixed rules. X003 matches on `ReplicaItem.container` to route items into the per-kind buckets (Capture vs Legendary).
+X003 (no duplicate Pokemon across hero / legendary / monster buckets — SPEC §6.3) still exists and still fires; its "legendary" bucket label is now the only replica-kind bucket (`compiler/src/xref.rs:230-234`).
 
 ### F8. `panic!`/`unwrap`/`expect` elimination in library code
 
@@ -424,23 +404,26 @@ X003 is unchanged. Each defect now surfaces under exactly one rule ID.
 
 **Scope note.** The single-item CRUD checks (`check_hero_in_context`, `check_boss_in_context` at `xref.rs:593-648` and `:656-714`) validate *one new item* against a loaded IR and do not produce the double-fire (X003 is a whole-IR rule, not a per-item one). They are explicitly out of scope for F9.
 
-### F10. Replica-parser chain-interior leakage — depth-and-chain-aware scalar extraction
+### F10. Legendary-parser chain-and-ability-interior leakage — depth-aware scalar extraction
 
-Chunk 6's round-3 tribunal (PR #7) fixed three Legendary-specific parse leaks by scoping `parse_legendary`'s scalar extractors to a `before_cast` slice (`compiler/src/extractor/replica_item_parser.rs:128-167`). One class of leak was identified but explicitly deferred and is owned here: chain sub-entries can emit free-form text (sidesc, cast-effect, enchant — see `compiler/src/builder/chain_emitter.rs:59-63`) that may contain literal `.hp.` / `.col.` / `.sd.` / `.img.` substrings at paren-depth 0. The current extractors (`compiler/src/util.rs:147-207`, `:388-...`) find matches inside that free-form text, silently flipping `None` top-level fields to `Some(<chain-interior value>)` at parse time.
+**Scope (post-Chunk-9, 2026-04-23)**: this section originally covered all three replica parsers (`parse_simple`, `parse_with_ability`, `parse_legendary`). The first two were deleted in Chunk 9 along with the `Capture` container variant (chunk-impl rule 3: no corpus instance). The leak class as it applies to live code is now Legendary-only.
 
-**Why this is a §F / SPEC issue, not a local Chunk 6 patch**: the same class affects all three replica parsers — `parse_simple`, `parse_with_ability`, `parse_legendary` — because they all call the non-depth-aware `extract_hp(modifier, false)` / `extract_color(modifier)` / `extract_sd(modifier, false)` pattern. For Captures the working mods happen not to exercise it today (all four `working-mods/*.txt` contain zero replica items; `cargo run --example roundtrip_diag` reports `Replicas ir1=0` for each), but SPEC §3.3 ("self-contained IR — extracted IR has everything required to rebuild the mod") is the authority: any valid modifier emitted by this compiler's own emitters must round-trip, chain content included. That is presently false. The plan's own Chunk 3b lesson (§"Lessons from prior chunks", item 2) already blessed this as the right failure mode to hunt for: *"IR-equality baselines alone are insufficient. Add at least one test whose failure mode is source-vs-IR divergence, not IR-vs-IR divergence."*
+Chunk 6's round-3 tribunal (PR #7) fixed three Legendary-specific parse leaks by scoping `parse_legendary`'s scalar extractors to a `before_cast` slice (now `before_ability`). One class of leak was identified but deferred and was owned here: chain sub-entries can emit free-form text (sidesc, enchant — see `compiler/src/builder/chain_emitter.rs:59-63`) that may contain literal `.hp.` / `.col.` / `.sd.` / `.img.` substrings at paren-depth 0, and ability bodies (`.abilitydata.(...)`) carry the same substrings at ability-interior depth. A non-depth-aware extractor finds matches inside either region, silently flipping `None` top-level fields to `Some(<interior value>)` at parse time.
 
-**Fix**: make scalar extraction in `util.rs` depth-and-chain-aware. Three conceptual tools, chosen because extracting a helper is strictly better than pasting the same N-line incantation across 3 parsers (plan's "Lessons", item 4):
+**Why this is a §F / SPEC issue**: SPEC §3.3 ("self-contained IR — extracted IR has everything required to rebuild the mod") is the authority: any valid modifier emitted by this compiler's own emitters must round-trip, chain and ability content included. The plan's Chunk 3b lesson (item 2) already blessed this failure mode as the right hunt: *"IR-equality baselines alone are insufficient. Add at least one test whose failure mode is source-vs-IR divergence, not IR-vs-IR divergence."*
 
-1. `util::slice_before_chain_and_cast(body: &str) -> &str` — returns the longest prefix of `body` that precedes the first depth-0 occurrence of any marker in the canonical set **§F10-MARKERS** = {`.i.`, `.sticker.`, `.abilitydata.`}. When no such marker exists at depth 0, returns the full slice. Correctness follows from the emitters' field order: top-level scalars are always emitted before the chain and ability blocks. The ability-body marker is `.abilitydata.` per the textmod guide (`reference/textmod_guide.md` lines 747 / 857 / 975-981); `cast.TRIGGER` in the corpus is a chain keyword (guide lines 642-645), not a property marker, so `.cast.` is not a member of §F10-MARKERS.
-2. `util::replica_inner_body(modifier: &str) -> Option<&str>` — returns the content of the `(…)` that wraps the first `replica.` token, stripped of its outer parens. Capture callers (`parse_simple` / `parse_with_ability`) apply this before `slice_before_chain_and_cast` so that scalars *and* chain markers land at body-relative depth 0 — the frame in which §F10-MARKERS' `find_at_depth0`-based scan is actually effective. Without this step, the Capture emitter buries the chain at raw paren depth ≥ 2 inside `((hat.replica…))` / `((hat.(replica…)))`, the slice scan sees nothing, and chain-interior `.hp.N` / `.col.X` leaks into top-level fields via the non-depth-aware `content.find(…)` scalar extractors. `parse_legendary` does **not** need this step — its `item.TEMPLATE…` body has no outer paren wrap and scalars / chain already sit at depth 0.
-3. `util::extract_color(content, depth_aware)` — add the `depth_aware: bool` flag already present on `extract_hp` / `extract_sd`. Route per container shape: `parse_legendary` passes `depth_aware = true` (its scalar prefix is genuinely flat at depth 0, so a depth-1 `.col.` is always chain / cast drift); `parse_simple` and `parse_with_ability` pass `depth_aware = false` on the `replica_inner_body` slice because legit Capture scalars live at body-depth 0 after the inner-body strip. (`depth_aware = true` on the pre-strip raw modifier would skip depth-≥ 2 legit scalars; `depth_aware = true` on the post-strip body is redundant with `slice_before_chain_and_cast` already trimming the chain.)
+**Fix (as shipped)**: two tools in `util.rs` close the class for `parse_legendary`:
 
-**Non-scope**: this chunk does not collapse the extract path and the authoring path (SPEC §3.3 / §6.1). Both remain split. The new helper and the flag bit only exist for the extract side; the authoring side has no scalar-hunt problem to solve.
+1. `util::slice_before_chain_and_cast(body: &str) -> &str` — returns the longest prefix of `body` that precedes the first depth-0 occurrence of any marker in the canonical set **§F10-MARKERS** = {`.i.`, `.sticker.`, `.abilitydata.`}. When no such marker exists at depth 0, returns the full slice. Correctness follows from emission field order: top-level scalars are always emitted before the chain and ability blocks. The ability-body marker is `.abilitydata.` per the textmod guide (`reference/textmod_guide.md` lines 747 / 857 / 975-981); `cast.TRIGGER` in the corpus is a chain keyword (guide lines 642-645), not a property marker, so `.cast.` is not a member of §F10-MARKERS.
+2. `util::extract_color(content, depth_aware: bool)` — `depth_aware: bool` flag mirroring `extract_hp` / `extract_sd`. `parse_legendary` passes `depth_aware = true` (its scalar prefix is flat at depth 0, so a depth-1 `.col.` is always chain / ability drift); hero / monster / boss parsers pass `depth_aware = false` (scalars live inside nested paren groups in those shapes, and the legacy permissive semantics stay).
 
-**Emission-order co-requirement**: §F10 depends on emitters placing every top-level scalar field (`.col.`, `.hp.`, `.sd.`, `.img.`) *before* the chain / ability region. `emit_simple` / `emit_with_ability` / `emit_legendary` in `compiler/src/builder/replica_item_emitter.rs` all emit `.col.` / `.hp.` before the chain already; `.sd.` and `.img.` must precede the chain too. This chunk reorders those in all three emitters — without the reorder, an emit→parse cycle where the chain carries a decoy `.sd.` / `.img.` and the real value comes *after* the chain would silently lose the real value to first-match.
+The original §F10 also prescribed a third helper, `util::replica_inner_body`, to scope Capture-shape parsers to the body inside `((hat.replica…))`. That helper was deleted in Chunk 9 along with the Capture parsers themselves.
 
-**Structural check (per the chunk-impl hook)**: the three tools are not parallel representations. `replica_inner_body` narrows *what frame* to scan in (Capture only); `slice_before_chain_and_cast` narrows *where in that frame* to scan; the `depth_aware` flag narrows *how* to scan within the slice (Legendary only). They compose — each guards a different leak surface, none duplicates another. For Captures the chain lives at raw depth ≥ 2, so the inner-body strip is the load-bearing step; `slice_before_chain_and_cast` then catches the chain markers at body-depth 0. For Legendary the scalar prefix is flat at depth 0, so the slice alone suffices and `depth_aware = true` is a defensive filter against any stray depth-1 match later code evolution might introduce. Removing any of the three re-opens the other container shape's leak surface.
+**Non-scope**: this chunk does not collapse the extract path and the authoring path (SPEC §3.3 / §6.1). Both remain split. The helper and the flag bit only exist for the extract side; the authoring side has no scalar-hunt problem to solve.
+
+**Emission-order co-requirement**: §F10 depends on `emit_legendary` placing every top-level scalar field (`.col.`, `.hp.`, `.sd.`, `.img.`) *before* the chain / `.abilitydata.` region. Without the reorder, an emit→parse cycle where the chain carries a decoy `.sd.` / `.img.` and the real value comes *after* the chain would silently lose the real value to first-match. Shipped: `emit_legendary` emits scalars before the chain (`compiler/src/builder/replica_item_emitter.rs:29-45`).
+
+**Structural check (per the chunk-impl hook)**: the two tools are not parallel representations. `slice_before_chain_and_cast` narrows *where* to scan (prefix before chain/ability); `depth_aware` narrows *how* to scan within the slice. They compose — each guards a different leak surface (chain/sidesc text vs. paren-nested decoys), neither duplicates the other. Removing either reopens a leak surface.
 
 ---
 
@@ -487,19 +470,19 @@ Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
   │                 └── Chunk 3b (IR field consolidation) ✅ COMPLETE (2026-04-21, PR #5 merged after round-2 tribunal)
   │                       └── Chunk 3c (drop HashMap from public API) ✅ COMPLETE (2026-04-21, PR #6 merged)
   │                             ├── Chunk 4 (BuildOptions + build_with + Finding.source) ✅ COMPLETE (2026-04-22)
-  │                             └── Chunk 6 (ReplicaItemContainer enum replaces container_name) ✅ COMPLETE (2026-04-21)
-  │                                   ├── Chunk 5 (merge strips + new regenerators + unconditional regen)
-  │                                   ├── Chunk 8 (V020 restructure — remove cross-bucket Pokemon overlap) [needs both 4 and 6]
-  │                                   └── Chunk 9 (replica-parser chain-and-depth-aware scalar extraction)  ✅ COMPLETE (2026-04-22)
+  │                             └── Chunk 6 (ReplicaItemContainer enum — SUPERSEDED by Chunk 9) ⚠️  Chunk 9 deleted both variants per chunk-impl rule 3
+  │                                   ├── Chunk 5 (merge strips + new regenerators + unconditional regen) — dependency on Chunk 6's enum is moot; now keys off `ItemPool` structural `.n.NAME`
+  │                                   ├── Chunk 8 (V020 restructure — remove cross-bucket Pokemon overlap) [needs 4; Chunk 6's X003 survives, bucketing was simplified to name-based]
+  │                                   └── Chunk 9 (Legendary-parser chain-and-depth-aware scalar extraction + Capture variant deletion) ✅ COMPLETE (2026-04-23)
   └── Chunk 7 (lib-code unwrap/expect/panic elimination) [parallel from Chunk 0 completion onward; no shared files with 1..6]
 ```
 
 **Parallel groups (corrected):**
 - **Sequential foundation**: Chunk 0 → Chunk 1 → Chunk 2 → Chunk 3a → Chunk 3b → Chunk 3c.
 - **Merge checkpoint after Chunk 3c**: Chunks 4 and 6 both touch `xref.rs`, and Chunk 7 touches `builder/hero_emitter.rs` which Chunk 3c also edits. To avoid merge-conflict gymnastics, the branches are prepared in parallel but merged **sequentially in this order**: 4 → 6 → 7. Each merge re-runs the local verification tests before the next merges. This is a **critical checkpoint** per AI-dev persona §Designing for Parallel Multi-Agent Execution rule 6.
-- **Sequential after Chunk 6**: Chunk 5 (depends on Chunk 6's `ReplicaItemContainer` enum, which `generate_hero_item_pool` matches on).
+- **Sequential after Chunk 6**: Chunk 5 (originally depended on Chunk 6's `ReplicaItemContainer` enum for `generate_hero_item_pool` bucketing; post-Chunk-9 the dependency is vacuous — bucketing now parses `.n.NAME` from `ItemPool` structural modifiers since the `Capture` variant was deleted per chunk-impl rule 3).
 - **Sequential after Chunks 4 and 6**: Chunk 8 (needs X003 from Chunk 6 to defer to, and V020's `Finding.source` shape from Chunk 4 so its test assertions compile). Parallel with Chunks 5 and 7 — Chunk 8 only touches `xref.rs`; Chunk 5 writes `ir/merge.rs` / `builder/derived.rs` / `builder/mod.rs`; Chunk 7 writes extractor lib-code + post-3c `hero_emitter.rs`. No overlap.
-- **Sequential after Chunk 6**: Chunk 9 (depends on Chunk 6's `before_cast` scoping pattern in `parse_legendary` — Chunk 9 generalizes it into a `util.rs` helper and applies it to `parse_simple` / `parse_with_ability`). Parallel with Chunks 5, 7, 8 — Chunk 9 writes `compiler/src/util.rs` + `compiler/src/extractor/replica_item_parser.rs` (no other chunk touches either), so no file conflicts.
+- **Sequential after Chunk 6**: Chunk 9 (originally: depends on Chunk 6's `before_cast` scoping pattern in `parse_legendary`; generalize into a `util.rs` helper and apply to `parse_simple` / `parse_with_ability`). **As shipped (2026-04-23)**: Chunk 9 generalized the scoping for `parse_legendary` only, then deleted `parse_simple` / `parse_with_ability` / `emit_simple` / `emit_with_ability` / `ReplicaItemContainer` per chunk-impl rule 3 (no corpus instance for any Capture-shape `ReplicaItem`). Capture modifiers continue to route as `ItemPool` structurals, where they already did in production. Chunk 9 touched `compiler/src/util.rs` + `compiler/src/extractor/replica_item_parser.rs` + `compiler/src/builder/replica_item_emitter.rs` + `compiler/src/ir/mod.rs` (delete `ReplicaItemContainer`) + `compiler/src/ir/ops.rs` + `compiler/src/xref.rs` + `compiler/src/extractor/{classifier,mod}.rs` + `compiler/tests/{build_options_tests,integration_tests}.rs`. Parallel with Chunks 5, 7, 8 — Chunk 5 and 8 now have reduced dependencies on Chunk 9's output (no `ReplicaItemContainer` to match on).
 - **Chunk 7 scope**: runs after Chunk 3c lands (not from round 2), because 3c touches `hero_emitter.rs` which 7 also edits. Running 7 earlier would require re-doing 7's edits after 3c rewrites the function signatures. Chunk 7's scope is therefore fixed at audit time (immediately before it starts), not at plan-write time — the "6 across 5 files" baseline at plan-write is indicative, not binding.
 
 **Honest minimum wall-clock rounds**: 9 rounds for the main track (0 → 1 → 2 → 3a → 3b → 3c → 4 → 6 → {5, 7, 8, 9 parallel — no shared files once 3c/4/6 land}). Chunk 5 touches `ir/merge.rs`, `builder/derived.rs`, `builder/mod.rs`; Chunk 7 touches lib-code panic sites in extractor/ and the post-3c `hero_emitter.rs`; Chunk 8 touches `xref.rs` only; Chunk 9 touches `util.rs` + `extractor/replica_item_parser.rs` only. All four are truly parallel at that point.
@@ -536,7 +519,7 @@ The original plan's "parallel groups A/B/C" are false — Chunk 2 and Chunk 3 bo
 **Follow-ups for subsequent chunks**:
 - `ErrorKind::FaceIdInvalid` and `ErrorKind::DerivedStructuralAuthored` already exist — Chunk 2 (F3) and Chunk 5 (F6) wire them up; do not re-add.
 - `Finding.field_path` currently uses `heroes[<name>].color` / `hero[<name>].mn_name` style paths (names as subscripts). Chunk 4 (F5) and later chunks that tighten xref rules may switch these to index-based paths if needed; Chunk 0 deliberately did not normalize path format.
-- No `ReplicaItemKindMismatch` variant — Chunk 6 (F7)'s `ReplicaItemContainer` enum makes the former Capture/Legendary invariants unrepresentable, so no runtime variant is needed.
+- No `ReplicaItemKindMismatch` variant — Chunk 6 (F7) originally made the invariants unrepresentable via `ReplicaItemContainer`; Chunk 9 then deleted the `Capture` variant entirely (chunk-impl rule 3). `ReplicaItem` is Legendary-only; the invariant class is vacuous; no runtime variant needed.
 
 ---
 
@@ -676,7 +659,7 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 - [x] `ir::serde_breaking_change_on_sprite_shape` — decision made (user ruling 2026-04-20: "no legacy, always choose correctness over back-compat"): **no serde compat shim**. JSON that uses the old `sprite_name` + `img_data` keys fails to deserialize. Test asserts the new flat `sprite` shape is the only accepted JSON form; no dual-representation gymnastics. Plans/PIPELINE_FIDELITY and AUTHORING_ERGONOMICS author IR in code, not from historical JSON, so there are no legacy consumers to break.
 - [x] `integration_tests::extract_preserves_hero_img_data_on_registry_name_collision` — parses a hero block whose name is in the registry (`Pikachu`) with a novel `.img.` payload (`TRIBUNAL_NOVEL_IMG`); asserts `block.sprite.img_data() == "TRIBUNAL_NOVEL_IMG"`. This is the load-bearing test: it fails if any future refactor re-introduces `SpriteId::lookup` into the extract path.
 - [x] `integration_tests::extract_preserves_monster_img_data_on_registry_name_collision` — analogous pin for `Monster` via the real `1-3.monsterpool.(rmon…)…img.X.n.Name` shape.
-- [x] `integration_tests::extract_preserves_replica_item_img_data_on_registry_name_collision` — analogous pin for `ReplicaItem`, reached via `replica_item_parser::parse_simple` directly (top-level `extract()` still routes `!mitempool.` as `StructuralType::ItemPool`; classifier gap, not a Chunk 3b defect).
+- ~~`integration_tests::extract_preserves_replica_item_img_data_on_registry_name_collision`~~ — **deleted in Chunk 9 (2026-04-23)**. The test's own comment acknowledged it was probing `parse_simple` directly "until a future caller routes here"; that caller never came. `parse_simple` and the classifier gap were deleted per chunk-impl rule 3 (no corpus instance). Chunk 3b's sprite-registry defence for `ReplicaItem` now lives solely at the `emit_legendary` + `parse_legendary` round-trip (`legendary_emit_parse_roundtrip_with_all_fields` pins that `.img.` round-trips through a realistic Legendary shape).
 - [x] All 4 working mods IR-equal roundtrip (hero/item/monster IR equality preserved; `bosses.equal: false` pinned by `roundtrip_baseline` as pre-Chunk 3b known-red, PIPELINE_FIDELITY_PLAN owns the fix).
 
 **Deviation note (2026-04-21)**: The original chunk requirement read *"Every extractor uses `SpriteId::lookup(name).cloned().unwrap_or_else(|| SpriteId::owned(name, img_data))` — registry miss falls back to owned, not error. SPEC §3.3."* That was **wrong** and contradicted §F4 line 236 (which correctly stated `SpriteId::owned` only). PR #5's first round shipped the lookup-first incantation in 8 extractor callsites; round-1 tribunal reproduced silent data loss (source `.img.WRONGDATA` + registered name `Pikachu` yielded sliceymon's Pikachu payload in the IR). Round-2 fix dropped all 8 lookups, added the 3 regression pins above, tightened the `authoring/sprite.rs` module doc to name SPEC §3.3 as the invariant forbidding registry use in extract, and rewrote the PR description. Future chunks authoring sprite-bearing parsers must copy the corrected wording above, not the original §F4 table shorthand.
@@ -731,14 +714,14 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 ### Chunk 5: Merge signature → `&mut` + strips derived structurals + two new derived regenerators + unconditional regeneration
 **Spec**: §F6
 **Files**: `compiler/src/ir/mod.rs` (add `StructuralModifier::is_derived`, add `ModIR.warnings` sidecar), `compiler/src/ir/merge.rs` (signature change + strip logic), `compiler/src/builder/mod.rs` (unconditional regeneration), `compiler/src/builder/derived.rs` (two new generators), `compiler/src/lib.rs` (merge re-export signature), `compiler/src/main.rs` (CLI merge subcommand), `compiler/tests/integration_tests.rs` or new `compiler/tests/path_c_merge_tests.rs`.
-**Dependencies**: Chunk 6 (requires `ReplicaItemContainer::Capture { name }` variant — `generate_hero_item_pool` matches on `container` to bucket items per hero).
+**Dependencies**: Chunk 6 (historical). Post-Chunk-9, Chunk 6's `ReplicaItemContainer::Capture { name }` variant has been deleted per chunk-impl rule 3. `generate_hero_item_pool` now buckets by parsing the `.n.NAME` out of `ItemPool` structural modifiers — the shape the classifier produces for Captures in production. No `ReplicaItem.container` field to match on.
 
 **Requirements**:
 - Add `pub warnings: Vec<Finding>` to `ModIR` with `#[serde(default, skip_serializing_if = "Vec::is_empty")]`.
 - Add `pub fn is_derived(&self) -> bool` on `StructuralModifier` (in `ir/mod.rs`) matching on the four derived kinds in §F6.
 - Change `merge` signature to SPEC §5's canonical form: `pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError>`. Update `lib.rs` re-export, `main.rs` CLI usage, and every test that calls `merge`. No tuple return; no parallel `merge_with_findings` function.
 - `merge` strips derived structurals from both inputs before merging; each strip pushes a `Finding` onto `base.warnings` with `rule_id: "X010"`, `severity: Severity::Warning`, `field_path: Some(...)`, `suggestion: Some("Derived structurals are regenerated at build time; authoring them directly is unsupported.")`.
-- Author `generate_pool_replacement(heroes)` and `generate_hero_item_pool(heroes, replica_items)` in `builder/derived.rs`. Byte-for-byte reproduce sliceymon's existing PoolReplacement / hero-bound ItemPool modifiers against the extracted base IR. `generate_hero_item_pool` matches on each `ReplicaItem.container` — `Capture { name }` routes the item into the hero's pool keyed by `name`; `Legendary` is skipped for hero-bound pools (legendaries have their own emission path).
+- Author `generate_pool_replacement(heroes)` and `generate_hero_item_pool(heroes, structural)` in `builder/derived.rs`. Byte-for-byte reproduce sliceymon's existing PoolReplacement / hero-bound ItemPool modifiers against the extracted base IR. `generate_hero_item_pool` buckets by parsing the `.n.NAME` out of each `StructuralType::ItemPool` modifier (the shape Captures route as post-Chunk-9) and matching `NAME` to a hero's `internal_name`. Legendary `ReplicaItem`s have their own emission path and are skipped for hero-bound pools.
 - Remove the "when absent" gate in `build_complete` at `compiler/src/builder/mod.rs:161-168`. `build` itself also strips derived structurals from `ir.structural` before emitting and appends the regenerated forms — build-time regeneration is unconditional.
 - Add a Path C integration test that does NOT rely on direct struct-literal construction (authoring layer is empty — use `ir_from_json` or roundtrip-extracted IR, then `Hero::new` from Chunk 1 to add the new hero). The test must not violate SPEC §6.1.
 
@@ -748,34 +731,39 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 - [ ] `merge::new_signature_compiles` — `merge(&mut base, overlay)?;` compiles; `base.warnings` is readable post-merge.
 - [ ] `merge::warnings_accumulate_across_calls` — a second `merge` call appends to (does not reset) `base.warnings`.
 - [ ] `derived::pool_replacement_matches_sliceymon` — `generate_pool_replacement(sliceymon.heroes)` byte-matches `working-mods/sliceymon.txt`'s existing PoolReplacement modifier.
-- [ ] `derived::hero_item_pool_matches_sliceymon_via_container_enum` — `generate_hero_item_pool` uses `ReplicaItem.container` (the `Capture { name }` variant) to bucket items; byte-matches hero-bound ItemPool in sliceymon.
+- [ ] `derived::hero_item_pool_matches_sliceymon_via_item_pool_n_name` — `generate_hero_item_pool` buckets by parsing the `.n.NAME` out of `ItemPool` structural modifiers (Captures route there; no `ReplicaItem` Capture variant exists post-Chunk-9 per chunk-impl rule 3). Byte-matches hero-bound ItemPool in sliceymon.
 - [ ] `path_c_merge::adds_hero_regenerates_selector` — load sliceymon IR from JSON, `Hero::new` a new hero, append to `ir.heroes`, `build_complete`, re-extract — new hero is in the regenerated CharacterSelection.
 - [ ] All 4 working mods IR-equal roundtrip after `build` strips + regenerates derived structurals.
 
 ---
 
-### Chunk 6: `ReplicaItemContainer` enum replaces `container_name` [serial after Chunk 4, before Chunk 5] — ✅ COMPLETE (2026-04-21, branch `feat/chunk-6-replica-item-container`)
-**Spec**: §F7
-**Files**: `compiler/src/ir/mod.rs` (replace `container_name: String` with `container: ReplicaItemContainer`), `compiler/src/extractor/replica_item_parser.rs` (build the enum variant from source shape), `compiler/src/extractor/classifier.rs` (if modifier-kind classification lives there), `compiler/src/builder/replica_item_emitter.rs` (match on `container` for emission), `compiler/src/xref.rs` (new X003 rule), `compiler/src/ir/ops.rs` (constructor updates + duplicate-name checks), `compiler/src/ir/merge.rs` (match-by-`name` logic already keys on `ReplicaItem.name`, not `container_name` — verify during this chunk that no merge code path reaches into `container_name` directly), serde test fixtures.
-**Dependencies**: Chunk 3c, Chunk 4.
-**Merge ordering**: merges after Chunk 4; Chunk 5 depends on it.
+### Chunk 6: `ReplicaItemContainer` enum replaces `container_name` [serial after Chunk 4, before Chunk 5] — ✅ COMPLETE (2026-04-21, branch `feat/chunk-6-replica-item-container`) — ⚠️  SUPERSEDED BY CHUNK 9 (2026-04-23)
+**Spec**: §F7 (superseded — see §F7 header for current state)
+**Files**: see Chunk 9's deletion commit `77b802b` for the current state of each. Historical: `compiler/src/ir/mod.rs`, `compiler/src/extractor/replica_item_parser.rs`, `compiler/src/extractor/classifier.rs`, `compiler/src/builder/replica_item_emitter.rs`, `compiler/src/xref.rs`, `compiler/src/ir/ops.rs`, `compiler/src/ir/merge.rs`.
 
-**Requirements**:
-- Define `ReplicaItemContainer { Capture { name: String }, Legendary }` with `#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]`. No default — forcing explicit construction prevents silent misclassification.
-- Replace `ReplicaItem.container_name: String` with `pub container: ReplicaItemContainer`. No separate `kind` field. Every callsite handles the enum via `match`, not via string inspection.
-- Extractor classifier builds the variant from source-level modifier shape: `itempool.(X).n.Y` → `ReplicaItemContainer::Capture { name: X }`; top-level `item.` → `ReplicaItemContainer::Legendary`.
-- `build_replica_item` / emitter matches `container` non-exhaustively (no `_` arm) so adding a future variant is a compile error, not a runtime fallthrough. No `ReplicaItemKindMismatch` runtime check — the type system already rules out the invalid combinations.
-- Author new xref rule **X003** (no duplicate Pokemon across heroes / captures / legendaries / monsters — SPEC §6.3) matching on `container` to route items into per-kind buckets (Capture vs Legendary).
-- Serde representation is the default enum tagging — `{"Capture": {"name": "PokeBall"}}` or `"Legendary"`. No custom `try_from` needed.
+**Chunk-9 supersession note (2026-04-23)**: Chunk 6 shipped the `ReplicaItemContainer { Capture { name }, Legendary }` enum + `container` field + X003 rule. Chunk 9 deleted the enum and the `Capture` variant per chunk-impl rule 3 — no corpus instance was ever created for a Capture `ReplicaItem` (classifier never returned `ModifierType::ReplicaItem*`; Captures route as `ItemPool` structurals). X003 survives: its `"capture"` bucket label was removed, leaving `"hero"` / `"legendary"` / `"monster"` / `"boss"` as the active buckets (`compiler/src/xref.rs:228-237`). The rest of Chunk 6's requirements / verification checklist below are archived; see Chunk 9 for the currently-shipped shape.
 
-**Verification — specific tests**:
-- [ ] `ir::replica_item_capture_carries_container_name` — `let c = ReplicaItemContainer::Capture { name: "PokeBall".into() };` is constructible; `ReplicaItemContainer::Capture` without `name` is a compile error (structural enforcement).
-- [ ] `ir::replica_item_legendary_has_no_container_by_construction` — compile-time proof: there is no variant shape that lets a `Legendary` carry a name; trying to pattern-match `ReplicaItemContainer::Legendary { name }` fails to compile.
-- [ ] `extractor::classifies_capture_vs_legendary_into_enum` — sliceymon capture `itempool.(X).n.Y` extracts to `ReplicaItemContainer::Capture { name: "Y" }`; a legendary extracts to `ReplicaItemContainer::Legendary`.
-- [x] `xref::x003_duplicate_pokemon_across_kinds` — a ModIR with Pokemon "Pikachu" as both Hero and Capture surfaces `Finding { rule_id: "X003", .. }`. X003 is a cross-bucket finding with no single offending entity, so `source: None` / severity stays `Error` — mirrors Chunk 4's V020 cross-category precedent (§F5 landed note). Pinned by `xref::x003_finding_is_global_source_none`.
-- [ ] `builder::replica_item_emitter_non_exhaustive_match` — a doc-test or `// SAFETY: non-exhaustive` comment + a test that adding a hypothetical new variant produces a `cargo check` failure at the emitter callsite.
-- [ ] `serde::replica_item_container_json_shape` — `Capture { name: "X" }` serializes as `{"Capture":{"name":"X"}}`; `Legendary` as `"Legendary"`; round-trips both.
-- [ ] All 4 working mods IR-equal roundtrip (every existing ReplicaItem correctly classified).
+**Surviving artefacts from Chunk 6** (still in code):
+- `ReplicaItem` struct exists (now Legendary-only; no `container` field).
+- X003 xref rule exists and fires on hero + legendary name collisions. Verified by `xref::x003_duplicate_pokemon_across_kinds` + `xref::x003_finding_is_global_source_none`.
+- `replica_items` in `ModIR` still holds Legendaries.
+
+**Archived Chunk 6 requirements** (no longer live — kept for traceability):
+- ~~Define `ReplicaItemContainer { Capture { name: String }, Legendary }`.~~ Deleted in Chunk 9.
+- ~~Replace `ReplicaItem.container_name: String` with `pub container: ReplicaItemContainer`.~~ Field removed in Chunk 9.
+- ~~Extractor classifier builds the variant from source-level modifier shape.~~ Classifier no longer returns `ModifierType::ReplicaItem*`; captures always routed as `ItemPool`.
+- ~~`build_replica_item` / emitter matches `container` non-exhaustively.~~ `emit()` now dispatches straight to `emit_legendary` (single shape).
+- X003 author work landed and survives — bucketing simplified to `"legendary"` label for all replica items.
+- ~~Serde tagging for `ReplicaItemContainer`.~~ Type deleted.
+
+**Archived verification tests** (deleted in Chunk 9 commit `77b802b` — exercised a type that no longer exists):
+- ~~`ir::replica_item_capture_carries_container_name`~~ — deleted.
+- ~~`ir::replica_item_legendary_has_no_container_by_construction`~~ — deleted.
+- ~~`extractor::classifies_capture_vs_legendary_into_enum`~~ — deleted.
+- [x] `xref::x003_duplicate_pokemon_across_kinds` — **still passes**; asserts `"legendary"` bucket.
+- ~~`builder::replica_item_emitter_non_exhaustive_match`~~ — vacuous post-Chunk-9.
+- ~~`serde::replica_item_container_json_shape`~~ — deleted.
+- [x] All 4 working mods IR-equal roundtrip — **still passes**.
 
 ---
 
@@ -849,56 +837,60 @@ Callers in the same files or their module roots that previously could not fail m
 
 ---
 
-### Chunk 9: Replica-parser chain-and-depth-aware scalar extraction [serial after Chunk 6; parallel with 5, 7, 8]
+### Chunk 9: Legendary-parser chain-and-depth-aware scalar extraction + Capture-variant deletion [serial after Chunk 6; parallel with 5, 7, 8] — ✅ COMPLETE (2026-04-23)
 **Spec**: §F10 (grounds in SPEC §3.3 self-contained IR).
-**Files**: `compiler/src/util.rs` (add `slice_before_chain_and_cast` + `replica_inner_body` helpers + extend `extract_color` signature), `compiler/src/extractor/replica_item_parser.rs` (all three parsers route scalars through the helpers per §F10's "Fix"), `compiler/src/builder/replica_item_emitter.rs` (reorder `.sd.` / `.img.` to precede the chain in `emit_simple` / `emit_with_ability` / `emit_legendary` — emission-order co-requirement from §F10). Signature-compatible touches in `compiler/src/extractor/{hero_parser,monster_parser}.rs` and `compiler/src/ir/mod.rs` pass `depth_aware = false` at the five non-replica `extract_color` callsites to preserve current behavior. No other file changes.
-**Dependencies**: Chunk 6 (the `before_cast` scoping in `parse_legendary` is the pattern this chunk generalizes).
+**Files (as shipped)**: `compiler/src/util.rs` (add `slice_before_chain_and_cast` + `depth_aware` flag on `extract_color`), `compiler/src/extractor/replica_item_parser.rs` (rewritten as Legendary-only — deleted `parse_simple` / `parse_with_ability`), `compiler/src/builder/replica_item_emitter.rs` (rewritten as Legendary-only — deleted `emit_simple` / `emit_with_ability`; `.sd.` / `.img.` emitted before the chain per §F10 emission-order; ability emitted as `.abilitydata.(body)` per textmod guide §F10-MARKERS), `compiler/src/extractor/classifier.rs` + `compiler/src/extractor/mod.rs` (deleted `ModifierType::ReplicaItem` / `ReplicaItemWithAbility` variants + their arms — never produced by the classifier), `compiler/src/ir/mod.rs` (deleted `ReplicaItemContainer` enum + `container` field on `ReplicaItem`; deleted `chunk_6_tests` module), `compiler/src/ir/ops.rs` + `compiler/src/xref.rs` + `compiler/tests/build_options_tests.rs` (dropped `container` from every `ReplicaItem` struct literal), `compiler/tests/integration_tests.rs` (dropped self-documented dead `parse_simple` test). Signature-compatible touches in `compiler/src/extractor/{hero_parser,monster_parser}.rs` and `compiler/src/ir/mod.rs` pass `depth_aware = false` at the five non-Legendary `extract_color` callsites to preserve current behavior.
+**Dependencies**: Chunk 6 (the `before_cast` scoping in `parse_legendary` is the pattern this chunk generalizes — and the enum Chunk 9 deletes post-hoc per chunk-impl rule 3).
 **Parallel with**: Chunks 5, 7, 8 (no shared files).
-**Merge ordering**: merges after 6. No constraint against 5, 7, 8.
 
-**Context** — re-state of the leak class as of plan-write, to prevent drift:
-- `util::extract_hp(modifier, false)` (`util.rs:165`) and `util::extract_sd(modifier, false)` (`util.rs:147`) call `content.find(marker)` — no depth tracking, no chain awareness.
-- `util::extract_color(content)` (`util.rs:192`) has no `depth_aware` flag at all.
-- `util::extract_img_data(content)` (`util.rs:388`) uses `find_last_at_depth0` (depth-aware already), but matches the *last* depth-0 hit — a chain `sidesc` carrying `.img.X` at depth 0 could still be the last hit if the Legendary has no top-level `.img.`.
-- `chain_emitter.rs:59-63` shows chain sub-entries emit `cast.{effect}`, `enchant.{modifier}`, `sidesc.{text}` where the text portion is free-form and can legitimately contain any `.{marker}.` substring.
-- `parse_legendary`'s Chunk-6 `before_cast` slicing (`extractor/replica_item_parser.rs:128-167`) only closes the cast-interior subset of the class. Chain-interior leakage at depth 0 (before cast) remains.
+**Context — leak class as of plan-write (historical)**:
+- `util::extract_hp(modifier, false)` / `extract_sd(modifier, false)` called `content.find(marker)` — no depth tracking, no chain awareness.
+- `util::extract_color(content)` had no `depth_aware` flag at all.
+- `util::extract_img_data(content)` used `find_last_at_depth0` (depth-aware already) but matched the *last* depth-0 hit — a chain `sidesc` carrying `.img.X` at depth 0 could still be the last hit if the Legendary had no top-level `.img.`.
+- `chain_emitter.rs:59-63` shows chain sub-entries emit `sidesc.{text}` / `enchant.{modifier}` with free-form text that can legitimately contain any `.{marker}.` substring.
+- `parse_legendary`'s Chunk-6 `before_cast` slicing (now `before_ability`) only closed the cast-interior subset of the class. Chain-interior leakage at depth 0 remained.
 
-**Requirements**:
+**Requirements (as shipped)**:
 - Add `pub fn slice_before_chain_and_cast(body: &str) -> &str` to `util.rs`. Semantics: scan for the first depth-0 occurrence of any marker in **§F10-MARKERS** (defined in §F10 above) and return `&body[..pos]`; when no such marker exists at depth 0, return the full `body` slice. Depth tracking follows the existing `find_at_depth0` idiom — paren balance.
-- Add `pub fn replica_inner_body(modifier: &str) -> Option<&str>` to `util.rs`. Semantics: locate the `(` immediately preceding the first `replica.` token, return the content up to the matching `)` with the outer parens stripped. Returns `None` when there is no `replica.` token or no enclosing paren; callers fall back to the raw modifier in that case. Role: per §F10 "Fix" item 2, this is the load-bearing scope for the Capture leak class — without it, `slice_before_chain_and_cast` applied to the raw modifier can't see a Capture's chain (which lives at raw paren depth ≥ 2).
-- Extend `extract_color` signature to `pub fn extract_color(content: &str, depth_aware: bool) -> Option<char>`. When `depth_aware = true`, skip matches at paren depth > 0. `depth_aware = false` preserves the current behavior so non-replica callsites are unchanged.
-- Wire the helpers into the three parsers per §F10 "Fix" items 2–3:
-  - `parse_simple` and `parse_with_ability`: `let body = util::replica_inner_body(modifier).unwrap_or(modifier); let scalar_slice = util::slice_before_chain_and_cast(body);`, then scalar extractors with `depth_aware = false` on `scalar_slice`.
-  - `parse_legendary`: `let scalar_slice = util::slice_before_chain_and_cast(body);` (where `body` is the post-`item.`-strip content), then scalar extractors with `depth_aware = true` on `scalar_slice`.
-  - `extract_img_data(scalar_slice)` is always used — it is inherently depth-aware via `find_last_at_depth0`.
-- The `before_cast` local in `parse_legendary` (added in Chunk 6) is retained for the character-name lookup + chain scoping (emission places `.n.NAME` after the chain and before `.cast.`; the name extractor must see that exact region). Scalar extraction moves to the broader `scalar_slice`; chain extraction continues to scope to `before_cast` so a stray `.i.` / `.sticker.` left inside a `.speech.` / `.doc.` value can't be misread as a chain segment.
-- Chain and ability extraction themselves do **not** route through the new helpers — they need to see the chain / ability regions of the body. `extract_modifier_chain` still scans for `.i.` / `.sticker.` at depth 0, `extract_nested_prop(body, ".abilitydata.")` still scans for the ability at depth 0. Unchanged.
-- Reorder `.sd.` / `.img.` to precede the chain in all three emitters (`emit_simple` / `emit_with_ability` / `emit_legendary`) — emission-order co-requirement from §F10. Without this, an emit→parse cycle where the chain carries a decoy `.sd.` and the real value comes after would silently lose the real value to first-match.
-- Audit every other callsite of `extract_color` outside the three replica parsers and confirm whether `depth_aware = true` is correct there too. If the semantics differ (e.g. hero/monster parsing relies on the current non-depth-aware behavior), preserve the caller's choice — this chunk does not change non-replica semantics. Audit result: all five callsites (`hero_parser.rs` ×3, `monster_parser.rs` ×1, `ir/mod.rs` ×1) keep the non-depth-aware behavior by passing `depth_aware = false`.
+- Extend `extract_color` signature to `pub fn extract_color(content: &str, depth_aware: bool) -> Option<char>`. When `depth_aware = true`, skip matches at paren depth > 0. `depth_aware = false` preserves the current behavior so non-Legendary callsites are unchanged.
+- Wire the helper into `parse_legendary`: `let scalar_slice = util::slice_before_chain_and_cast(body);` (where `body` is the post-`item.`-strip content), then scalar extractors with `depth_aware = true` on `scalar_slice`. `extract_img_data(scalar_slice)` is always used — it is inherently depth-aware via `find_last_at_depth0`.
+- The `before_ability` local in `parse_legendary` (renamed from `before_cast` in this chunk) is retained for the character-name lookup + chain scoping (emission places `.n.NAME` after the chain and before `.abilitydata.`; the name extractor must see that exact region). Scalar extraction moves to the broader `scalar_slice`; chain extraction scopes to `before_ability` so a stray `.i.` / `.sticker.` left inside a `.speech.` / `.doc.` value can't be misread as a chain segment.
+- Chain and ability extraction themselves do **not** route through the new helper — they need to see the chain / ability regions of the body. `extract_modifier_chain` still scans for `.i.` / `.sticker.` at depth 0, `extract_nested_prop(body, ".abilitydata.")` still scans for the ability at depth 0.
+- Reorder `.sd.` / `.img.` to precede the chain in `emit_legendary` (emission-order co-requirement from §F10). Without this, an emit→parse cycle where the chain carries a decoy `.sd.` and the real value comes after would silently lose the real value to first-match.
+- **Delete** `ModifierType::ReplicaItem` / `ReplicaItemWithAbility`, `parse_simple` / `parse_with_ability`, `emit_simple` / `emit_with_ability`, `ReplicaItemContainer` enum + `container` field on `ReplicaItem`, `util::replica_inner_body`, `util::extract_template` per chunk-impl rule 3 — none had a corpus instance. Captures route as `ItemPool` structurals in production and always did; classifier never returned the deleted `ModifierType` variants.
+- Rename the ability-body emit/read marker from `.cast.(body)` to `.abilitydata.(body)` per the textmod guide (`reference/textmod_guide.md` lines 747 / 857 / 975-981). `.cast.` in the corpus is a chain keyword, not a property marker. Affects `emit_legendary` + `parse_legendary` + §F10-MARKERS canonical set.
+- Audit every other callsite of `extract_color` outside `parse_legendary` and confirm whether `depth_aware = true` is correct there too. Preserve the caller's choice — this chunk does not change non-Legendary semantics. Audit result: all six live callsites (`hero_parser.rs` ×3, `monster_parser.rs` ×1, `ir/mod.rs` ×1, `extract_color` lives inside `extract_facades_from_chain` callers implicitly) keep the non-depth-aware behavior by passing `depth_aware = false`.
 
-**Verification — specific tests**:
+**Verification — specific tests (as shipped)**:
 
-Each test is a *source-vs-IR divergence* test by construction (per §F10 / Chunk 3b lesson item 2): the input's top-level scalar is absent, and the chain / cast contains a substring whose byte-for-byte interpretation would flip the parsed field if extraction reached for chain-interior bytes.
+Each test is a *source-vs-IR divergence* test by construction (per §F10 / Chunk 3b lesson item 2): the input's top-level scalar is absent, and the chain / ability contains a substring whose byte-for-byte interpretation would flip the parsed field if extraction reached for chain-interior bytes.
 
-- [ ] `extractor::legendary_hp_ignores_chain_interior_sidesc` — `item.Alpha.sticker.sidesc.hp.99.sd.0:0:0:0:0:0.n.Mew` — assert `parsed.hp == None`. Invented sticker value on purpose (no registry carries `sidesc.hp.99`).
-- [ ] `extractor::legendary_color_ignores_chain_interior_sidesc` — same shape with `.sticker.sidesc.col.z.sd....`, assert `parsed.color == None`.
-- [ ] `extractor::legendary_sd_ignores_chain_interior_sidesc` — **no top-level `.sd.`** + chain decoy: `item.Alpha.sticker.sidesc.sd.999-1:0:0:0:0:0.n.Mew`. Assert `parsed.sd == DiceFaces { faces: vec![] }`. This is the strong form — a first-match on the full body would return the decoy, failing the assertion (source-vs-IR divergence per lesson 2). A weaker shape (real `.sd.` *before* the decoy in the raw string) passes even without `scalar_slice`, so do not use it.
-- [ ] `extractor::legendary_img_ignores_chain_interior_sidesc` — same pattern for `.img.`, asserting `parsed.sprite.img_data() == ""` when top-level `.img.` is absent.
-- [ ] Capture-path source-vs-IR tests must exercise the real emit→parse cycle, not a hand-rolled modifier shape the emitter can't produce. Hand-rolled inputs that put decoys at raw depth 0 (where `slice_before_chain_and_cast` on the raw modifier would trim them) are accepting oracles — the Capture emitter buries the chain at raw paren depth ≥ 2, so any test that asserts "no leak" on a raw-depth-0 decoy passes for the wrong reason. Ship these four instead, each building a `ReplicaItem` with a `ChainEntry::Sidesc` decoy and re-parsing via the Capture parser:
-  - [ ] `extractor::capture_emit_parse_hp_absent_when_chain_sidesc_has_decoy_hp` — `parse_simple`, chain decoy `.hp.99`, assert `parsed.hp == None`.
-  - [ ] `extractor::capture_emit_parse_color_absent_when_chain_sidesc_has_decoy_color` — `parse_simple`, chain decoy `.col.z`, assert `parsed.color == None`.
-  - [ ] `extractor::capture_with_ability_emit_parse_hp_absent_when_chain_sidesc_has_decoy_hp` — `parse_with_ability`, same shape with `abilitydata` set, assert `parsed.hp == None`.
-  - [ ] `extractor::capture_with_ability_emit_parse_color_absent_when_chain_sidesc_has_decoy_color` — `parse_with_ability`, same shape with `abilitydata` set, assert `parsed.color == None`.
-- [ ] `util::replica_inner_body_simple_shape_strips_outer_parens` — `((hat.replica.TEMPLATE…))` → returns the body with outer parens stripped. Pins the Capture `parse_simple` frame.
-- [ ] `util::replica_inner_body_with_ability_shape_strips_to_innermost_replica` — `((hat.(replica.TEMPLATE…)))` → returns the body of the innermost `(replica.…)`. Pins the Capture `parse_with_ability` frame.
-- [ ] `util::replica_inner_body_no_replica_token_returns_none` + `util::replica_inner_body_replica_without_enclosing_paren_returns_none` — pin the two fallback paths so callers know when the `.unwrap_or(modifier)` fallback fires.
-- [ ] `util::slice_before_chain_and_cast_no_markers_returns_full_body` — input with no member of **§F10-MARKERS** at depth 0 returns the full slice. Pins the no-op path.
-- [ ] `util::slice_before_chain_and_cast_skips_nested_markers` — input like `Alpha.abilitydata.(a.i.b)` — the `.i.` is at depth 1, the `.abilitydata.` is at depth 0, so the slice ends at `.abilitydata.`. Pins depth tracking.
-- [ ] `util::extract_color_depth_aware_skips_parens` — `a.col.b.( .col.c )` with `depth_aware = true` returns `Some('b')`; `depth_aware = false` preserves the existing behavior (returns `Some('b')` because it's the first match). Pins the new flag.
-- [ ] All 4 working mods IR-equal roundtrip (`cargo run --example roundtrip_diag` reports `ROUNDTRIP OK` for each). None of the working mods currently contain replica items, so this chunk must not add `Replicas ir1>0` findings spuriously; the assertion is that the mods' existing state is preserved.
-- [ ] `cargo test --all` passes with no regressions in hero / monster / boss parsers (the `extract_color` callsites outside the replica parsers).
+- [x] `extractor::legendary_hp_ignores_chain_interior_sidesc`
+- [x] `extractor::legendary_color_ignores_chain_interior_sidesc`
+- [x] `extractor::legendary_sd_ignores_chain_interior_sidesc` — strong form (no top-level `.sd.`; decoy inside `.sticker.sidesc`).
+- [x] `extractor::legendary_img_ignores_chain_interior_sidesc`
+- [x] `extractor::legendary_ignores_abilitydata_interior_hp_color_sd_img` — ability-body decoys for all four scalars.
+- [x] `util::slice_before_chain_and_cast_no_markers_returns_full_body`
+- [x] `util::slice_before_chain_and_cast_skips_nested_markers` — input `Alpha.abilitydata.(a.i.b)`.
+- [x] `util::slice_before_chain_and_cast_returns_earliest_of_three_markers`
+- [x] `util::extract_color_depth_aware_skips_parens`
+- [x] `builder::legendary_emit_parse_roundtrip_with_all_fields` — every scalar field survives emit→parse (ability included as `.abilitydata.(body)`).
+- [x] `builder::legendary_emit_parse_roundtrip_with_item_modifiers` — chain-emission order pinned (chain after `.sd./.img.`, before `.n.` / `.abilitydata.`).
+- [x] `xref::x003_duplicate_pokemon_across_kinds` — X003 still fires on hero + legendary name collision; `"capture"` bucket removed post-deletion.
+- [x] All 4 working mods IR-equal roundtrip (`cargo run --example roundtrip_diag` reports `ROUNDTRIP OK` for each). The 4 working mods contain zero replica items; this chunk must not add `Replicas ir1>0` findings spuriously — verified.
+- [x] `cargo test` passes (324 tests; 21 tests deleted with their target code per chunk-impl rule 3).
 
-**Structural check (per the chunk-impl hook)**: Chunk 9 does **not** collapse two paths. `parse_simple` / `parse_with_ability` / `parse_legendary` remain three distinct functions with distinct container-shape responsibilities; the three helpers (`replica_inner_body` / `slice_before_chain_and_cast` / `depth_aware` flag on `extract_color`) narrow *where* to scan for scalars, not *what* the parsers return. Each helper guards a different leak surface — see §F10 "Structural check" for the non-redundancy proof. The `depth_aware` flag on `extract_color` mirrors the flag that already exists on `extract_hp` / `extract_sd` — this is symmetry being restored, not a new abstraction. The Capture parsers' two-line prelude (`replica_inner_body` + `slice_before_chain_and_cast`) is the "one correct line to write" case from the plan's "Lessons" item 4 — the helpers are the consolidation; pasting their open-coded equivalents across parsers is the forbidden N-line incantation.
+**Deleted tests** (chunk-impl rule 3 — no live callers; no corpus instance):
+- ~~`extractor::classifies_capture_into_enum_with_container_name_from_source`~~
+- ~~`extractor::classifies_capture_with_ability_into_enum`~~ (rewritten three times across rounds 4, 7, 8; ultimately deleted with `parse_with_ability`)
+- ~~Four Round-4 `capture_*_emit_parse_*` leak-probe tests~~ (deleted with the Capture parsers)
+- ~~Three Round-8 `capture_*_emit_parse_*_roundtrip` tests~~ (deleted with the Capture parsers)
+- ~~`util::replica_inner_body_*` (four tests)~~ (helper deleted)
+- ~~`ir::chunk_6_tests` (three tests)~~ (enum deleted)
+- ~~`xref::x003_distinguishes_capture_from_legendary_buckets`~~ (the distinction no longer exists at the type level)
+- ~~`integration_tests::extract_preserves_replica_item_img_data_on_registry_name_collision`~~ (self-documented dead — awaiting a "future caller" that never came)
+
+**Structural check (per the chunk-impl hook)**: Chunk 9 does **not** collapse two paths. Pre-chunk-9 there were three replica parsers (parse_simple / parse_with_ability / parse_legendary); post-chunk-9 there is one (parse_legendary), because the other two targeted types the classifier never produced. This is deletion per chunk-impl rule 3, not path-collapsing. The `depth_aware` flag on `extract_color` mirrors the flag that already exists on `extract_hp` / `extract_sd` — symmetry being restored, not a new abstraction. The single-helper Legendary scoping (`slice_before_chain_and_cast` applied to `body`) is the "one correct line to write" case — not N callsites pasting an incantation.
 
 ---
 
@@ -907,19 +899,19 @@ Each test is a *source-vs-IR divergence* test by construction (per §F10 / Chunk
 - [ ] `cargo test --all` passes with no regressions.
 - [ ] IR-equal roundtrip holds for all 4 working mods (`cargo run --example roundtrip_diag` is empty).
 - [ ] `cargo doc` with `#![deny(missing_docs)]` on the new `authoring` module renders cleanly.
-- [ ] `cargo run -- schema` produces a JSON Schema that includes `FaceId`, `FaceIdValue`, `Pips`, `SpriteId`, and `ReplicaItemContainer` types.
+- [ ] `cargo run -- schema` produces a JSON Schema that includes `FaceId`, `FaceIdValue`, `Pips`, `SpriteId` types. (`ReplicaItemContainer` was deleted in Chunk 9 per chunk-impl rule 3 and is no longer in the schema.)
 - [ ] `compiler/src/authoring/` contains only: `mod.rs`, `face_id.rs`, `face_id_generated.rs`, `sprite.rs`, `sprite_registry.rs`. No builders, no macros, no `HeroReplica` — those are owned by `AUTHORING_ERGONOMICS_PLAN.md`.
 - [ ] No `std::fs` / `std::process` in `compiler/src/authoring/` or any other library file.
 - [ ] Lib-code audit (`rg` with `#[cfg(test)]` stripping, enforced via `xtask`/`build.rs`) shows zero `unwrap()` / `expect()` / `panic!` / `unimplemented!` / `todo!` hits.
 - [ ] Every new xref rule (X003, X010, X016, X017) populates `field_path`, `suggestion`, and `source` on its `Finding`s. Every existing V-rule (V016, V019, V020) populates `source`.
 - [ ] V020 and X003 do not double-fire on cross-bucket Pokemon collisions (`{hero, replica_item, monster}` slice is X003's sole territory). V020 retains emission only for boss-involving collisions and intra-bucket duplicates. (Chunk 8, §F9.)
-- [x] Replica parsers close the §F10 leak class per the three-helper design in §F10 "Fix":
-  - `parse_simple` / `parse_with_ability` apply `util::replica_inner_body` + `util::slice_before_chain_and_cast` in that order, then scalar extractors with `depth_aware = false` on the resulting slice. The `replica_inner_body` step is load-bearing — without it the Capture chain lives at raw paren depth ≥ 2 and the slice scan is blind to it.
+- [x] `parse_legendary` closes the §F10 leak class per the single-helper design in §F10 "Fix":
   - `parse_legendary` applies `util::slice_before_chain_and_cast` directly (its `item.TEMPLATE…` body is flat at depth 0), then scalar extractors with `depth_aware = true`.
-  - The emitter reorders `.sd.` / `.img.` before the chain in all three emit paths, per §F10's emission-order co-requirement.
-  - Chain-interior `.hp.` / `.col.` / `.sd.` / `.img.` substrings in sidesc / cast-effect / enchant text do not leak into top-level fields under any container shape; verified via four emit→parse source-vs-IR tests (see §F10 / Chunk 9 verification list). (Chunk 9, §F10, 2026-04-23.)
+  - `emit_legendary` places `.sd.` / `.img.` before the chain, per §F10's emission-order co-requirement; the ability body is emitted as `.abilitydata.(body)` per the textmod guide.
+  - Chain-interior `.hp.` / `.col.` / `.sd.` / `.img.` substrings in sidesc / enchant text, and ability-interior equivalents in `.abilitydata.(body)`, do not leak into top-level fields; verified via five `legendary_*_ignores_*` source-vs-IR tests (see §F10 / Chunk 9 verification list). (Chunk 9, §F10, 2026-04-23.)
+  - Capture-shape parsers (`parse_simple` / `parse_with_ability`) and the `ReplicaItemContainer` enum were deleted in the same chunk per chunk-impl rule 3 — no corpus instance ever justified them, and keeping them carried unverifiable claims about leak closure.
 - [ ] `merge` signature: `pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError>` (matches SPEC §5 verbatim). Warnings surface via `ModIR.warnings: Vec<Finding>`.
-- [x] `ReplicaItem` has no `container_name: String` field and no `kind: ReplicaItemKind` field; the only container-related field is `container: ReplicaItemContainer`. (Chunk 6, 2026-04-21)
+- [x] `ReplicaItem` has no `container_name: String` field, no `kind: ReplicaItemKind` field, and (post-Chunk-9, 2026-04-23) no `container: ReplicaItemContainer` field either — the enum was deleted per chunk-impl rule 3 (no corpus instance for `Capture`). `ReplicaItem` models Legendaries only.
 - [ ] SPEC §3.6 has been amended to name the permissive whitelist + `Unknown(raw)` variant as the spec-blessed design; SPEC §3.6's pips type annotation reads `i16`.
 
 ---
@@ -932,7 +924,7 @@ All rulings below are implemented by specific chunks in this plan. Once the plan
 Ruling: permissive. Any valid textmod per `reference/textmod_guide.md` must extract, even if it uses FaceIDs outside the working-mods corpus. Rationale: SPEC §1 (general-purpose mod-building backend) + SPEC §3.3 (self-contained IR) require that new mods with novel values round-trip. Implementation: `FaceIdValue::{Known(FaceId), Unknown(u16)}` + `SpriteId::owned(name, img_data)`. SPEC §3.6 is amended in Chunk 2's commit to name the `Unknown(raw)` variant as the spec-blessed design — no SPEC drift.
 
 **R2. `ReplicaItem` container shape.**
-Ruling: collapse into `ReplicaItemContainer { Capture { name: String }, Legendary }` rather than `kind: ReplicaItemKind` + `container_name: Option<String>`. Rationale: SPEC §3.6 (invalid states unrepresentable) + §3.7 (no parallel representations). Implementation: Chunk 6. No runtime `ReplicaItemKindMismatch` error variant — the type system enforces the invariant.
+Ruling (as of 2026-04-23, superseding the original Chunk 6 ruling): `ReplicaItem` models Legendaries only — no `container` field, no `ReplicaItemContainer` enum. Rationale: chunk-impl rule 3 ("Every IR variant discriminator must have at least one corpus instance per variant before it ships"). The original Chunk 6 ruling collapsed `kind` + `container_name` into `ReplicaItemContainer { Capture { name: String }, Legendary }`. That enum shipped in Chunk 6, but no working mod contained a Capture-shaped `ReplicaItem` (classifier never returned `ModifierType::ReplicaItem*`; Captures always routed as `ItemPool` structurals). Chunk 9 (2026-04-23) deleted both the enum and the Capture parsing/emitting paths per the rule. Captures continue to route as `ItemPool` structurals; if a future corpus instance ever demands a typed `ReplicaItem::Capture`, model the variant against the real corpus shape (`((hat.(replica.T.i.(all.(cast.TRIG.abilitydata.(body))))))` per `reference/textmod_guide.md`) rather than resurrecting this ruling's original design. No runtime `ReplicaItemKindMismatch` error variant — the invariant class is vacuous.
 
 **R3. `build_with` introduction.**
 `build_with` does not exist today. Chunk 4 introduces it; `build(ir)` becomes `build_with(ir, &BuildOptions::default())`. SPEC §5 already sketches `build_with`, so no SPEC amendment needed.
