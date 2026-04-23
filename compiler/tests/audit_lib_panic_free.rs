@@ -28,7 +28,23 @@ fn walk_rs(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// Strip `#[cfg(test)]` / `#[test]` items from `src`. Returns `(line_number, text)`
 /// pairs for lines OUTSIDE test gates. `line_number` is 1-based.
-fn lines_outside_test_gates(src: &str) -> Vec<(usize, &str)> {
+///
+/// Supported test-gate shapes (file `path` is passed only for error messages):
+///   - `#[cfg(test)]` / `#[test]` / `#[cfg(... test ...)]` immediately followed
+///     (same line or any number of blank/attribute lines later) by a `{`-opened
+///     block item (`mod NAME {`, `fn NAME() {`, `impl ... {`, etc.). The stripper
+///     brace-matches to the closing `}` and excludes the whole span.
+///
+/// Rejected shapes — the stripper panics rather than silently guess, so future
+/// drift fails loudly:
+///   - Single-line items between the attribute and the next `{` (e.g. an
+///     intervening `use foo;` or `const N: u32 = 1;`). These would cause the
+///     brace-match to latch onto the NEXT item's `{` (which belongs to non-
+///     test code) and silently strip production code — defeating SPEC §F8.
+///   - `#[cfg(not(test))]` — the `contains("test")` heuristic would misfire;
+///     today no such attribute exists in `src/`, but if one is introduced the
+///     audit panics instead of falsely test-gating production code.
+fn lines_outside_test_gates<'a>(src: &'a str, path: &str) -> Vec<(usize, &'a str)> {
     let lines: Vec<&str> = src.lines().collect();
     let n = lines.len();
     let mut kept = vec![true; n];
@@ -36,16 +52,60 @@ fn lines_outside_test_gates(src: &str) -> Vec<(usize, &str)> {
     let mut i = 0;
     while i < n {
         let trimmed = lines[i].trim_start();
+        if trimmed.starts_with("#[cfg(not(test))]") {
+            panic!(
+                "{}:{}: `#[cfg(not(test))]` is unsupported by the audit stripper — the \
+                 `starts_with(\"#[cfg(\") && contains(\"test\")` heuristic would falsely \
+                 treat it as a test gate and strip non-test code. Replace with an explicit \
+                 `#[cfg(any(not(test)))]` or rework the audit.",
+                path,
+                i + 1
+            );
+        }
         let is_test_gate = trimmed.starts_with("#[cfg(test)]")
             || trimmed.starts_with("#[test]")
             || (trimmed.starts_with("#[cfg(") && trimmed.contains("test"));
         if is_test_gate {
-            // Find the first `{` on this or a subsequent line, then brace-match to its end.
+            // Walk forward from the attribute line until we find a `{` that opens
+            // the test item's block. Every line in between must be part of the
+            // same item declaration — attribute lines (`#[...]`), continuation
+            // of a multi-line signature, or the `mod`/`fn`/`impl` keyword — and
+            // NOT a complete single-line item ending in `;`. A single-line item
+            // here would mean the `#[cfg(test)]` gates something like `use foo;`
+            // or `const N: u32 = 1;`, and the next `{` belongs to the FOLLOWING
+            // non-test item — brace-matching that would silently strip
+            // production code. Panic instead so drift fails loudly.
             let mut j = i;
             while j < n && !lines[j].contains('{') {
+                let t = lines[j].trim();
+                // Permit: blank lines, attribute lines (`#[...]`), doc comments,
+                // line comments, and `//`-style notes between the attribute and
+                // the block-open. Anything else that ends with `;` is a single-
+                // line item we cannot handle.
+                let is_permitted_between =
+                    t.is_empty()
+                        || t.starts_with("#[")
+                        || t.starts_with("//")
+                        || t.starts_with("/*")
+                        || t.starts_with("*")
+                        || (j == i); // the attribute line itself
+                if !is_permitted_between && t.ends_with(';') {
+                    panic!(
+                        "{}:{}: audit stripper cannot handle single-line `#[cfg(test)]` / \
+                         `#[test]` items (line ends with `;` before any `{{` is found). \
+                         The stripper would latch onto the following item's `{{` and \
+                         silently strip production code — defeating SPEC §F8. Wrap the \
+                         test-gated item in a `#[cfg(test)] mod ... {{ ... }}` block, or \
+                         extend the stripper to recognize the new shape.",
+                        path,
+                        i + 1
+                    );
+                }
                 j += 1;
             }
             if j >= n {
+                // Attribute line with no following `{` (e.g. at EOF with a stray
+                // comment). Nothing to strip; advance past the attribute.
                 i += 1;
                 continue;
             }
@@ -94,10 +154,11 @@ fn audit_no_lib_panic_or_unwrap() {
     for path in &files {
         let src = fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
-        for (ln, text) in lines_outside_test_gates(&src) {
+        let rel = path.strip_prefix(manifest_dir).unwrap_or(path);
+        let rel_str = rel.display().to_string();
+        for (ln, text) in lines_outside_test_gates(&src, &rel_str) {
             if contains_forbidden(text) {
-                let rel = path.strip_prefix(manifest_dir).unwrap_or(path);
-                violations.push(format!("{}:{}: {}", rel.display(), ln, text.trim()));
+                violations.push(format!("{}:{}: {}", rel_str, ln, text.trim()));
             }
         }
     }
