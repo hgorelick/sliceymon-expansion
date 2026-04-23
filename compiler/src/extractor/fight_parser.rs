@@ -486,8 +486,12 @@ fn extract_nested_and_props(content: &str, template: &str) -> (Option<Vec<FightU
     // `content` (offset = leading `(`s skipped by `trim_start_matches` plus
     // `template.len()`), and starts with `.(` — so the first `(` is one byte
     // past `after_template`'s start in `content`. Compute directly rather than
-    // re-scanning with `find`, which would either re-derive the same answer or
-    // signal an invariant break we can't recover from.
+    // re-scanning with `find(".((")` / `find(".(")`; the test at
+    // `fight_parser_malformed_propagates_error` is the authoritative account
+    // of how the old `find`-based code and the new arithmetic relate (they
+    // agree on realistic templates; the arithmetic is strictly more correct
+    // on pathological templates that embed `.((` / `.(` in the template bytes
+    // themselves).
     let nested_start_in_content =
         (content.len() - after_template.len()) + 1; // +1 skips the leading `.`
     let close = util::find_matching_close_paren(content, nested_start_in_content);
