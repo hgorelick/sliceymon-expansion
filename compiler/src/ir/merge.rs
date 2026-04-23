@@ -221,9 +221,9 @@ pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
     // Regenerate the derived kinds we stripped, against the merged content.
     // Merge operates at the IR level with no build-time filter concept, so
     // pass the full merged hero set. `build_with` applies its own filter-aware
-    // regen pass on top of a local clone.
-    let heroes = base.heroes.clone();
-    regenerate_derived_kinds(&mut base.structural, &heroes, &stripped_kinds);
+    // regen pass on top of a local clone. Disjoint-field borrow: `structural`
+    // is mut-borrowed while `heroes` is immut-borrowed.
+    regenerate_derived_kinds(&mut base.structural, &base.heroes, &stripped_kinds);
 
     Ok(())
 }

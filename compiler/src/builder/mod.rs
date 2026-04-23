@@ -85,13 +85,16 @@ pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerErr
     // Derived structurals bypass the source filter: they're regenerated from
     // post-filter content and are tagged `Source::Base` by construction, so
     // a filter that excludes `Base` would silently drop them. Plan §F5 /
-    // options.rs: "they do not carry their own Source filter."
+    // options.rs: "they do not carry their own Source filter." We use
+    // `is_derived()` (flag + kind) rather than the raw `derived` flag so a
+    // hand-authored structural with `derived:true` on a non-derived kind
+    // still honors the filter.
     let emit_structurals =
         |modifiers: &mut Vec<String>, kind: StructuralType| {
             for s in ir
                 .structural
                 .iter()
-                .filter(|s| s.modifier_type == kind && (s.derived || filter.admits(s.source)))
+                .filter(|s| s.modifier_type == kind && (s.is_derived() || filter.admits(s.source)))
             {
                 modifiers.push(structural_emitter::emit(s));
             }
