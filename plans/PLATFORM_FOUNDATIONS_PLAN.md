@@ -393,7 +393,7 @@ Before starting Chunk 7, re-run the audit (`rg '\.unwrap\(\)|\.expect\(|panic!\(
 
 ### F9. V020 restructure — remove overlap with X003 on cross-bucket Pokemon
 
-Post-F7, `X003` (SPEC §6.3) owns cross-bucket Pokemon uniqueness across `hero / capture / legendary / monster`. `V020`'s `check_cross_category_names` (`xref.rs:465-515`) runs the same collision pass on the same data + bosses, so any `hero↔replica`, `hero↔monster`, or `replica↔monster` duplicate emits both V020 and X003 — two findings for one defect. SPEC §3.7 forbids parallel representations; this is a parallel-rule instance.
+Post-F7 (and post-Chunk-9, which deleted the `Capture` variant per chunk-impl rule 3), `X003` (SPEC §6.3) owns cross-bucket Pokemon uniqueness across `{hero, legendary, monster}`. `V020`'s `check_cross_category_names` runs the same collision pass on the same data + bosses, so any `hero↔replica`, `hero↔monster`, or `replica↔monster` duplicate emits both V020 and X003 — two findings for one defect. SPEC §3.7 forbids parallel representations; this is a parallel-rule instance.
 
 Fix: V020's `check_cross_category_names` keeps its 4-bucket collection (hero, replica, monster, boss) for single-scan efficiency, but **skips emission when the distinct colliding bucket set is a subset of `{hero, replica_item, monster}` with cardinality ≥2** — X003 owns that slice. V020 still fires for every case X003 cannot own:
 
@@ -808,28 +808,28 @@ Callers in the same files or their module roots that previously could not fail m
 **Parallel with**: Chunks 5 and 7 (no shared files).
 **Merge ordering**: merges after 4 and 6. No constraint against 5 or 7.
 
-**Context** — re-state of actual V-rule meanings in code as of plan-write, to prevent drift:
-- V016 = hero pool references resolve (`xref.rs:529`).
-- V019 = hero color uniqueness (`xref.rs:434`).
-- V020 = cross-category name uniqueness (`xref.rs:470`). This chunk narrows V020's emission; its 4-bucket collection (hero / replica / monster / boss) stays intact.
-- X003 = SPEC §6.3 Pokemon uniqueness across `{hero, capture, legendary, monster}` (`xref.rs:192`). Does not include bosses.
+**Context** — re-state of actual V-rule meanings in code (line refs are plan-write snapshots — grep the function name on the current branch before editing):
+- V016 = hero pool references resolve (`check_hero_pool_refs`).
+- V019 = hero color uniqueness (`check_hero_color_uniqueness`).
+- V020 = cross-category name uniqueness (`check_cross_category_names`). This chunk narrows V020's emission; its 4-bucket collection (hero / replica / monster / boss) stays intact.
+- X003 = SPEC §6.3 Pokemon uniqueness across `{hero, legendary, monster}` (`check_duplicate_pokemon_buckets`). Does not include bosses. Post-Chunk-9 there is no `capture` bucket — the Capture variant was deleted per chunk-impl rule 3; Captures route as `ItemPool` structurals and are not reached by X003.
 
 **Requirements**:
-- Update `check_cross_category_names` at `xref.rs:465-515`. After bucket collection, compute the distinct bucket-label set for the colliding entries. Skip emission iff that set is a subset of `{hero, replica_item, monster}` with cardinality ≥2 — X003 owns that slice. Otherwise emit V020 as today. No other V020 behavior changes.
+- Update `check_cross_category_names` (grep for the fn — line refs in this plan are snapshots). After bucket collection, compute the distinct bucket-label set for the colliding entries. Skip emission iff that set is a subset of `{hero, replica_item, monster}` with cardinality ≥2 — X003 owns that slice. Otherwise emit V020 as today. No other V020 behavior changes.
 - Do **not** introduce a new rule ID. V020's scope remains "cross-category name uniqueness"; F9 narrows its emission predicate, not its semantics.
 - Do **not** modify the single-item CRUD checks (`check_hero_in_context`, `check_boss_in_context`). They validate one new item and don't produce the whole-IR double-fire.
-- Update the two existing V020 tests that currently assert cross-bucket `hero↔replica` firings (`test_v020_cross_category_duplicate` and `test_v020_case_insensitive` at `xref.rs:841-874`, which — after Chunk 6 landed — already filter by `rule_id == "V020"` because X003 fires alongside). Post-F9, V020 must NOT fire on those inputs; X003 is the sole owner. Rewrite the assertions accordingly.
+- Update the two existing V020 tests that currently assert cross-bucket `hero↔replica` firings (`test_v020_cross_category_duplicate` and `test_v020_case_insensitive` — grep for the test names on current HEAD; the pre-F9 line refs are stale). Both already filter by `rule_id == "V020"` because X003 fires alongside after Chunk 6. Post-F9, V020 must NOT fire on those inputs; X003 is the sole owner. Rewrite the assertions accordingly.
 - The `modifier_name` field on each retained V020 finding must populate from the offending entity (not `None`), for parity with X003 and other V-rules post-Chunk 4.
 
 **Verification — specific tests**:
-- [ ] `xref::v020_silent_on_cross_bucket_pokemon` — ModIR with hero "Pikachu" + capture "Pikachu" → `report.errors.iter().filter(|f| f.rule_id == "V020").count() == 0` AND `report.errors.iter().filter(|f| f.rule_id == "X003").count() == 1`. Same for `hero+monster` and `capture+monster` pairs.
+- [ ] `xref::v020_silent_on_cross_bucket_pokemon` — ModIR with hero "Pikachu" + legendary "Pikachu" → `report.errors.iter().filter(|f| f.rule_id == "V020").count() == 0` AND `report.errors.iter().filter(|f| f.rule_id == "X003").count() == 1`. Same for `hero+monster` and `legendary+monster` pairs. (Captures have no typed variant post-Chunk-9; authors collide via the legendary bucket.)
 - [ ] `xref::v020_still_fires_on_boss_hero_collision` — hero "Pikachu" + boss "Pikachu" → V020 fires exactly once; X003 is silent (SPEC §6.3 excludes bosses). Source-vs-IR proof: invent a boss name that cannot appear in any registry lookup (e.g. "Zzzboss") to rule out a regression that routed the boss through a Pokemon-bucket.
-- [ ] `xref::v020_still_fires_on_boss_replica_collision` — replica (Capture *and* Legendary variants, separate sub-cases) + boss with same name → V020 fires; X003 does not.
+- [ ] `xref::v020_still_fires_on_boss_replica_collision` — legendary replica + boss with same name → V020 fires; X003 does not. (The pre-Chunk-9 \"Capture + Legendary, separate sub-cases\" form is archival — Captures no longer have a typed `ReplicaItem` variant.)
 - [ ] `xref::v020_still_fires_on_intra_bucket_duplicate_heroes` — two heroes with same name → V020 fires exactly once. (X003 is already tightened to require ≥2 distinct buckets in Chunk 6 and does not fire here.)
-- [ ] `xref::v020_still_fires_on_intra_bucket_duplicate_replicas` — two Capture replicas with same name → V020 fires; X003 silent.
+- [ ] `xref::v020_still_fires_on_intra_bucket_duplicate_replicas` — two legendary replicas with same name → V020 fires; X003 silent. (`ReplicaItem` is Legendary-only post-Chunk-9.)
 - [ ] `xref::v020_still_fires_on_intra_bucket_duplicate_monsters` — two monsters with same name → V020 fires; X003 silent.
 - [ ] `xref::v020_still_fires_on_intra_bucket_duplicate_bosses` — two bosses with same name → V020 fires; X003 silent.
-- [ ] `xref::v020_and_x003_coexist_when_collision_spans_boss_and_pokemon_buckets` — hero + capture + boss all named "Pikachu" → V020 fires (boss involvement) AND X003 fires (2 distinct Pokemon buckets). This case deliberately keeps both findings because each describes a different invariant: V020 reports the boss-involving name collision; X003 reports the SPEC §6.3 Pokemon collision. Document this in the test body so a future "dedup everything" refactor doesn't silently collapse them.
+- [ ] `xref::v020_and_x003_coexist_when_collision_spans_boss_and_pokemon_buckets` — hero + legendary + monster + boss all named "Pikachu" → V020 fires (boss involvement) AND X003 fires (≥2 distinct Pokemon buckets: hero + legendary + monster). This case deliberately keeps both findings because each describes a different invariant: V020 reports the boss-involving name collision; X003 reports the SPEC §6.3 Pokemon collision. Document this in the test body so a future "dedup everything" refactor doesn't silently collapse them.
 - [ ] `xref::no_double_fire_on_working_mods` — an integration-style assertion over `check_references(&ir)` for each of the 4 working mods: for every pair `(f1, f2)` of errors where `f1.modifier_name == f2.modifier_name`, the rule IDs must differ by *invariant class*, not by redundant coverage — today, the only permitted co-fire pattern is the one in the test above.
 - [ ] All 4 working mods IR-equal roundtrip. `check_references` produces the same set of errors as pre-chunk with zero added V020 findings and the same (or strictly fewer) total findings.
 
