@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use crate::authoring::{FaceIdValue, Pips, SpriteId};
+use crate::finding::Finding;
 
 // -- Provenance --
 
@@ -500,6 +501,10 @@ pub struct ModIR {
     pub monsters: Vec<Monster>,
     pub bosses: Vec<Boss>,
     pub structural: Vec<StructuralModifier>,
+    /// Non-fatal findings accumulated during extract / merge / build.
+    /// Empty-by-default so mods without findings serialize unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<Finding>,
 }
 
 impl ModIR {
@@ -510,6 +515,7 @@ impl ModIR {
             monsters: Vec::new(),
             bosses: Vec::new(),
             structural: Vec::new(),
+            warnings: Vec::new(),
         }
     }
 }
@@ -761,6 +767,38 @@ impl StructuralModifier {
     /// Get the body text of this structural modifier.
     pub fn body(&self) -> &str {
         self.content.body()
+    }
+
+    /// Whether this modifier is a derived structural — one that `build` and
+    /// `merge` regenerate from `ir` content rather than carrying through from
+    /// input.
+    ///
+    /// Per SPEC §4, the four derived kinds are Character Selection,
+    /// HeroPoolBase, PoolReplacement, and Hero-bound ItemPool. Whether a
+    /// particular IR `StructuralModifier` of one of those types is *actually*
+    /// the derived flavor (vs. an authored same-typed modifier with
+    /// coincidentally-overlapping shape) cannot be decided by type alone —
+    /// e.g. sliceymon's 5 `Selector` modifiers named "" are boss-fight
+    /// warning selectors, not the top-level character picker. We therefore
+    /// use the explicit `derived: bool` flag as the authoritative signal:
+    /// generators set it on output, and the flag round-trips through serde
+    /// so downstream consumers (merge, build) can strip safely.
+    ///
+    /// This is narrower than a type-only heuristic would be; the tradeoff is
+    /// that a user who hand-authors a `StructuralModifier` of a derived type
+    /// without setting `derived: true` will have it carried through rather
+    /// than stripped. That is intentional — if the user didn't declare it as
+    /// derived, we have no way to distinguish it from an authored shape that
+    /// happens to coincide, and silently stripping would destroy content.
+    pub fn is_derived(&self) -> bool {
+        self.derived
+            && matches!(
+                self.modifier_type,
+                StructuralType::Selector
+                    | StructuralType::HeroPoolBase
+                    | StructuralType::PoolReplacement
+                    | StructuralType::ItemPool
+            )
     }
 }
 

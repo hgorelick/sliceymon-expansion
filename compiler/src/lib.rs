@@ -1,13 +1,15 @@
 pub mod authoring;
 pub mod constants;
 pub mod error;
+pub mod finding;
 pub mod ir;
 pub mod extractor;
 pub mod builder;
 pub mod util;
 pub mod xref;
 
-pub use xref::{check_references, check_hero_in_context, check_boss_in_context, Finding, Severity, ValidationReport};
+pub use finding::{Finding, Severity};
+pub use xref::{check_references, check_hero_in_context, check_boss_in_context, ValidationReport};
 pub use ir::Source;
 pub use authoring::SpriteId;
 pub use builder::{BuildOptions, SourceFilter, SourceSet};
@@ -38,8 +40,14 @@ pub fn build_complete(ir: &ModIR) -> Result<String, CompilerError> {
     builder::build_complete(ir)
 }
 
-/// Merge a base ModIR with an overlay ModIR.
-pub fn merge(base: ModIR, overlay: ModIR) -> Result<ModIR, CompilerError> {
+/// Merge an overlay ModIR into a base ModIR in place (SPEC §5 canonical form).
+///
+/// Overlay items replace base items matched by identity key; new keys are
+/// appended. Derived structurals (char selection, hero pool base, pool
+/// replacement, hero-bound item pool) are stripped per SPEC §4's
+/// provenance-gated rule — `Source::Custom` → [`CompilerError::derived_structural_authored`],
+/// `Source::Base`/`Source::Overlay` → strip + `X010` warning on `base.warnings`.
+pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
     ir::merge::merge(base, overlay)
 }
 

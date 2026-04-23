@@ -349,7 +349,7 @@ Derived structural inventory (current state in `builder/derived.rs`):
 
 | Structural kind | Derived from | Regenerator | Status |
 |---|---|---|---|
-| Character Selection (`ch.`/`cs.`) | Heroes sorted by color | `builder::derived::generate_char_selection` | **exists** |
+| Character Selection (`ch.`/`cs.`) | Heroes sorted by color | `builder::derived::generate_char_selection` | **exists — body-shape fix deferred to Chunk 5b (dead code until a chunk flips `derived: true` on a Selector)** |
 | HeroPoolBase (bare-name `heropool.`) | Hero internal_names | `builder::derived::generate_hero_pool_base` | **exists** |
 | PoolReplacement (tier-constrained heropool) | Heroes grouped by color + tier | `builder::derived::generate_pool_replacement` | **to build** |
 | Hero-bound ItemPool | `ReplicaItem` entries whose `container` is `ReplicaItemContainer::Capture { name }` where `name` matches a hero | `builder::derived::generate_hero_item_pool` | **to build** |
@@ -358,9 +358,9 @@ Chunk 5 authors the two missing regenerators. Acceptance criterion for each: run
 
 **Classification helper**: add `fn is_derived(&self) -> bool` to `StructuralModifier` in `ir/mod.rs` (not `builder/derived.rs`, because merge lives in `ir/`). Matches on `modifier_type` against the four derived kinds above.
 
-`merge` strips any of these from both base and overlay inputs before copying content. Each strip pushes a `Finding` onto `base.warnings` at `Severity::Warning` with `rule_id: "X010"` (new rule; NOTE: X003, X016, X017 are also new — all `X*` IDs in this plan are new rules; X001 from earlier drafts has been removed because duplicate-name rejection already lives in `CompilerError::DuplicateName` + existing xref checks), `field_path` naming the modifier, and `suggestion: "Derived structurals are regenerated at build time; authoring them directly is unsupported."`
+`merge` strips any of these from both base and overlay inputs before copying content. Each strip pushes a `Finding` onto `base.warnings` at `Severity::Warning` with `rule_id: "X010"` (new rule; NOTE: X003, X016, X017 are also new — all `X*` IDs in this plan are new rules; X001 from earlier drafts has been removed because duplicate-name rejection already lives in `CompilerError::DuplicateName` + existing xref checks), `field_path` naming the modifier (by the input's original index), and `suggestion: "Derived structurals are regenerated at build time; authoring them directly is unsupported."`
 
-`build` and `build_complete` regenerate derived structurals from the post-merge content set unconditionally. The "when absent" gate in `build_complete` (`compiler/src/builder/mod.rs:161-168` — the `if !ir.structural.iter().any(|s| s.modifier_type == StructuralType::Selector)` and `HeroPoolBase` checks) is REMOVED: regeneration strips any pre-existing derived structural from `ir.structural` first, then appends the regenerated form. `build` (not just `build_complete`) also performs this strip-and-regenerate.
+`build` performs the same strip on a local clone so the caller's IR is not mutated; its warnings are discarded because `build(&ModIR)` can't write to the caller's sidecar — callers that need the X010 trail run `merge` instead. Regeneration after a strip is **scoped to kinds present-and-stripped**, not to all four kinds unconditionally: if the input had no derived `Selector`, build emits no top-level Selector (preserves sliceymon's inline `!mheropool.` encoding). `build_complete` keeps its "when absent" gate as the sole entry point that auto-generates derived structurals for programmatic IR without derived-flagged input; it appends with `derived: true` so the subsequent `build` strip + regen produces the same output deterministically.
 
 ### F7. `ReplicaItemContainer` — collapse kind + container_name into one enum
 
@@ -454,7 +454,7 @@ Chunk 6's round-3 tribunal (PR #7) fixed three Legendary-specific parse leaks by
   4. Duplicating an identical 4-line incantation across N parser callsites is a plan smell. Either the incantation belongs in one helper (extract the helper as part of the chunk), or there's only one correct line to write (use that one line). Duplication encodes the incantation's wrongness N times; a helper at least concentrates it.
 
 ### Checkpoint Configuration
-- Total chunks: 12 (0, 1, 2, 3a, 3b, 3c, 4, 5, 6, 7, 8, 9).
+- Total chunks: 14 (0, 1, 2, 3a, 3b, 3c, 4, 5, 5b, 6, 7, 8, 9, 10).
 - Checkpoint frequency: After Chunk 0 (error type lands), Chunk 2 (SPEC §3.6 amendment + newtypes + IR flip), Chunk 3c (HashMap dropped + sprite consolidation), and Chunk 7 (final). Chunk 2's checkpoint is load-bearing because it lands a SPEC amendment; a missed amendment here invalidates every later chunk that cites the permissive whitelist.
 
 ### Parallel Execution Map — conflict-verified
@@ -485,9 +485,11 @@ Chunk 0 (CompilerError)  ✅ COMPLETE (2026-04-21)
   │                       └── Chunk 3c (drop HashMap from public API) ✅ COMPLETE (2026-04-21, PR #6 merged)
   │                             ├── Chunk 4 (BuildOptions + build_with + Finding.source) ✅ COMPLETE (2026-04-22)
   │                             └── Chunk 6 (ReplicaItemContainer enum replaces container_name) ✅ COMPLETE (2026-04-21)
-  │                                   ├── Chunk 5 (merge strips + new regenerators + unconditional regen)
+  │                                   ├── Chunk 5 (merge strips + provenance-gated regen) ✅ LANDED (2026-04-22); two regenerators + generate_char_selection body-shape fix deferred to Chunk 5b
   │                                   ├── Chunk 8 (V020 restructure — remove cross-bucket Pokemon overlap) [needs both 4 and 6]
-  │                                   └── Chunk 9 (replica-parser chain-and-depth-aware scalar extraction) [needs 6's before_cast landed]
+  │                                   ├── Chunk 9 (replica-parser chain-and-depth-aware scalar extraction) [needs 6's before_cast landed]
+  │                                   └── Chunk 10 (classifier routes itempool captures + item.legendaries into ir.replica_items)
+  │                                         └── Chunk 5b (generate_pool_replacement + generate_hero_item_pool + generate_char_selection body-shape fix) [needs ir.replica_items populated by Chunk 10]
   └── Chunk 7 (lib-code unwrap/expect/panic elimination) [parallel from Chunk 0 completion onward; no shared files with 1..6]
 ```
 
@@ -725,31 +727,19 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 
 ---
 
-### Chunk 5: Merge signature → `&mut` + strips derived structurals + two new derived regenerators + unconditional regeneration
-**Spec**: §F6
-**Files**: `compiler/src/ir/mod.rs` (add `StructuralModifier::is_derived`, add `ModIR.warnings` sidecar), `compiler/src/ir/merge.rs` (signature change + strip logic), `compiler/src/builder/mod.rs` (unconditional regeneration), `compiler/src/builder/derived.rs` (two new generators), `compiler/src/lib.rs` (merge re-export signature), `compiler/src/main.rs` (CLI merge subcommand), `compiler/tests/integration_tests.rs` or new `compiler/tests/path_c_merge_tests.rs`.
-**Dependencies**: Chunk 6 (requires `ReplicaItemContainer::Capture { name }` variant — `generate_hero_item_pool` matches on `container` to bucket items per hero).
+### Chunk 5: Merge signature → `&mut` + strips derived structurals + provenance-gated regeneration [✅ LANDED; two new regenerators + char-selection body-shape fix deferred to Chunk 5b]
 
-**Requirements**:
-- Add `pub warnings: Vec<Finding>` to `ModIR` with `#[serde(default, skip_serializing_if = "Vec::is_empty")]`.
-- Add `pub fn is_derived(&self) -> bool` on `StructuralModifier` (in `ir/mod.rs`) matching on the four derived kinds in §F6.
-- Change `merge` signature to SPEC §5's canonical form: `pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError>`. Update `lib.rs` re-export, `main.rs` CLI usage, and every test that calls `merge`. No tuple return; no parallel `merge_with_findings` function.
-- `merge` strips derived structurals from both inputs before merging; each strip pushes a `Finding` onto `base.warnings` with `rule_id: "X010"`, `severity: Severity::Warning`, `field_path: Some(...)`, `suggestion: Some("Derived structurals are regenerated at build time; authoring them directly is unsupported.")`.
-- Author `generate_pool_replacement(heroes)` and `generate_hero_item_pool(heroes, replica_items)` in `builder/derived.rs`. Byte-for-byte reproduce sliceymon's existing PoolReplacement / hero-bound ItemPool modifiers against the extracted base IR. `generate_hero_item_pool` matches on each `ReplicaItem.container` — `Capture { name }` routes the item into the hero's pool keyed by `name`; `Legendary` is skipped for hero-bound pools (legendaries have their own emission path).
-- Remove the "when absent" gate in `build_complete` at `compiler/src/builder/mod.rs:161-168`. `build` itself also strips derived structurals from `ir.structural` before emitting and appends the regenerated forms — build-time regeneration is unconditional.
-- Add a Path C integration test that does NOT rely on direct struct-literal construction (authoring layer is empty — use `ir_from_json` or roundtrip-extracted IR, then `Hero::new` from Chunk 1 to add the new hero). The test must not violate SPEC §6.1.
+**Landed (2026-04-22, Option 3 resolution — see SPEC §4 amendment in same PR):**
+- `ModIR.warnings: Vec<Finding>` sidecar (serde `default, skip_if_empty`).
+- `StructuralModifier::is_derived()` gated on the explicit `derived: bool` flag AND one of the four SPEC §4 kinds. Narrower than a type-only heuristic so authored same-typed modifiers (e.g. sliceymon's 5 boss-fight Selectors with `name: None`) are preserved.
+- `merge(&mut base, overlay) -> Result<(), CompilerError>` in the canonical SPEC §5 shape. `lib.rs` re-export and `main.rs` CLI both updated. Warnings accumulate across successive merges.
+- Provenance-gated strip: `Source::Custom` derived structural → `CompilerError::derived_structural_authored` (`ErrorKind::DerivedStructuralAuthored`; SPEC §4 category error). `Source::Base` / `Source::Overlay` → strip + `X010` `Severity::Warning` finding on `base.warnings` with a side-labeled `field_path` (`base.*` or `overlay.*`).
+- `build_with` and `merge` both use the shared `collect_stripped_kinds` → `strip_derived_structurals` → `regenerate_derived_kinds` triplet. Regeneration fires only for kinds present-and-stripped, preserving format-specific roundtrip (no spurious char-selection Selector inserted into sliceymon).
+- Test file `compiler/tests/path_c_merge_tests.rs` pins the truth table, the provenance error path, warning accumulation, source-vs-IR divergence (authored non-derived Selectors are not stripped), and Path C add-hero regeneration.
 
-**Verification — specific tests**:
-- [ ] `ir::is_derived_truth_table` — every `StructuralType` variant tested; only the four derived kinds return `true`.
-- [ ] `merge::strips_derived_char_selection_with_warning` — base has CharacterSelection, overlay has CharacterSelection; after `merge(&mut base, overlay)?`, `base.structural` contains zero CharacterSelection entries and `base.warnings` contains two `X010` findings.
-- [ ] `merge::new_signature_compiles` — `merge(&mut base, overlay)?;` compiles; `base.warnings` is readable post-merge.
-- [ ] `merge::warnings_accumulate_across_calls` — a second `merge` call appends to (does not reset) `base.warnings`.
-- [ ] `derived::pool_replacement_matches_sliceymon` — `generate_pool_replacement(sliceymon.heroes)` byte-matches `working-mods/sliceymon.txt`'s existing PoolReplacement modifier.
-- [ ] `derived::hero_item_pool_matches_sliceymon_via_container_enum` — `generate_hero_item_pool` uses `ReplicaItem.container` (the `Capture { name }` variant) to bucket items; byte-matches hero-bound ItemPool in sliceymon.
-- [ ] `path_c_merge::adds_hero_regenerates_selector` — load sliceymon IR from JSON, `Hero::new` a new hero, append to `ir.heroes`, `build_complete`, re-extract — new hero is in the regenerated CharacterSelection.
-- [ ] All 4 working mods IR-equal roundtrip after `build` strips + regenerates derived structurals.
-
----
+**Deferred to Chunk 5b** (blocked on Chunk 10 — classifier routing of ReplicaItem/Legendary):
+- `generate_pool_replacement(heroes)` and `generate_hero_item_pool(heroes, replica_items)`. Their acceptance criterion — byte-matching sliceymon's `PorygonItem` / `DittoItem` hero-bound ItemPools — requires that `ir.replica_items` be populated, which today is zero across all 4 working mods because the classifier in `compiler/src/extractor/classifier.rs` never returns `ModifierType::{ReplicaItem, ReplicaItemWithAbility, Legendary}`. Chunk 10 lands that routing; Chunk 5b then lands the two regenerators and extends the test suite.
+- `generate_char_selection` body-shape fix. Chunk 5's R10 tribunal (PR #12) identified that the shipped generator at `src/builder/derived.rs:11-30` emits a malformed Selector body (`1.ph.s@1Name@1Name...`) that doesn't match `reference/textmod_guide.md:468` or the live corpus shape at `working-mods/sliceymon.txt:11` (per-hero bracketed label + `@2!m(party.(...))` effect + `@2!v{name}V1` variable). The defect is pre-existing (empty `git log main..HEAD -- src/builder/derived.rs` on Chunk 5's branch) and dead code today (`src/extractor/mod.rs:27` hardcodes `derived: false`, so `is_derived()` never fires on roundtrip inputs and the regen path is unreachable). Bundled into Chunk 5b because all three derived-generator fixes live in the same file and share the same "byte-match against guide + corpus" acceptance bar. **Hard gate**: no PR merged between Chunk 5 and Chunk 5b may flip `derived: true` on a Selector / HeroPoolBase / PoolReplacement / hero-bound ItemPool. Chunk 8 (8a/8b/8c) confirmed compliant 2026-04-23; re-verify at each subsequent chunk landing.
 
 ### Chunk 6: `ReplicaItemContainer` enum replaces `container_name` [serial after Chunk 4, before Chunk 5] — ✅ COMPLETE (2026-04-21, branch `feat/chunk-6-replica-item-container`)
 **Spec**: §F7
@@ -929,3 +919,48 @@ Ruling: `Pips(i16)`. Rationale: corpus contains negative pips (`ir/mod.rs:50` co
 Ruling: under R1's permissive path, the name for `SpriteId::owned(name, img_data)` is sourced from the required `FightUnit.name: String` field (`ir/mod.rs:1181`). Generic unit names (e.g., `"Boss"`) flow through as novel `SpriteId::owned` entries without colliding with the registry. §F4 table reflects this.
 
 **Memory hygiene.** After this plan executes, any memory file that still references older unresolved escalations (E1/E5/E6 wording, tuple-return `merge`, `kind`+`container_name` parallel fields) must be deleted or updated to match the ruling table above. A stale memory is worse than no memory.
+
+---
+
+### Chunk 10: Classifier routes `itempool.(X).n.Y` captures and top-level `item.` legendaries into `ir.replica_items` [PREREQUISITE for Chunk 5b]
+
+**Problem.** `compiler/src/extractor/classifier.rs` defines `ModifierType::{ReplicaItem, ReplicaItemWithAbility, Legendary}` but no classify() branch returns them. Every `itempool.(X).n.Y` capture and every top-level `item.TEMPLATE...` legendary is absorbed by the earlier `contains_ci(modifier, "!mitempool.")` / `starts_with_ci(modifier, "itempool.")` / `starts_with_ci(modifier, "item.")` branches as `ModifierType::ItemPool` / `ModifierType::Legendary`. Result: all four working mods extract with `replica_items.len() == 0`. The `parse_simple` / `parse_with_ability` / `parse_legendary` replica parsers exist but are unreachable from the extractor mainline loop, so Chunk 9's depth-and-chain-aware scalar extraction (§F10) has zero production traffic, and Chunk 5's `generate_hero_item_pool(heroes, replica_items)` acceptance criterion (byte-match sliceymon's `PorygonItem` / `DittoItem`) cannot be satisfied because its input is empty.
+
+**Scope.**
+- Add classifier rules that distinguish:
+  - **Capture** — `itempool.(X).n.Y` where the outer wrapper is a single itempool whose content is a replica shape (no depth-0 `+`, wrapped in `(...)`, with a trailing `.n.<BallName>`). Return `ModifierType::ReplicaItem` (or `ReplicaItemWithAbility` if an ability block is present). Distinguish from the existing structural `ItemPool` case (`itempool.X.part.0.mn.Clear Itempool`, `itempool.Y+Z+...` flat lists) by requiring the replica-shape test.
+  - **Legendary** — top-level `item.TEMPLATE...` (already has a classifier branch returning `ModifierType::Legendary`, but extractor `mod.rs:68-122` handling path must route it to `parse_legendary` and push to `ir.replica_items`, not to structural). Audit and wire the extractor dispatch.
+- Route classified captures through `parse_simple` / `parse_with_ability` and legendaries through `parse_legendary`. Push the resulting `ReplicaItem` onto `ir.replica_items` with `container: ReplicaItemContainer::{Capture { name }, Legendary}` per Chunk 6 / §F7.
+- Update classifier tests and extractor integration tests so each working mod now extracts a non-zero `replica_items` count.
+- Re-audit Chunk 8 / §F9 (V020 restructure) against the new post-classification cross-bucket counts — X003's predicate (uniqueness across heroes / captures / legendaries / monsters) now sees real captures and legendaries rather than empty buckets.
+
+**Verification.**
+- [ ] sliceymon: `replica_items.len()` > 0; `PorygonItem` and `DittoItem` appear as `ReplicaItemContainer::Capture { name }` with the right ball names.
+- [ ] All 4 working mods extract `replica_items` counts consistent with their textmod contents (spot-check against corpus).
+- [ ] All 4 working mods roundtrip (extract → build → extract IR-equal) no worse than the pre-Chunk-10 baseline; ideally better.
+- [ ] Chunk 9's `parse_simple` / `parse_with_ability` / `parse_legendary` source-vs-IR divergence tests now trigger on real mod input in addition to synthetic inputs.
+
+**Merge ordering.** Serial after Chunk 6. Parallel with Chunks 7, 8, 9. Prerequisite for Chunk 5b.
+
+---
+
+### Chunk 5b: Finalize all four derived generators against guide + corpus [blocked on Chunk 10]
+
+**Scope.** Land the two deferred regenerators AND fix the body-shape drift in the one already-shipped Selector regenerator. All three generators live in `compiler/src/builder/derived.rs` and share the same acceptance bar: byte-accurate against `reference/textmod_guide.md` + the 4-mod corpus. Bundled in one PR because they share a file and a test harness.
+
+- **`generate_pool_replacement(heroes)`** — tier-constrained heropool override modifiers grouped by hero color + tier. Acceptance: byte-match any PoolReplacement present in a working mod post-Chunk-10.
+- **`generate_hero_item_pool(heroes, replica_items)`** — matches on each `ReplicaItem.container`: `Capture { name }` where `name == hero.mn_name` routes the item into that hero's pool and produces one `hidden&temporary&ph.b<hero_internal_name>;1;!mitempool.(...).mn.<Name>Item` modifier; `Legendary` is skipped (legendaries have their own emission path). Acceptance: byte-match sliceymon's `PorygonItem` and `DittoItem` bodies exactly.
+- **`generate_char_selection(heroes)` body-shape fix** — the current stub at `src/builder/derived.rs:11-30` emits `1.ph.s@1Alpha@1Beta@1Gamma`: no title, no bracketed labels, no `@2!m(party.(...))` effects, no variable setters. This is structurally malformed per `reference/textmod_guide.md:468` (`ph.sChoose a Party@1[Name]...@2!m(party.(...))`) and the live corpus shape at `working-mods/sliceymon.txt:11` (per-hero `@1[color]LABEL[cu]@2!m(party.(dabble.tier.0.n.X.col.X.img.<sprite>======f))@2!v{name}V1`). The stub is currently dead code — `src/extractor/mod.rs:27` hardcodes `derived: false` on every extracted `StructuralModifier`, so `is_derived()` (`src/ir/mod.rs:793`) never fires on roundtrip inputs and `regenerate_derived_kinds` (`src/ir/merge.rs:270-290`) never calls it. The fix must land before any chunk flips `derived: true` on a Selector.
+
+Wire the two new regenerators into the shared `regenerate_derived_kinds` dispatch in `compiler/src/ir/merge.rs` (the `_ => {}` arm is Chunk 5b's direct hook). `generate_char_selection`'s dispatch entry already exists from Chunk 5 — the fix is body-shape only.
+
+**Hard gate (from Chunk 5 R10 tribunal).** No PR merged between Chunk 5 and Chunk 5b may set `derived: true` on an extracted or authored `Selector` / `HeroPoolBase` / `PoolReplacement` / hero-bound `ItemPool`. Chunk 8 (8a/8b/8c) is confirmed compliant as of 2026-04-23. Re-verify at each subsequent chunk landing: grep the chunk's diff for `derived:\s*true` and `\.derived\s*=` against those four kinds; if any hit lands, rebase 5b ahead of it.
+
+**Verification — specific tests** (byte-match against guide or corpus, not IR-vs-IR roundtrip — the regen path is source-vs-IR territory):
+- [ ] `derived::char_selection_matches_guide_shape` — build a 5-hero IR, assert emitted Selector body starts `1.ph.s` with a title, per-hero `@1[<color>]<label>[cu]@2!m(party.(<dabble-body>))@2!v<name>V1`. Golden derived from `reference/textmod_guide.md:468` + `working-mods/sliceymon.txt:11`.
+- [ ] `derived::pool_replacement_matches_sliceymon` — byte match against a post-Chunk-10 corpus sample.
+- [ ] `derived::hero_item_pool_matches_sliceymon_via_container_enum` — byte match; uses `Capture { name }` as the routing key.
+- [ ] All 4 working mods IR-equal roundtrip (unchanged invariant).
+- [ ] **Source-vs-IR divergence test** (per plan's §"Lessons from prior chunks", item 2): construct a ModIR with a `derived: true` Selector, run `build(&ir)`, and assert the output contains the guide-shaped body — not the dead-stub shape. This test would have failed pre-fix and passes post-fix; IR equality alone cannot catch this because the stub's output roundtrips to itself.
+
+**Merge ordering.** Serial after Chunk 10. Parallel with other post-Chunk-10 work.

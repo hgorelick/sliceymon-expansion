@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use crate::authoring::FaceIdValue;
 use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, ReplicaItemContainer, Source, StructuralContent};
 
+pub use crate::finding::{Finding, Severity};
+
 // ---------------------------------------------------------------------------
 // Rule ID constants
 // ---------------------------------------------------------------------------
@@ -41,40 +43,6 @@ pub const X016_TEMPLATE_RESTRICTIONS: &[(u16, &[&str])] = &[];
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-/// Severity level for a validation finding.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub enum Severity {
-    #[default]
-    Error,
-    Warning,
-    Info,
-}
-
-/// A single validation finding (error, warning, or info).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Finding {
-    pub rule_id: String,
-    #[serde(default)]
-    pub severity: Severity,
-    pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub field_path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub suggestion: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub modifier_index: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub modifier_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub position: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context: Option<String>,
-    /// Provenance of the offending entity. `None` for global findings that
-    /// don't bind to a single sourced entity (e.g. cross-category name clashes).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<Source>,
-}
 
 /// Source-aware severity promotion — every xref rule that visits a sourced
 /// entity runs its literal `severity` through this helper so the promotion
