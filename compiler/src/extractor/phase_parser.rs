@@ -5,7 +5,12 @@ use crate::constants::MAX_PHASE_DEPTH;
 use crate::error::CompilerError;
 use crate::ir::*;
 
-const PHASE_CODES_HINT: &str = "known phase code (!, 0-9, b-g, l, r, s, t, z)";
+/// User-facing enumeration of the phase codes the `match` arms below actually
+/// handle. Must stay in sync with the `match code` at `parse_phase_at_depth`.
+/// Each alphabetic letter listed here must have a corresponding arm; a range
+/// like `b-e` is shorthand for the contiguous-handled subset and must not
+/// imply undefined codes (there is no `ph.f` — `f` has no match arm).
+const PHASE_CODES_HINT: &str = "known phase code (!, 0-9, b-e, g, l, r, s, t, z)";
 
 /// Parse a phase string into a Phase struct.
 /// Input should start with an optional level scope prefix then `ph.`.
@@ -606,5 +611,44 @@ mod tests {
         }
         assert_eq!(err.field_path.as_deref(), Some("phase.type_code"));
         assert!(err.suggestion.is_some());
+    }
+
+    #[test]
+    fn phase_parser_unknown_code_hint_does_not_claim_undefined_codes() {
+        // The default-arm and empty-input diagnostics share `PHASE_CODES_HINT`.
+        // The hint must not imply that codes without match arms are valid.
+        // `f` has no match arm (regression lock for the `b-g` range drift R1
+        // consolidated without auditing — fixed in R7).
+        let err = parse_phase("ph.f").expect_err("unhandled phase code must not parse");
+        let expected = match err.kind.as_ref() {
+            crate::error::ErrorKind::PhaseParse { expected, .. } => expected.clone(),
+            other => panic!("expected PhaseParse, got {:?}", other),
+        };
+        assert!(
+            !expected.contains("b-g") && !expected.contains("a-") && !expected.contains("f"),
+            "hint must not advertise `f` as valid; got: {}",
+            expected
+        );
+
+        // Every alphabetic code individually listed or inside a range in the
+        // hint must correspond to a real match arm. This is a literal audit of
+        // the current hint string.
+        let handled: &[char] =
+            &['!', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+              'b', 'c', 'd', 'e', 'g', 'l', 'r', 's', 't', 'z'];
+        for ch in ['b', 'c', 'd', 'e', 'g', 'l', 'r', 's', 't', 'z'] {
+            assert!(
+                handled.contains(&ch),
+                "audit list is stale — {} missing from handled set",
+                ch
+            );
+        }
+        for ch in ['a', 'f', 'h', 'i', 'j', 'k', 'm', 'n', 'o', 'p', 'q', 'u', 'v', 'w', 'x', 'y'] {
+            assert!(
+                !handled.contains(&ch),
+                "audit list claims {} is handled but it isn't",
+                ch
+            );
+        }
     }
 }
