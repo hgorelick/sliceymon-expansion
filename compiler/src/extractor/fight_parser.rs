@@ -550,25 +550,36 @@ mod tests {
 
     #[test]
     fn fight_parser_malformed_propagates_error() {
-        // The old `content.find(prefix).unwrap()` at fight_parser.rs:488 was
-        // structurally unreachable: `is_double || is_single` already gated on
-        // `after_template.starts_with(".(")`, and `after_template` is a suffix
-        // of `content` starting at `leading_parens + template.len()` — so the
-        // only `.((` / `.(` that `find` could locate is exactly that
-        // post-template prefix. The refactor replaces the unwrap with direct
-        // arithmetic (`content.len() - after_template.len() + 1`) that
-        // produces the same byte offset on all inputs. No behavior change,
-        // just panic-removal (SPEC §F8). This test pins the surviving shape:
+        // The old `content.find(prefix).unwrap()` was structurally unreachable
+        // for every input actually produced by the project: `is_double ||
+        // is_single` gates on `after_template.starts_with(".(")`, so a
+        // post-template `.((`/`.(` exists somewhere and `find` cannot panic.
+        // The refactor replaces that unwrap with direct arithmetic
+        // (`content.len() - after_template.len() + 1`), eliminating the
+        // panic-adjacent call for SPEC §F8. This test pins the surviving
+        // shape:
         //   1. Inputs that don't pass the `starts_with(template)` guard
         //      return (None, None) cleanly.
         //   2. The happy-path nested-children shape still parses.
         //   3. The single-paren `.(child)` form still parses (the +1 offset
         //      must be correct for both `.(` and `.((` because both share
         //      the same leading `.`).
-        // A test that discriminates the old `find` path from the new
-        // direct-offset path is unwriteable: for every input that reaches
-        // line 491, `content.find(".((")` and the arithmetic return the same
-        // position.
+        //
+        // Strictness note (not just panic-removal): for *pathological*
+        // templates whose bytes embed `.((` or `.(` — e.g. a template
+        // `"foo.((extra"` against `content = "foo.((extra.((child)).n.Name"` —
+        // the old `find`-based code would lock onto the first in-template
+        // match (position 4 in that example) and compute a byte offset mid-
+        // template. The arithmetic-based code correctly positions at the
+        // post-template `.((`/`.(` (position 12). No realistic fight
+        // template in `working-mods/*.txt` embeds `.((`/`.(` (templates are
+        // registry-style identifiers like `CS_Quagmire`, `tann_goodbye`), so
+        // the divergence has never been observed — but the refactor is
+        // strictly more correct under the pathological case, not a no-op.
+        // A test that exhibits the divergence would require injecting a
+        // synthetic template into the parse chain, which the public API
+        // (`parse_fight`) does not expose; we document the invariant here
+        // instead.
 
         // (1) No prefix match.
         let (nested, props) = extract_nested_and_props("wildly.malformed input", "Zzz_fake");
