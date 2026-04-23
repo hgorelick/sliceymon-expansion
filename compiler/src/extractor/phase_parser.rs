@@ -595,7 +595,8 @@ mod tests {
     #[test]
     fn phase_parser_malformed_propagates_error() {
         // `ph.` with nothing after is the pathological input previously
-        // reaching `after_ph.chars().next().unwrap()` at phase_parser.rs:48.
+        // reaching `after_ph.chars().next().unwrap()` (now replaced by the
+        // `let Some(code) = after_ph.chars().next() else { ... }` arm above).
         // It must now return `Err(PhaseParse)` with the original `input`
         // carried on the error — source-vs-IR proof: `content` must equal
         // the source bytes "ph.", not a canonicalized or registry-derived

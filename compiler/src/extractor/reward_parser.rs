@@ -161,7 +161,8 @@ mod tests {
     #[test]
     fn reward_parser_malformed_propagates_error() {
         // Empty tag is the pathological input previously reaching
-        // `s.chars().next().unwrap()` at reward_parser.rs:37. It must now
+        // `s.chars().next().unwrap()` (now replaced by the
+        // `let Some(first) = s.chars().next() else { ... }` arm above). It must now
         // return `Err(RewardParse)` whose `content` equals the original
         // source string — source-vs-IR proof: a regression that derived
         // `content` from a default or placeholder would fail the exact

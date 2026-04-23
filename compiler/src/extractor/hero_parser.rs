@@ -764,7 +764,8 @@ mod tests {
     #[test]
     fn hero_parser_malformed_propagates_error() {
         // `heropool.` with empty content is the pathological input previously
-        // reaching `tier_strs.last_mut().unwrap()` at hero_parser.rs:329.
+        // reaching `tier_strs.last_mut().unwrap()` (now replaced by the
+        // `let Some(last) = tier_strs.last_mut() else { ... }` arm above).
         // It must now return `Err(HeroParse)` carrying the source modifier-
         // index and the `heroes[N].blocks` field path — source-vs-IR proof:
         // the `42` below is the index the caller passes, not a position the
