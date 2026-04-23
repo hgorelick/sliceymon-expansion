@@ -151,7 +151,13 @@ Some structurals are **computed from IR content**, never authored or stored inde
 | PoolReplacement     | Hero list    | Pool overrides                                                    |
 | Hero-bound ItemPool | Hero data    | Items tied to specific heroes (e.g., PorygonItem)                 |
 
-Adding a hero auto-updates these. They never appear in user-authored IR — if a user-authored `ModIR` contains a derived structural, `build` (and `xref`) **reject** it with a `CompilerError`. Derived structurals are not "ignored-if-present"; they are a category error.
+Adding a hero auto-updates these. They are regenerated from content on every `build` and `merge` call, so their handling is **provenance-gated** (`Source::{Base, Custom, Overlay}`):
+
+- `Source::Custom` — a human hand-authored a derived structural. This is a category error: `build` and `merge` reject it with `CompilerError::DerivedStructuralAuthored`. Authors never write derived structurals directly.
+- `Source::Base` — came out of `extract` on a source textmod, which legitimately contains derived structurals. `build` and `merge` strip these and regenerate from the current content set, appending an `X010` `Severity::Warning` `Finding` to `ModIR.warnings` per strip. Stripping is not a silent discard: the sidecar tells downstream tools what was dropped and why.
+- `Source::Overlay` — came from an overlay that was either authored or loaded independently (per the Overlay definition in §4). We cannot distinguish hand-authored from extract-then-load at runtime, so `Source::Overlay` is treated the same as `Source::Base` — strip + X010 warn.
+
+Derived structurals are not "ignored-if-present"; their absence from emission output is unconditional, and their presence in input is either an error (Custom) or a warning-plus-strip (Base/Overlay). They are never carried through.
 
 ---
 
