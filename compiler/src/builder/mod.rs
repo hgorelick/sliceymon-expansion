@@ -192,4 +192,3 @@ pub fn build_complete(ir: &ModIR) -> Result<String, CompilerError> {
 
     build(&ir)
 }
-
