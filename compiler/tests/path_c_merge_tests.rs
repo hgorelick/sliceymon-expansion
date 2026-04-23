@@ -393,6 +393,47 @@ fn strip_custom_error_preserves_structural_vec() {
     );
 }
 
+// -- X010 findings carry the stripped item's provenance --
+
+// Finding.source is documented as "Provenance of the offending entity. None
+// for global findings that don't bind to a single sourced entity." X010 is
+// entity-bound — each strip describes a specific structural. Setting source
+// to None would lose the Base-vs-Overlay distinction a downstream tool would
+// otherwise recover only by string-parsing `field_path`.
+#[test]
+fn x010_findings_carry_item_source_provenance() {
+    let mut base = ModIR::empty();
+    base.structural.push(derived_char_selection(Source::Base));
+
+    let mut overlay = ModIR::empty();
+    overlay.structural.push(derived_char_selection(Source::Overlay));
+
+    merge(&mut base, overlay).expect("strip+warn, not error");
+
+    let x010s: Vec<&Finding> = base.warnings.iter().filter(|w| w.rule_id == X010).collect();
+    assert_eq!(x010s.len(), 2, "one X010 per side");
+
+    let base_finding = x010s
+        .iter()
+        .find(|f| f.field_path.as_deref().map(|p| p.starts_with("base.")).unwrap_or(false))
+        .expect("expected a base-side X010");
+    assert_eq!(
+        base_finding.source,
+        Some(Source::Base),
+        "base-side X010 must carry Source::Base provenance"
+    );
+
+    let overlay_finding = x010s
+        .iter()
+        .find(|f| f.field_path.as_deref().map(|p| p.starts_with("overlay.")).unwrap_or(false))
+        .expect("expected an overlay-side X010");
+    assert_eq!(
+        overlay_finding.source,
+        Some(Source::Overlay),
+        "overlay-side X010 must carry Source::Overlay provenance"
+    );
+}
+
 // -- Path C: adding a hero then building regenerates the char selection --
 
 // Confirms the strip-regenerate cycle completes end to end: a Base-origin

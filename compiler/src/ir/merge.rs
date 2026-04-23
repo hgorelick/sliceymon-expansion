@@ -75,6 +75,7 @@ pub fn strip_derived_structurals(
     let taken: Vec<(usize, StructuralModifier)> = structural.drain(..).enumerate().collect();
     for (orig_i, s) in taken {
         if s.is_derived() {
+            let item_source = s.source;
             warnings.push(Finding {
                 rule_id: X010.to_string(),
                 severity: Severity::Warning,
@@ -87,6 +88,7 @@ pub fn strip_derived_structurals(
                 suggestion: Some(X010_SUGGESTION.to_string()),
                 modifier_index: Some(orig_i),
                 modifier_name: s.name,
+                source: Some(item_source),
                 ..Default::default()
             });
         } else {
