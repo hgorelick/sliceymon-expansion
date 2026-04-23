@@ -125,9 +125,15 @@ fn emit_with_ability(item: &ReplicaItem, container_name: &str) -> Result<String,
     out.push_str(".n.");
     out.push_str(&item.name);
 
-    // Abilitydata (cast)
+    // Ability body. The textmod guide (reference/textmod_guide.md lines
+    // 747 / 857 / 975-981) writes `.abilitydata.(body)` as the
+    // authoritative property for attaching an ability to a replica body.
+    // Earlier code emitted `.cast.` which is a chain-interior keyword
+    // (guide lines 642-645), not a property marker — `parse_with_ability`
+    // silently dropped the ability because the literal it reads
+    // (`.abilitydata.`) was never emitted.
     if let Some(ref ability) = item.abilitydata {
-        out.push_str(".cast.");
+        out.push_str(".abilitydata.");
         out.push_str(&ability.emit());
     }
 
@@ -191,8 +197,11 @@ fn emit_legendary(item: &ReplicaItem) -> Result<String, CompilerError> {
     out.push_str(".n.");
     out.push_str(&item.name);
 
+    // Ability body — `.abilitydata.(body)` per the textmod guide
+    // (reference/textmod_guide.md lines 747 / 857 / 975-981). `cast.X` is
+    // a chain keyword (guide lines 642-645), not a property marker.
     if let Some(ref ability) = item.abilitydata {
-        out.push_str(".cast.");
+        out.push_str(".abilitydata.");
         out.push_str(&ability.emit());
     }
 
@@ -290,7 +299,10 @@ mod tests {
         let output = emit(&item).unwrap();
         assert!(output.contains("itempool."));
         assert!(output.contains("hat.(replica"), "With-ability format uses hat.(replica");
-        assert!(output.contains("cast."));
+        assert!(
+            output.contains(".abilitydata."),
+            "ability body emitted as `.abilitydata.(…)` per textmod guide, not `.cast.`"
+        );
         assert!(output.contains(".n.Mewtwo"));
         assert!(output.contains(".n.MasterBall"));
     }

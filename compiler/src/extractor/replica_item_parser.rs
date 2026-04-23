@@ -32,7 +32,12 @@ pub fn parse_simple(modifier: &str, _modifier_index: usize) -> ReplicaItem {
     let color = util::extract_color(scalar_slice, false);
     let tier = util::extract_simple_prop(modifier, ".tier.")
         .and_then(|v| v.parse::<u8>().ok());
-    let item_modifiers = util::extract_modifier_chain(modifier)
+    // Chain lives inside the inner replica body — the emitter writes it
+    // inside `((hat.replica…))` at raw depth 2. `extract_modifier_chain` is
+    // depth-0-only at the passed string, so we must scan the inner body
+    // (where chain markers sit at body-relative depth 0), not the outer
+    // modifier.
+    let item_modifiers = util::extract_modifier_chain(body)
         .map(|s| crate::ir::ModifierChain::parse(&s));
     let sticker = util::extract_simple_prop(modifier, ".sticker.");
     let toggle_flags = extract_toggle_flags(modifier);
@@ -80,9 +85,23 @@ pub fn parse_with_ability(modifier: &str, _modifier_index: usize) -> ReplicaItem
     let color = util::extract_color(scalar_slice, false);
     let doc = util::extract_simple_prop(modifier, ".doc.");
     let speech = util::extract_simple_prop(modifier, ".speech.");
-    let abilitydata = util::extract_nested_prop(modifier, ".abilitydata.")
+    // Ability body lives inside the inner replica body at body-relative
+    // depth 0. The textmod guide (reference/textmod_guide.md §Abilitydata,
+    // lines 747 / 857 / 975-981) uses `.abilitydata.(body)` as the
+    // authoritative property for attaching an ability — `cast.TRIGGER` is
+    // a chain keyword (guide lines 642-645), not a property marker. Reading
+    // from the inner body keeps the scan in the frame where `.abilitydata.`
+    // sits at body-relative depth 0, consistent with `replica_inner_body` +
+    // `slice_before_chain_and_cast` scoping for scalars.
+    let abilitydata = util::extract_nested_prop(body, ".abilitydata.")
         .map(|s| crate::ir::AbilityData::parse(&s));
-    let item_modifiers = util::extract_modifier_chain(modifier)
+    // Chain extraction scopes to the pre-ability region of the inner body
+    // so ability-body tokens cannot be mistaken for top-level chain
+    // segments. Mirrors `parse_legendary`'s `before_cast` pattern.
+    let before_ability = util::find_at_depth0(body, ".abilitydata.")
+        .map(|pos| &body[..pos])
+        .unwrap_or(body);
+    let item_modifiers = util::extract_modifier_chain(before_ability)
         .map(|s| crate::ir::ModifierChain::parse(&s));
     let img_data = util::extract_img_data(scalar_slice);
     let sprite = crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default());
@@ -153,31 +172,35 @@ pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
              classifier invariant broken (see extractor/classifier.rs)",
         );
     // Scalar fields (hp/sd/color/img) must only be scanned in the top-level
-    // prefix that precedes any chain (`.i.` / `.sticker.`) or `.cast.` block.
+    // prefix that precedes any chain (`.i.` / `.sticker.`) or ability block.
     // Chain sub-entries carry free-form `.sidesc.` / `.enchant.` text and
-    // cast-effect bodies carry `.hp.` / `.col.` / `.sd.` / `.img.` at
-    // cast-interior depth — neither may leak into top-level fields. The
-    // `slice_before_chain_and_cast` helper is strictly broader than the
-    // pre-cast slice Chunk 6 used here: it trims at the earliest of
-    // `.i.` / `.sticker.` / `.cast.`. (§F10, Chunk 9.)
+    // ability-effect bodies carry `.hp.` / `.col.` / `.sd.` / `.img.` at
+    // ability-interior depth — neither may leak into top-level fields. The
+    // `slice_before_chain_and_cast` helper trims at the earliest of
+    // `.i.` / `.sticker.` / `.abilitydata.` (§F10-MARKERS, Chunk 9). The
+    // property marker for an ability body is `.abilitydata.` per the
+    // textmod guide (reference/textmod_guide.md lines 747 / 857 / 975-981);
+    // `cast.TRIGGER` in the corpus is a chain keyword (guide lines 642-645),
+    // not a property marker.
     let scalar_slice = util::slice_before_chain_and_cast(body);
-    // Chain / name extraction scope to the pre-cast region (Chunk 6 hardening
-    // — preserved): emission places the chain at the head of the body
-    // (before sd/name/cast), and the character `.n.NAME` lands AFTER the
-    // chain and BEFORE `.cast.`. The LAST `.n.` at depth 0 in the pre-cast
-    // region is therefore the character name — chain-internal `.n.` tokens
-    // (e.g. `.i.hat.statue.n.Viscera`) appear earlier and must not win.
-    let before_cast = util::find_at_depth0(body, ".cast.")
+    // Chain / name extraction scope to the pre-ability region (Chunk 6
+    // hardening — preserved, renamed from `before_cast`): emission places
+    // the chain at the head of the body (before sd/name/abilitydata), and
+    // the character `.n.NAME` lands AFTER the chain and BEFORE
+    // `.abilitydata.`. The LAST `.n.` at depth 0 in the pre-ability region
+    // is therefore the character name — chain-internal `.n.` tokens (e.g.
+    // `.i.hat.statue.n.Viscera`) appear earlier and must not win.
+    let before_ability = util::find_at_depth0(body, ".abilitydata.")
         .map(|pos| &body[..pos])
         .unwrap_or(body);
-    let name = util::find_last_at_depth0(before_cast, ".n.")
+    let name = util::find_last_at_depth0(before_ability, ".n.")
         .map(|pos| {
             let start = pos + 3;
-            let remaining = &before_cast[start..];
+            let remaining = &before_ability[start..];
             let end = remaining
                 .find(['.', '+', ')', '&', '@', ','])
                 .unwrap_or(remaining.len());
-            before_cast[start..start + end].to_string()
+            before_ability[start..start + end].to_string()
         })
         .unwrap_or_default();
     let sd = util::extract_sd(scalar_slice, true)
@@ -191,15 +214,15 @@ pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
     let color = util::extract_color(scalar_slice, true);
     let doc = util::extract_simple_prop(body, ".doc.");
     let speech = util::extract_simple_prop(body, ".speech.");
-    // Cast extraction intentionally scans the full `body` — it needs to
-    // see the `.cast.` region the slice excludes.
-    let abilitydata = util::extract_nested_prop(body, ".cast.")
+    // Ability extraction intentionally scans the full `body` — it needs to
+    // see the `.abilitydata.` region the slice excludes.
+    let abilitydata = util::extract_nested_prop(body, ".abilitydata.")
         .map(|s| crate::ir::AbilityData::parse(&s));
-    // Chain scope mirrors `before_cast` (not `scalar_slice`): a false
+    // Chain scope mirrors `before_ability` (not `scalar_slice`): a false
     // `.i.` / `.sticker.` later in `body` (e.g. a stray `.i.` inside a
     // `.speech.` / `.doc.` value leftover after simple-prop extraction)
     // cannot legitimately be a chain segment of this Legendary.
-    let item_modifiers = util::extract_modifier_chain(before_cast)
+    let item_modifiers = util::extract_modifier_chain(before_ability)
         .map(|s| crate::ir::ModifierChain::parse(&s));
     let img_data = util::extract_img_data(scalar_slice);
     let sprite = crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default());
@@ -252,10 +275,12 @@ mod tests {
 
     #[test]
     fn classifies_capture_with_ability_into_enum() {
-        // `.abilitydata.` at depth 0 is the parser's actual marker — cast.
-        // lives inside the inner replica paren group. `ZZZ` as the outer
-        // `.n.` is invented so a registry-lookup regression would fail here.
-        let modifier = "itempool.((hat.(replica.Alpha.sd.0:0:0:0:0:0.n.Mewtwo))).abilitydata.(Fey.sd.0:0:0:0:0:0.n.Psy).n.ZZZ.mn.Mewtwo";
+        // Emitter-realistic shape: `emit_with_ability` writes
+        // `.abilitydata.(…)` inside the triple-paren group at body-relative
+        // depth 0, per the textmod guide (reference/textmod_guide.md lines
+        // 747 / 857 / 975-981). `ZZZ` as the outer `.n.` is invented so a
+        // registry-lookup regression would fail here.
+        let modifier = "itempool.((hat.(replica.Alpha.sd.0:0:0:0:0:0.n.Mewtwo.abilitydata.(Fey.sd.0:0:0:0:0:0.n.Psy)))).n.ZZZ.mn.Mewtwo";
         let item = parse_with_ability(modifier, 0);
         assert_eq!(item.name, "Mewtwo");
         assert_eq!(
@@ -263,7 +288,10 @@ mod tests {
             ReplicaItemContainer::Capture { name: "ZZZ".into() },
             "with-ability path must still produce a Capture, carrying the outer .n. source bytes"
         );
-        assert!(item.abilitydata.is_some());
+        assert!(
+            item.abilitydata.is_some(),
+            "`.abilitydata.(…)` inside the inner replica body must be read as abilitydata"
+        );
     }
 
     #[test]
@@ -481,31 +509,151 @@ mod tests {
         );
     }
 
+    // ---------------------------------------------------------------------
+    // Round-trip tests that catch silent field drops on emit→parse.
+    // These are the siblings of `legendary_emit_parse_roundtrip_*`: without
+    // them, parse_simple / parse_with_ability can (and did) silently drop
+    // `item_modifiers` and `abilitydata` because the only assertions on
+    // Capture emit→parse checked scalar fields the drop left untouched.
+    // ---------------------------------------------------------------------
+
     #[test]
-    fn legendary_ignores_cast_interior_hp_color_sd_img() {
-        // Top-level Legendary declares NO hp / color / img / sd. Its cast
-        // block carries `.hp.`, `.col.`, `.sd.`, `.img.` at cast-interior
-        // depth. A naive non-depth-aware scan (`content.find(".hp.")`) would
-        // pull those cast-interior values up into the top-level fields —
-        // silently flipping `None`/empty into `Some(...)` at parse time.
-        // Guards against that leakage.
-        let modifier = "item.Alpha.n.Mew.cast.(Spell.sd.170-1:0:0:0:0:0.col.a.hp.5.img.bas99:9.n.Psy)";
+    fn capture_emit_parse_item_modifiers_roundtrip() {
+        use crate::builder::replica_item_emitter::emit;
+        use crate::ir::{DiceFaces, ModifierChain};
+
+        // `parse_simple` must read the chain from the *inner replica body*,
+        // where chain markers sit at body-relative depth 0. Scanning the
+        // outer modifier at depth 0 (the pre-fix behavior) silently drops
+        // the chain — the only depth-0 content in the outer modifier is
+        // `itempool.` / `.n.Ball.mn.Pika`, none of which are chain tokens.
+        let chain_src = ".i.left.k.scared#facade.bas170:55";
+        let item = ReplicaItem {
+            name: "Pika".into(),
+            container: ReplicaItemContainer::Capture { name: "Ball".into() },
+            tier: None,
+            template: "Hat".into(),
+            hp: None,
+            sd: DiceFaces::parse("0:0:0:0:0:0"),
+            sprite: crate::authoring::SpriteId::owned("Pika", ""),
+            color: None,
+            item_modifiers: Some(ModifierChain::parse(chain_src)),
+            sticker: None,
+            toggle_flags: None,
+            doc: None,
+            speech: None,
+            abilitydata: None,
+            source: Source::Base,
+        };
+        let emitted = emit(&item).unwrap();
+        let parsed = parse_simple(&emitted, 0);
+        assert_eq!(
+            parsed.item_modifiers.as_ref().map(|c| c.emit()),
+            item.item_modifiers.as_ref().map(|c| c.emit()),
+            "item_modifiers must round-trip; emitted={}",
+            emitted,
+        );
+    }
+
+    #[test]
+    fn capture_with_ability_emit_parse_item_modifiers_roundtrip() {
+        use crate::builder::replica_item_emitter::emit;
+        use crate::ir::{AbilityData, DiceFaces, ModifierChain};
+
+        // Same as above for the with-ability path: chain scope must be
+        // `before_ability` (the inner body trimmed at `.abilitydata.`), not
+        // the outer modifier.
+        let chain_src = ".i.right.k.shield#facade.spe71:0";
+        let item = ReplicaItem {
+            name: "Mewtwo".into(),
+            container: ReplicaItemContainer::Capture { name: "MasterBall".into() },
+            tier: None,
+            template: "Alpha".into(),
+            hp: None,
+            sd: DiceFaces::parse("0:0:0:0:0:0"),
+            sprite: crate::authoring::SpriteId::owned("Mewtwo", ""),
+            color: None,
+            item_modifiers: Some(ModifierChain::parse(chain_src)),
+            sticker: None,
+            toggle_flags: None,
+            doc: None,
+            speech: None,
+            abilitydata: Some(AbilityData::parse("(Fey.sd.0:0:0:0:0:0.n.Psy)")),
+            source: Source::Base,
+        };
+        let emitted = emit(&item).unwrap();
+        let parsed = parse_with_ability(&emitted, 0);
+        assert_eq!(
+            parsed.item_modifiers.as_ref().map(|c| c.emit()),
+            item.item_modifiers.as_ref().map(|c| c.emit()),
+            "item_modifiers must round-trip through parse_with_ability; emitted={}",
+            emitted,
+        );
+    }
+
+    #[test]
+    fn capture_with_ability_emit_parse_abilitydata_roundtrip() {
+        use crate::builder::replica_item_emitter::emit;
+        use crate::ir::{AbilityData, DiceFaces};
+
+        // Emit writes `.abilitydata.(body)` at body-relative depth 0 per
+        // the textmod guide (reference/textmod_guide.md lines 747 / 857 /
+        // 975-981). Parse must read the same marker from the same frame —
+        // the pre-fix code wrote `.cast.(body)` and read `.abilitydata.`
+        // from the outer modifier, so every emit→parse cycle silently
+        // dropped the ability.
+        let item = ReplicaItem {
+            name: "Mewtwo".into(),
+            container: ReplicaItemContainer::Capture { name: "MasterBall".into() },
+            tier: None,
+            template: "Alpha".into(),
+            hp: None,
+            sd: DiceFaces::parse("0:0:0:0:0:0"),
+            sprite: crate::authoring::SpriteId::owned("Mewtwo", ""),
+            color: None,
+            item_modifiers: None,
+            sticker: None,
+            toggle_flags: None,
+            doc: None,
+            speech: None,
+            abilitydata: Some(AbilityData::parse("(Fey.sd.34-1:0.img.spark.n.Psychic)")),
+            source: Source::Base,
+        };
+        let emitted = emit(&item).unwrap();
+        let parsed = parse_with_ability(&emitted, 0);
+        assert_eq!(
+            parsed.abilitydata.as_ref().map(|a| a.emit()),
+            item.abilitydata.as_ref().map(|a| a.emit()),
+            "abilitydata must round-trip through emit→parse; emitted={}",
+            emitted,
+        );
+    }
+
+    #[test]
+    fn legendary_ignores_abilitydata_interior_hp_color_sd_img() {
+        // Top-level Legendary declares NO hp / color / img / sd. Its
+        // `.abilitydata.(body)` carries `.hp.`, `.col.`, `.sd.`, `.img.` at
+        // ability-interior depth. A naive non-depth-aware scan
+        // (`content.find(".hp.")`) would pull those ability-interior values
+        // up into the top-level fields — silently flipping `None`/empty
+        // into `Some(...)` at parse time. Guards against that leakage.
+        let modifier = "item.Alpha.n.Mew.abilitydata.(Spell.sd.170-1:0:0:0:0:0.col.a.hp.5.img.bas99:9.n.Psy)";
         let item = parse_legendary(modifier, 0);
         assert_eq!(item.name, "Mew");
         assert_eq!(item.template, "Alpha");
-        assert_eq!(item.hp, None, "cast-interior .hp. must not leak into top-level hp");
-        assert_eq!(item.color, None, "cast-interior .col. must not leak into top-level color");
+        assert_eq!(item.hp, None, "ability-interior .hp. must not leak into top-level hp");
+        assert_eq!(item.color, None, "ability-interior .col. must not leak into top-level color");
         assert_eq!(
             item.sd,
             crate::ir::DiceFaces { faces: vec![] },
-            "cast-interior .sd. must not leak into top-level sd",
+            "ability-interior .sd. must not leak into top-level sd",
         );
         assert_eq!(
             item.sprite.img_data(),
             "",
-            "cast-interior .img. must not leak into top-level sprite img_data",
+            "ability-interior .img. must not leak into top-level sprite img_data",
         );
-        assert!(item.abilitydata.is_some(), "cast block still parses into abilitydata");
+        assert!(item.abilitydata.is_some(), "ability body still parses into abilitydata");
     }
 }
 

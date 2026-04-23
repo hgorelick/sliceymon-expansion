@@ -225,15 +225,21 @@ pub fn has_color(modifier: &str, target: char) -> bool {
 }
 
 /// Return the prefix of `body` preceding the first depth-0 occurrence of any
-/// §F10-MARKER — the canonical set `{.i., .sticker., .cast.}`. When none
-/// exist at depth 0, returns the full `body` slice.
+/// §F10-MARKER — the canonical set `{.i., .sticker., .abilitydata.}`. When
+/// none exist at depth 0, returns the full `body` slice.
 ///
 /// Replica parsers feed the result to scalar extractors for `hp` / `color` /
 /// `sd` / `img` so chain sub-entries (`.i.` / `.sticker.` — free-form
-/// `.sidesc.` / `.enchant.` text) and cast / ability effect bodies cannot
-/// leak interior `.hp.N` / `.col.X` / `.sd.FACES` / `.img.DATA` substrings
-/// into top-level fields. Emission places every scalar field before the
-/// chain / cast region, so the prefix is sufficient.
+/// `.sidesc.` / `.enchant.` text) and ability-effect bodies
+/// (`.abilitydata.(...)`) cannot leak interior `.hp.N` / `.col.X` /
+/// `.sd.FACES` / `.img.DATA` substrings into top-level fields. Emission
+/// places every scalar field before the chain and ability region, so the
+/// prefix is sufficient.
+///
+/// The ability-body marker is `.abilitydata.` per the textmod guide
+/// (reference/textmod_guide.md lines 747 / 857 / 975-981); `cast.TRIGGER`
+/// in the corpus is a chain keyword (guide lines 642-645), not a property
+/// marker.
 ///
 /// Capture callers (`parse_simple` / `parse_with_ability`) apply this
 /// **after** `replica_inner_body`, so the scan runs in a frame where the
@@ -242,7 +248,7 @@ pub fn has_color(modifier: &str, target: char) -> bool {
 /// flat at depth 0 with no outer paren wrap.
 pub fn slice_before_chain_and_cast(body: &str) -> &str {
     let mut earliest: Option<usize> = None;
-    for marker in [".i.", ".sticker.", ".cast."] {
+    for marker in [".i.", ".sticker.", ".abilitydata."] {
         if let Some(pos) = find_at_depth0(body, marker) {
             earliest = Some(match earliest {
                 Some(prev) => prev.min(pos),
@@ -533,28 +539,28 @@ mod tests {
 
     #[test]
     fn slice_before_chain_and_cast_no_markers_returns_full_body() {
-        // No `.i.` / `.sticker.` / `.cast.` anywhere → the full body is
-        // returned verbatim. Pins the no-op path so a future change can't
-        // silently truncate legendary bodies that have no chain or cast.
+        // No §F10-MARKER at depth 0 → the full body is returned verbatim.
+        // Pins the no-op path so a future change can't silently truncate
+        // legendary bodies that have no chain or ability block.
         let body = "Alpha.hp.5.sd.0:0:0:0:0:0.n.Mew";
         assert_eq!(slice_before_chain_and_cast(body), body);
     }
 
     #[test]
     fn slice_before_chain_and_cast_skips_nested_markers() {
-        // `.cast.(a.i.b)`: `.i.` is at depth 1 (inside the cast parens),
-        // `.cast.` is at depth 0. The slice must end at `.cast.`, not at
-        // the nested `.i.`. Pins the depth-aware scan.
-        let body = "Alpha.cast.(a.i.b)";
-        let cast_pos = body.find(".cast.").unwrap();
-        assert_eq!(slice_before_chain_and_cast(body), &body[..cast_pos]);
+        // `.abilitydata.(a.i.b)`: `.i.` is at depth 1 (inside the ability
+        // parens), `.abilitydata.` is at depth 0. The slice must end at
+        // `.abilitydata.`, not at the nested `.i.`. Pins the depth-aware scan.
+        let body = "Alpha.abilitydata.(a.i.b)";
+        let pos = body.find(".abilitydata.").unwrap();
+        assert_eq!(slice_before_chain_and_cast(body), &body[..pos]);
     }
 
     #[test]
     fn slice_before_chain_and_cast_returns_earliest_of_three_markers() {
-        // Of `.i.` / `.sticker.` / `.cast.`, the earliest depth-0 occurrence
-        // wins — the slice cuts at whichever appears first.
-        let body = "Alpha.sticker.Foo.i.hat.pad.cast.(x)";
+        // Of `.i.` / `.sticker.` / `.abilitydata.`, the earliest depth-0
+        // occurrence wins — the slice cuts at whichever appears first.
+        let body = "Alpha.sticker.Foo.i.hat.pad.abilitydata.(x)";
         let sticker_pos = body.find(".sticker.").unwrap();
         assert_eq!(slice_before_chain_and_cast(body), &body[..sticker_pos]);
     }
