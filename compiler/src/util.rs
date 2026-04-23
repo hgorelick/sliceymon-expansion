@@ -225,8 +225,8 @@ pub fn has_color(modifier: &str, target: char) -> bool {
 }
 
 /// Return the prefix of `body` preceding the first depth-0 occurrence of any
-/// chain / cast / ability marker: `.i.`, `.sticker.`, `.cast.`,
-/// `.abilitydata.`. When none exist at depth 0, returns the full `body` slice.
+/// §F10-MARKER — the canonical set `{.i., .sticker., .cast.}`. When none
+/// exist at depth 0, returns the full `body` slice.
 ///
 /// Replica parsers feed the result to scalar extractors for `hp` / `color` /
 /// `sd` / `img` so chain sub-entries (`.i.` / `.sticker.` — free-form
@@ -235,15 +235,14 @@ pub fn has_color(modifier: &str, target: char) -> bool {
 /// into top-level fields. Emission places every scalar field before the
 /// chain / cast region, so the prefix is sufficient.
 ///
-/// `.abilitydata.` is included as a fourth marker because the Capture
-/// parsers read the outer cast region under that name (the Capture emitter
-/// writes `.cast.` inside the replica parens, so the outer cast-like region
-/// parsed as `.abilitydata.` is at depth 0 in the raw modifier). This is a
-/// strict superset of the plan's three markers — no callsite becomes less
-/// restrictive, and the Capture-cast leak class is closed.
+/// Capture callers (`parse_simple` / `parse_with_ability`) apply this
+/// **after** `replica_inner_body`, so the scan runs in a frame where the
+/// chain's `.i.` / `.sticker.` are at body-relative depth 0.
+/// `parse_legendary` applies it directly — its `item.TEMPLATE…` body is
+/// flat at depth 0 with no outer paren wrap.
 pub fn slice_before_chain_and_cast(body: &str) -> &str {
     let mut earliest: Option<usize> = None;
-    for marker in [".i.", ".sticker.", ".cast.", ".abilitydata."] {
+    for marker in [".i.", ".sticker.", ".cast."] {
         if let Some(pos) = find_at_depth0(body, marker) {
             earliest = Some(match earliest {
                 Some(prev) => prev.min(pos),
