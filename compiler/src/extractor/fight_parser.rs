@@ -578,12 +578,13 @@ mod tests {
         // via `use super::*;` above, so the strictness claim is testable and
         // IS tested.
         //
-        // Corpus check: `grep -oE 'fight\.\([A-Za-z_][A-Za-z_0-9]*'
-        // working-mods/*.txt | sort -u` yields `Alpha`, `Dragon`, `egg`,
-        // `rmon`, `wolf`, `Wolf` — simple identifiers or dot-segmented
-        // (`rmon.ded`), none embedding `.((` / `.(`, so the pathological
-        // case is unreachable from the four working mods but is the reason
-        // the arithmetic implementation is preferred over `find`.
+        // Corpus check (run the command, do not trust enumerations in
+        // prose — they drift): `grep -hoE 'fight\.\([A-Za-z_][A-Za-z_0-9]*'
+        // working-mods/*.txt | sort -u`. As of HEAD, no nested-form fight
+        // template (`fight.(<template>...`) in the corpus embeds `.((` or
+        // `.(` in its own bytes, so the pathological case is unreachable
+        // from the four working mods but is still the reason the
+        // arithmetic implementation is preferred over `find`.
 
         // (1) No prefix match.
         let (nested, props) = extract_nested_and_props("wildly.malformed input", "Zzz_fake");
@@ -618,10 +619,11 @@ mod tests {
         // in-template position (3) and subsequent paren-matching walked past
         // end-of-content with depth > 0, yielding `(None, None)`. The
         // arithmetic-based code positions at the post-template `(` and parses
-        // one child. No realistic template in `working-mods/*.txt` embeds
-        // `.((` — corpus check: `Alpha`, `Dragon`, `egg`, `rmon`, `rmon.ded`,
-        // `wolf`, `Wolf` — so this case is unreachable from `parse_fight` but
-        // is testable via the direct call here.
+        // one child. No nested-form template in `working-mods/*.txt` embeds
+        // `.((` or `.(` in its own bytes (re-verify via the corpus-check
+        // command in the prologue, not by trusting an enumeration here), so
+        // this case is unreachable from `parse_fight` but is testable via
+        // the direct call here.
         let pathological_content = "foo.((extra.((child)).n.Name";
         let pathological_template = "foo.((extra";
         let (nested, props) =

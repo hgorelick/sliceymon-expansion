@@ -617,9 +617,29 @@ mod tests {
     #[test]
     fn phase_parser_unknown_code_hint_does_not_claim_undefined_codes() {
         // The default-arm and empty-input diagnostics share `PHASE_CODES_HINT`.
-        // The hint must not imply that codes without match arms are valid.
-        // `f` has no match arm (regression lock for the `b-g` range drift R1
-        // consolidated without auditing — fixed in R7).
+        // This test asserts two distinct properties:
+        //
+        //   (A) The hint string itself, as surfaced to the user via the error's
+        //       `expected` field, does NOT advertise undefined codes. The
+        //       substring checks below catch hint-string range drift such as
+        //       reintroducing `b-g` (which would imply `f` is valid; `f` has
+        //       no match arm — regression lock for the R7 fix).
+        //
+        //   (B) The match arms themselves still implement the full alphabetic
+        //       set the spec table at `reference/textmod_guide.md` lists. We
+        //       do this by *invoking* `parse_phase` on each spec-listed letter
+        //       with a stub payload and asserting it doesn't fall through to
+        //       the `PhaseParse { phase_code: Some(c) }` default arm. Removing
+        //       a real match arm (e.g. `'l'`) flips that assertion and fails
+        //       this test directly — covering the case where the maintainer
+        //       has not touched any other test.
+        //
+        // The earlier shape of this test compared a hand-rolled `handled: &[char]`
+        // literal against two more hand-rolled char lists — none of which were
+        // derived from the actual match arms or `PHASE_CODES_HINT` — so it
+        // could not catch (B) at all. This shape executes the parser and
+        // observes its dispatch.
+
         let err = parse_phase("ph.f").expect_err("unhandled phase code must not parse");
         let expected = match err.kind.as_ref() {
             crate::error::ErrorKind::PhaseParse { expected, .. } => expected.clone(),
@@ -631,25 +651,52 @@ mod tests {
             expected
         );
 
-        // Every alphabetic code individually listed or inside a range in the
-        // hint must correspond to a real match arm. This is a literal audit of
-        // the current hint string.
-        let handled: &[char] =
-            &['!', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-              'b', 'c', 'd', 'e', 'g', 'l', 'r', 's', 't', 'z'];
-        for ch in ['b', 'c', 'd', 'e', 'g', 'l', 'r', 's', 't', 'z'] {
-            assert!(
-                handled.contains(&ch),
-                "audit list is stale — {} missing from handled set",
-                ch
-            );
+        // Match-arm dispatch audit. Each alphabetic code listed by the spec
+        // table at `reference/textmod_guide.md:218-227` must dispatch to a
+        // real arm — i.e. NOT fall through to the unknown-code default. We
+        // use minimal stub payloads (`ph.X`); some arms succeed, some fail in
+        // their sub-parser with parser-specific `expected` strings. Either is
+        // fine — the *only* failure shape we reject is the default arm itself,
+        // which is uniquely identified by `expected == PHASE_CODES_HINT`
+        // (downstream parsers use parser-specific expected strings, never the
+        // shared hint). Removing a real match arm (e.g. `'l'`) flips that
+        // check and fails this test directly.
+        for code_letter in ['b', 'c', 'd', 'e', 'g', 'l', 'r', 's', 't', 'z'] {
+            let stub = format!("ph.{}", code_letter);
+            match parse_phase(&stub) {
+                Ok(_) => {} // dispatch reached a real arm
+                Err(e) => match e.kind.as_ref() {
+                    crate::error::ErrorKind::PhaseParse { expected, .. }
+                        if expected == PHASE_CODES_HINT =>
+                    {
+                        panic!(
+                            "phase code `{}` reached the unknown-code default arm — \
+                             match arm missing or removed; hint at `PHASE_CODES_HINT` \
+                             would mislead users",
+                            code_letter
+                        );
+                    }
+                    _ => {} // sub-parser-specific failure is fine — arm dispatched
+                },
+            }
         }
-        for ch in ['a', 'f', 'h', 'i', 'j', 'k', 'm', 'n', 'o', 'p', 'q', 'u', 'v', 'w', 'x', 'y'] {
-            assert!(
-                !handled.contains(&ch),
-                "audit list claims {} is handled but it isn't",
-                ch
-            );
+
+        // Negative dispatch audit: codes the hint does NOT claim must hit the
+        // unknown-code default arm (uniquely identified by
+        // `expected == PHASE_CODES_HINT`). Pins that no stealth match arm
+        // exists for letters the hint omits.
+        for code_letter in ['a', 'f', 'h', 'i', 'j', 'k', 'm', 'n', 'o', 'p', 'q', 'u', 'v', 'w', 'x', 'y'] {
+            let stub = format!("ph.{}", code_letter);
+            let err = parse_phase(&stub)
+                .expect_err(&format!("unhandled code `{}` must not parse", code_letter));
+            match err.kind.as_ref() {
+                crate::error::ErrorKind::PhaseParse { expected, phase_code: Some(c), .. }
+                    if expected == PHASE_CODES_HINT && *c == code_letter => {} // expected
+                other => panic!(
+                    "expected default-arm PhaseParse with PHASE_CODES_HINT for `{}`, got {:?}",
+                    code_letter, other
+                ),
+            }
         }
     }
 }
