@@ -14,7 +14,7 @@ This plan delivers the IR schema, type-system, and build-API foundations that `P
 - `merge` retains SPEC §5's `pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError>` shape. Warnings emitted when merge strips derived structurals are written into a new `ModIR.warnings: Vec<Finding>` sidecar field so the signature stays as SPEC §5 specifies.
 - Authoring of new xref rules `X003`, `X010`, `X016`, `X017` (these do not exist today — current xref uses `V016`/`V019`/`V020` only). No X001 demo rule.
 - Merge semantics that strip derived structurals so `build` regenerates them unconditionally, plus the two missing derived generators (`pool_replacement`, `hero_item_pool`).
-- `panic!`/`unwrap`/`expect` elimination in library code (SPEC §8) — scoped to the 6 lib-code occurrences across 5 files that a verified audit found, NOT the `ir/mod.rs:284` site (which is inside `#[cfg(test)]`).
+- `panic!`/`unwrap`/`expect` elimination in library code (SPEC §8) — see §F8 below for the landed audit count, per-file resolutions, and enforcement mechanism (do not restate here).
 
 All items here satisfy SPEC §3.7 (no parallel representations, no deferred replacement). Each is implementable against today's codebase, with explicit prerequisites where the current type shape does not yet support the target design.
 
@@ -392,24 +392,15 @@ No build-time invariant check is needed; the type system already enforces Captur
 
 New xref rule **X003** (no duplicate Pokemon across heroes / captures / legendaries / monsters — SPEC §6.3) is authored as part of this chunk. It does **not** exist today; current xref uses V-prefixed rules. X003 matches on `ReplicaItem.container` to route items into the per-kind buckets (Capture vs Legendary).
 
-### F8. `panic!`/`unwrap`/`expect` elimination in library code
+### F8. `panic!`/`unwrap`/`expect` elimination in library code — ✅ landed (PR #11)
 
-**Correction — the original plan cited `compiler/src/ir/mod.rs:284` as a `panic!("Expected Item segment")` in `ModifierChain::split_at_segment()`. That line is inside a `#[cfg(test)]` module (test `typed_entries_populated` at line 274) and is not library code.** Library-code `panic!` is not at this location.
+**Invariant (enforced going forward):** no `.unwrap()`, `.expect(...)`, `panic!(...)`, `unimplemented!(...)`, or `todo!(...)` in `compiler/src/**/*.rs` outside `#[cfg(test)]` / `#[test]` gates. Enforced by the integration test `compiler/tests/audit_lib_panic_free.rs::audit_no_lib_panic_or_unwrap`, which walks `src/`, strips test-gated items via brace-counting on `#[cfg(test)]` / `#[test]` attributes, and fails if any forbidden token remains. The test runs as part of `cargo test`, so drift fails the project's de-facto gate on every run (there is no separate `.github/workflows/` pipeline).
 
-**Verified lib-code audit (with `#[cfg(test)]` blocks removed — 2026-04-20):**
+**Landed audit (Chunk 7 re-audit at chunk start, 2026-04-22):** 7 lib-code hits across 6 files — one more hit than the 2026-04-20 baseline because `replica_item_parser.rs:124`'s `.expect(...)` had drifted in between plan-write and chunk-start. All 7 resolved; per-file resolution detail lives in Chunk 7 below (do not re-enumerate here — the two lists would drift).
 
-| File | Lib-code `unwrap/expect/panic` hits |
-|---|---|
-| `compiler/src/builder/hero_emitter.rs` | 2 |
-| `compiler/src/extractor/fight_parser.rs` | 1 |
-| `compiler/src/extractor/reward_parser.rs` | 1 |
-| `compiler/src/extractor/hero_parser.rs` | 1 |
-| `compiler/src/extractor/phase_parser.rs` | 1 |
-| **Total** | **6 across 5 files** |
+**Lesson recorded (for future chunks):** the integration-test audit is the right durable enforcement surface. The original plan hedged between "xtask / build.rs check" and "integration test"; the integration test is simpler, uses the same `cargo test` entry point as every other correctness check, and needs no build-graph changes. Future chunks adding new error paths do not need to re-plan the audit — just keep the gate green.
 
-Replace each with structured error propagation using the new `CompilerError` shape from §F0. Callers that previously could not fail now return `Result`; update call chains.
-
-Before starting Chunk 7, re-run the audit (`rg '\.unwrap\(\)|\.expect\(|panic!\(|unimplemented!|todo!\(' compiler/src/` with test-block stripping) to confirm the count — the baseline may drift as §F0 and earlier chunks land and add new error paths. SPEC §8.
+**Non-authoritative snapshot note:** the `panic!("Expected Item segment")` currently at `src/ir/mod.rs:292` is NOT lib code — it lives inside `#[cfg(test)] mod modifier_chain_tests`, test `typed_entries_populated` (`#[test]` at `:282`). The pre-Chunk-7 plan at one point cited it as a lib-code panic; it never was.
 
 ### F9. V020 restructure — remove overlap with X003 on cross-bucket Pokemon
 
@@ -766,35 +757,31 @@ This exceeds the 5-file rule. **Sub-chunk split required** — this chunk breaks
 
 ---
 
-### Chunk 7: `unwrap`/`expect`/`panic` elimination in lib code [after Chunk 3c; parallel with Chunk 5]
+### Chunk 7: `unwrap`/`expect`/`panic` elimination in lib code — ✅ landed (PR #11, 2026-04-22)
 **Spec**: §F8
-**Files** (indicative baseline audited 2026-04-20; re-audit immediately before starting):
-- `compiler/src/builder/hero_emitter.rs` (2 — post-Chunk 3c, signatures have already dropped the `sprites` arg)
-- `compiler/src/extractor/fight_parser.rs` (1)
-- `compiler/src/extractor/reward_parser.rs` (1)
-- `compiler/src/extractor/hero_parser.rs` (1)
-- `compiler/src/extractor/phase_parser.rs` (1)
 
-Callers in the same files or their module roots that previously could not fail may now return `Result`; update the call chain in this chunk.
+**Landed files** (re-audit at chunk start found 7 hits across 6 files — one more than the 2026-04-20 baseline; `replica_item_parser.rs:124` had drifted in between plan-write and chunk-start):
+- `compiler/src/builder/hero_emitter.rs` — 2 hits removed by deleting 5 unreferenced `verify_*` helpers (dead code; 2 of the 5 duplicated live `util.rs` functions).
+- `compiler/src/extractor/hero_parser.rs` — 1 hit replaced with `let-else` returning `HeroParse { modifier_index, ... }` with `field_path = heroes[N].blocks`.
+- `compiler/src/extractor/phase_parser.rs` — 1 hit replaced with `let-else` returning `PhaseParse` with `field_path = phase.type_code`; the empty-input suggestion now shares a module-level `PHASE_CODES_HINT` constant with the unknown-code default arm so the two can never drift.
+- `compiler/src/extractor/reward_parser.rs` — 1 hit replaced with `let-else` returning `RewardParse` with `field_path = reward_tag.raw`.
+- `compiler/src/extractor/fight_parser.rs` — 1 hit (`content.find(prefix).unwrap()`) replaced with direct offset arithmetic (`content.len() - after_template.len() + 1`). The old `.unwrap()` was structurally unreachable under the existing `is_double || is_single` guard, so for every realistic fight template the refactor is a pure panic-removal. For *pathological* templates whose bytes embed `.((` or `.(` the old code would lock onto the in-template match and `find_matching_close_paren` would walk past end-of-content with depth > 0, returning `None` and yielding `(None, None)`; the arithmetic-based code positions at the post-template `(` and parses normally — strictly more correct, not just panic-removal. The corpus-check command lives in the test prologue (do not re-list templates here — enumerations drift; the grep does not). The in-code comment on `fight_parser_malformed_propagates_error` (Case 5) is the authoritative statement of the divergence, and the case is now an executable regression test, not just documentation (line numbers drift; search by name).
+- `compiler/src/extractor/replica_item_parser.rs` — 1 hit; `parse_legendary` signature flipped to `Result<ReplicaItem, CompilerError>`. Classifier-invariant breach now surfaces as a `Build` error with `field_path = replica_items[N]`. `?` propagation added in `extractor::extract` and the two emit/parse parity tests in `builder/replica_item_emitter.rs`.
 
-**Dependencies**: Chunk 3c (shares `builder/hero_emitter.rs` with 3c — running earlier would force 7's edits to be redone after 3c lands).
-**Parallel with**: Chunk 5 only (5 writes `ir/merge.rs`, `builder/derived.rs`, `builder/mod.rs`; 7 writes extractor files + the post-3c `hero_emitter.rs`; no overlap).
+**Enforcement** — the integration test `compiler/tests/audit_lib_panic_free.rs::audit_no_lib_panic_or_unwrap` walks `compiler/src/**/*.rs`, strips `#[cfg(test)]` / `#[test]` items via brace-counting, and fails if any forbidden token remains. Runs on every `cargo test`. The set of supported / rejected test-gate shapes is authoritative in the stripper's own doc comment (`lines_outside_test_gates` in `compiler/tests/audit_lib_panic_free.rs`); the stripper panics with a clear message when it encounters a shape it cannot handle soundly (single-line test-gated items, `#[cfg(not(test))]`, etc.) so drift fails loudly rather than silently mis-stripping production code. Do not re-enumerate the shape list elsewhere — reference the implementation.
 
-**Note**: `compiler/src/ir/mod.rs:284`'s `panic!("Expected Item segment")` is inside `#[cfg(test)]` (test `typed_entries_populated`). It is NOT lib code and is NOT in scope for this chunk. The original plan's citation was wrong.
+**Deviations from pre-chunk plan:**
+- `hero_emitter_pathological_input_propagates_error` test was **not authored** — both `hero_emitter.rs` hits lived in dead code; a regression test for deleted functions would be fiction. Dead-code removal is the correct response.
+- Audit enforcement landed as an **integration test**, not an `xtask` / `build.rs` check. Integration tests run under the same `cargo test` entry point as every other correctness gate, need no build-graph changes, and require no CI pipeline (the repo has no `.github/workflows/`). Future chunks adding new error paths need not re-plan the audit — keep `cargo test` green.
 
-**Requirements**:
-- **Re-audit at chunk start**, not at plan-write time. Run `rg '\.unwrap\(\)|\.expect\(|panic!\(|unimplemented!|todo!\(' compiler/src/` with `#[cfg(test)]` stripping (use a small helper script or `cargo xtask`) and record the actual count in the chunk-open note. Fix every hit found — the "6 across 5 files" figure is indicative only. Running Chunk 7 after Chunk 3c fixes the baseline-drift problem: 3c is the last chunk that may introduce new error paths in the files 7 touches.
-- Replace each lib-code `unwrap()` / `expect(...)` / `panic!(...)` / `unimplemented!(...)` / `todo!(...)` with a `?` propagation returning `CompilerError` with `field_path` + `suggestion` populated via `ErrorKind::{Build, Paren, HeroParse, PhaseParse, RewardParse, ChainParse}` from §F0.
-- `ir::DiceFaces::parse` and friends currently use `.unwrap_or` patterns (no panic) — out of scope; do not touch.
-
-**Verification — specific tests**:
-- [ ] `audit_no_lib_panic_or_unwrap` — an `xtask` / `build.rs` check (not a unit test, which can't meaningfully grep the workspace) that greps `compiler/src/**/*.rs` with test-module stripping and fails CI if any hit is found. SPEC §8.
-- [ ] `extractor::hero_parser_malformed_propagates_error` — the exact input that previously panicked now returns `Err(CompilerError { kind: ErrorKind::HeroParse { .. }, .. })`.
-- [ ] `extractor::fight_parser_malformed_propagates_error` — same for `fight_parser.rs`.
-- [ ] `extractor::reward_parser_malformed_propagates_error` — same for `reward_parser.rs`.
-- [ ] `extractor::phase_parser_malformed_propagates_error` — same for `phase_parser.rs`.
-- [ ] `builder::hero_emitter_pathological_input_propagates_error` — covers both hits in `hero_emitter.rs`.
-- [ ] All 4 working mods IR-equal roundtrip.
+**Landed verification** (every test exists in-tree and passes):
+- [x] `audit_no_lib_panic_or_unwrap` (`compiler/tests/audit_lib_panic_free.rs`).
+- [x] `extractor::hero_parser::tests::hero_parser_malformed_propagates_error`.
+- [x] `extractor::phase_parser::tests::phase_parser_malformed_propagates_error`.
+- [x] `extractor::reward_parser::tests::reward_parser_malformed_propagates_error`.
+- [x] `extractor::fight_parser::tests::fight_parser_malformed_propagates_error` (pins the `starts_with(template)` guard, the happy-path direct-offset math, and the single-paren `.(child)` shape; see the Landed files bullet above and the in-code comment for the old-vs-new equivalence narrative — do not restate it here).
+- [x] `extractor::replica_item_parser::tests::legendary_without_item_prefix_propagates_error`.
+- [x] All 4 working mods IR-equal roundtrip (`baseline_sliceymon`, `baseline_pansaer`, `baseline_punpuns`, `baseline_community`).
 
 ---
 
@@ -886,7 +873,7 @@ Each test is a *source-vs-IR divergence* test by construction (per §F10 / Chunk
 - [ ] `cargo run -- schema` produces a JSON Schema that includes `FaceId`, `FaceIdValue`, `Pips`, `SpriteId`, and `ReplicaItemContainer` types.
 - [ ] `compiler/src/authoring/` contains only: `mod.rs`, `face_id.rs`, `face_id_generated.rs`, `sprite.rs`, `sprite_registry.rs`. No builders, no macros, no `HeroReplica` — those are owned by `AUTHORING_ERGONOMICS_PLAN.md`.
 - [ ] No `std::fs` / `std::process` in `compiler/src/authoring/` or any other library file.
-- [ ] Lib-code audit (`rg` with `#[cfg(test)]` stripping, enforced via `xtask`/`build.rs`) shows zero `unwrap()` / `expect()` / `panic!` / `unimplemented!` / `todo!` hits.
+- [x] Lib-code audit shows zero `unwrap()` / `expect()` / `panic!` / `unimplemented!` / `todo!` hits outside `#[cfg(test)]` gates. (Chunk 7, 2026-04-22 — enforcement landed as `compiler/tests/audit_lib_panic_free.rs::audit_no_lib_panic_or_unwrap`, not `xtask`/`build.rs`; see §F8.)
 - [ ] Every new xref rule (X003, X010, X016, X017) populates `field_path`, `suggestion`, and `source` on its `Finding`s. Every existing V-rule (V016, V019, V020) populates `source`.
 - [ ] V020 and X003 do not double-fire on cross-bucket Pokemon collisions (`{hero, replica_item, monster}` slice is X003's sole territory). V020 retains emission only for boss-involving collisions and intra-bucket duplicates. (Chunk 8, §F9.)
 - [ ] Replica parsers (`parse_simple` / `parse_with_ability` / `parse_legendary`) route scalar extraction through `util::slice_before_chain_and_cast` + `depth_aware = true`; chain-interior `.hp.` / `.col.` / `.sd.` / `.img.` substrings in sidesc / cast-effect / enchant text do not leak into top-level fields. (Chunk 9, §F10.)

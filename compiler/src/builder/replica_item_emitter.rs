@@ -343,7 +343,7 @@ mod tests {
         };
 
         let emitted = emit(&item).unwrap();
-        let parsed = parse_legendary(&emitted, 0);
+        let parsed = parse_legendary(&emitted, 0).expect("emit(Legendary) round-trips through parse_legendary");
 
         assert_eq!(parsed.container, item.container, "container variant");
         assert_eq!(parsed.name, item.name, "name");
@@ -395,7 +395,7 @@ mod tests {
         };
 
         let emitted = emit(&item).unwrap();
-        let parsed = parse_legendary(&emitted, 0);
+        let parsed = parse_legendary(&emitted, 0).expect("emit(Legendary) round-trips through parse_legendary");
 
         assert_eq!(parsed.container, item.container, "container variant");
         assert_eq!(parsed.name, item.name, "name");
