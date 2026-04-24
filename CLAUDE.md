@@ -53,6 +53,19 @@ Don't weaken a design for speed, complexity, or effort. *"Too complicated"*, *"t
 
 If a design encodes a real game invariant (damage curve, tier progression, keyword budget, paste-correctness), the invariant must be preserved or strengthened.
 
+### Evidence rule (non-negotiable, applies to every file)
+No edit — code, test, plan, spec, doc, config, hook — lands without tool-output evidence from THIS conversation that the edit is correct. "Looks right" / "I remember the signature" / "standard pattern" is not evidence. Every edit must trace to one of:
+
+1. **Corpus bytes.** Parser, emitter, IR shape, round-trip logic — quote the `working-mods/*.txt` lines the change is modeled on. Grep the corpus *before* changing extractor/emitter behavior.
+2. **`reference/textmod_guide.md`.** Format semantics, modifier chain rules, nesting, sticker semantics, vase/hat/replica/cast structure, dice encoding — cite section + line. When parser/emitter/guide disagree, the guide wins.
+3. **Current code state.** For rename/move/refactor/signature change — Read the file being changed AND every callsite, at its *current* state. Don't recall signatures, line numbers, or field types from memory. Grep for every caller before changing a type or signature.
+4. **A failing test or reproduced bug.** Reproduce before fixing. "This could break X" without a reproduction is speculation.
+5. **A named user decision.** Design choices, scope calls, trade-offs the user explicitly made.
+
+**Forbidden shortcuts**: "verified at implementation start", "re-grep before authoring", "check the exact line count" are deferred verification — run the check *now*. "Probably" / "should" / "standard pattern" are guesses — Read the file. "The plan says X" as sole basis — plans can be wrong; re-verify against code and corpus. Writing against training-data memory of a library/API is forbidden — Read the local version.
+
+If evidence is missing, stop and gather it before editing. If the change is genuinely trivial (typo, whitespace, lint) say so — triviality is its own evidence.
+
 ### Plans
 - When implementing a plan, start promptly. Don't re-read plans extensively if you've seen them recently.
 - In plan mode, follow `personas/ai-development.md`.
