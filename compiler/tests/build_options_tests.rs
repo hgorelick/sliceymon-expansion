@@ -183,12 +183,11 @@ fn v019_finding_source_populated() {
 fn v020_cross_category_source_is_global() {
     // V020 in `check_cross_category_names` is a global finding (no single
     // offender) — source=None, severity stays Error.
-    use textmod_compiler::ir::{ReplicaItem, ReplicaItemContainer};
+    use textmod_compiler::ir::ReplicaItem;
     let mut ir = ModIR::empty();
     ir.heroes.push(minimal_hero("Pikachu", 'a', Source::Base));
     ir.replica_items.push(ReplicaItem {
         name: "Pikachu".to_string(),
-        container: ReplicaItemContainer::Capture { name: "Pikachu".to_string() },
         template: "Slime".to_string(),
         hp: Some(4),
         sd: DiceFaces { faces: vec![DiceFace::Blank] },

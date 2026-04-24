@@ -84,7 +84,7 @@ fn main() -> Result<(), CompilerError> {
             if let Some(overlay_dir) = overlay {
                 let overlay_json = fs::read_to_string(overlay_dir.join("registry.json"))?;
                 let overlay_ir = textmod_compiler::ir_from_json(&overlay_json)?;
-                ir = textmod_compiler::merge(ir, overlay_ir)?;
+                textmod_compiler::merge(&mut ir, overlay_ir)?;
             }
 
             let textmod = textmod_compiler::build(&ir)?;
@@ -144,7 +144,8 @@ fn main() -> Result<(), CompilerError> {
             let overlay_json = fs::read_to_string(&with_ir)?;
             let overlay_ir = textmod_compiler::ir_from_json(&overlay_json)?;
 
-            let merged = textmod_compiler::merge(base_ir, overlay_ir)?;
+            let mut merged = base_ir;
+            textmod_compiler::merge(&mut merged, overlay_ir)?;
             let textmod = textmod_compiler::build(&merged)?;
             fs::write(&output, &textmod)?;
             println!("Overlay applied: {} heroes, {} replica items, {} monsters, {} bosses",

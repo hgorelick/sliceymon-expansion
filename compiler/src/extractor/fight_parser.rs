@@ -482,10 +482,18 @@ fn extract_nested_and_props(content: &str, template: &str) -> (Option<Vec<FightU
         return (None, None);
     }
 
-    // Position of the first `(` (in the original `content`, accounting for any
-    // leading `(` that was skipped by `trim_start_matches`).
-    let prefix = if is_double { ".((" } else { ".(" };
-    let nested_start_in_content = content.find(prefix).unwrap() + 1; // position of first `(`
+    // Position of the first `(` in `content`. `after_template` is a suffix of
+    // `content` (offset = leading `(`s skipped by `trim_start_matches` plus
+    // `template.len()`), and starts with `.(` — so the first `(` is one byte
+    // past `after_template`'s start in `content`. Compute directly rather than
+    // re-scanning with `find(".((")` / `find(".(")`; the test at
+    // `fight_parser_malformed_propagates_error` is the authoritative account
+    // of how the old `find`-based code and the new arithmetic relate (they
+    // agree on realistic templates; the arithmetic is strictly more correct
+    // on pathological templates that embed `.((` / `.(` in the template bytes
+    // themselves).
+    let nested_start_in_content =
+        (content.len() - after_template.len()) + 1; // +1 skips the leading `.`
     let close = util::find_matching_close_paren(content, nested_start_in_content);
     let close = match close {
         Some(c) => c,
@@ -538,4 +546,94 @@ fn extract_fight_unit_img(content: &str) -> Option<String> {
     let end = util::find_next_prop_boundary(remaining);
     let val = &remaining[..end];
     if val.is_empty() { None } else { Some(val.to_string()) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fight_parser_malformed_propagates_error() {
+        // The old `content.find(prefix).unwrap()` was structurally unreachable
+        // for every input actually produced by the project: `is_double ||
+        // is_single` gates on `after_template.starts_with(".(")`, so a
+        // post-template `.((`/`.(` exists somewhere and `find` cannot panic.
+        // The refactor replaces that unwrap with direct arithmetic
+        // (`content.len() - after_template.len() + 1`), eliminating the
+        // panic-adjacent call for SPEC §F8. This test pins the surviving
+        // shape:
+        //   1. Inputs that don't pass the `starts_with(template)` guard
+        //      return (None, None) cleanly.
+        //   2. The happy-path nested-children shape still parses.
+        //   3. The single-paren `.(child)` form still parses (the +1 offset
+        //      must be correct for both `.(` and `.((` because both share
+        //      the same leading `.`).
+        //
+        // Strictness note (not just panic-removal): Case (5) below pins the
+        // divergence — see its inline comment for the byte-level trace
+        // (`find(".((")` → in-template offset → paren-matching returns None;
+        // arithmetic → post-template offset → parses one child). The public
+        // API (`parse_fight`) doesn't surface pathological templates; this
+        // test calls the module-private `extract_nested_and_props` directly
+        // via `use super::*;` above, so the strictness claim is testable and
+        // IS tested.
+        //
+        // Corpus check (run the command, do not trust enumerations in
+        // prose — they drift): `grep -hoE 'fight\.\([A-Za-z_][A-Za-z_0-9]*'
+        // working-mods/*.txt | sort -u`. As of HEAD, no nested-form fight
+        // template (`fight.(<template>...`) in the corpus embeds `.((` or
+        // `.(` in its own bytes, so the pathological case is unreachable
+        // from the four working mods but is still the reason the
+        // arithmetic implementation is preferred over `find`.
+
+        // (1) No prefix match.
+        let (nested, props) = extract_nested_and_props("wildly.malformed input", "Zzz_fake");
+        assert!(nested.is_none() && props.is_none(), "no-match must return (None, None)");
+
+        // (2) Real nested-children shape succeeds. Invented template name
+        // `Zzz_fake` so any registry-derived regression would fail the
+        // children-count assertion.
+        let content = "Zzz_fake.((mon.A.n.A+mon.B.n.B)).n.Parent";
+        let (nested, props) = extract_nested_and_props(content, "Zzz_fake");
+        assert_eq!(nested.as_ref().map(|v| v.len()), Some(2));
+        assert!(props.is_some());
+
+        // (3) Template not at head of `stripped` → early return. Confirms
+        // the `starts_with(template)` guard still works after the refactor.
+        let decoy = "(.((decoy))(Zzz_fake.((mon.X.n.X+mon.Y.n.Y))).n.Parent";
+        let (nested, _) = extract_nested_and_props(decoy, "Zzz_fake");
+        assert!(
+            nested.is_none(),
+            "template not at head of stripped content must return (None, None)"
+        );
+
+        // (4) Single-paren `.(child)` form.
+        let single = "Zzz_fake.(mon.Solo.n.Solo).n.Parent";
+        let (nested, props) = extract_nested_and_props(single, "Zzz_fake");
+        assert_eq!(nested.as_ref().map(|v| v.len()), Some(1), "single-paren form parses one child");
+        assert!(props.is_some());
+
+        // (5) Pathological template whose bytes embed `.((`. This pins the
+        // "strictly more correct, not just panic-removal" claim. Under the old
+        // `content.find(".((").unwrap()` implementation, `find` returned the
+        // in-template position (3) and subsequent paren-matching walked past
+        // end-of-content with depth > 0, yielding `(None, None)`. The
+        // arithmetic-based code positions at the post-template `(` and parses
+        // one child. No nested-form template in `working-mods/*.txt` embeds
+        // `.((` or `.(` in its own bytes (re-verify via the corpus-check
+        // command in the prologue, not by trusting an enumeration here), so
+        // this case is unreachable from `parse_fight` but is testable via
+        // the direct call here.
+        let pathological_content = "foo.((extra.((child)).n.Name";
+        let pathological_template = "foo.((extra";
+        let (nested, props) =
+            extract_nested_and_props(pathological_content, pathological_template);
+        assert_eq!(
+            nested.as_ref().map(|v| v.len()),
+            Some(1),
+            "pathological template embedding `.((` must parse the post-template child \
+             via arithmetic, not the in-template `.((` that `find` would have locked onto"
+        );
+        assert_eq!(props.as_deref(), Some(".n.Name"));
+    }
 }

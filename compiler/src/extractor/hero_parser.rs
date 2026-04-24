@@ -52,7 +52,7 @@ fn parse_grouped(modifier: &str, _modifier_index: usize) -> Hero {
             s
         });
 
-    let color = util::extract_color(modifier).unwrap_or('?');
+    let color = util::extract_color(modifier, false).unwrap_or('?');
 
     // Find heropool content
     let hp_marker = find_heropool_marker(modifier);
@@ -194,8 +194,8 @@ fn try_parse_grouped_block(block: &str) -> Option<HeroBlock> {
         .or_else(|| util::extract_sd(&outside_combined, true))
         .map(|s| crate::ir::DiceFaces::parse(&s))
         .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
-    let block_color = util::extract_color(&template_flat)
-        .or_else(|| util::extract_color(&outside_combined));
+    let block_color = util::extract_color(&template_flat, false)
+        .or_else(|| util::extract_color(&outside_combined, false));
 
     let abilitydata = util::extract_nested_prop(&template_flat, ".abilitydata.")
         .or_else(|| util::extract_nested_prop(&outside_combined, ".abilitydata."))
@@ -314,7 +314,10 @@ fn try_parse_sliceymon(modifier: &str, modifier_index: usize) -> Result<Hero, Co
 
     let mut tier_strs = util::split_at_depth0(heropool_content, '+');
 
-    if tier_strs.is_empty() {
+    // Separate suffix from last tier. `split_at_depth0` returns an empty vec only when
+    // `heropool_content` is empty, which is invalid input per the `.sd.`/`.img.`/etc.
+    // grammar — surface that as HeroParse rather than an unwrap.
+    let Some(last) = tier_strs.last_mut() else {
         return Err(CompilerError::hero_parse(
             modifier_index,
             internal_name.clone(),
@@ -322,11 +325,10 @@ fn try_parse_sliceymon(modifier: &str, modifier_index: usize) -> Result<Hero, Co
             content_start,
             "at least one tier block",
             "empty heropool content",
-        ));
-    }
-
-    // Separate suffix from last tier
-    let last = tier_strs.last_mut().unwrap();
+        )
+        .with_field_path(format!("heroes[{}].blocks", modifier_index))
+        .with_suggestion("heropool content must contain at least one tier"));
+    };
     separate_suffix(last);
 
     // Parse each tier block
@@ -338,7 +340,7 @@ fn try_parse_sliceymon(modifier: &str, modifier_index: usize) -> Result<Hero, Co
         }
     }
 
-    let color = util::extract_color(heropool_content).unwrap_or('?');
+    let color = util::extract_color(heropool_content, false).unwrap_or('?');
 
     let mn_name = util::extract_mn_name(modifier)
         .or_else(|| util::extract_last_n_name(modifier))
@@ -511,7 +513,7 @@ fn parse_tier_block(
     let sd = util::extract_sd(replica_content, true)
         .map(|s| crate::ir::DiceFaces::parse(&s))
         .unwrap_or_else(|| crate::ir::DiceFaces { faces: vec![] });
-    let block_color = util::extract_color(replica_content);
+    let block_color = util::extract_color(replica_content, false);
     let img_data = util::extract_img_data(replica_content)
         .or_else(|| util::extract_img_data(outside_content));
 
@@ -753,9 +755,35 @@ mod tests {
     #[test]
     fn test_find_hero_color() {
         let content = "(replica.Lost.col.a.hp.5.sd.0:0:0:0:0:0)";
-        assert_eq!(util::extract_color(content), Some('a'));
+        assert_eq!(util::extract_color(content, false), Some('a'));
         // .i.col should NOT be detected as color
         let content2 = "(replica.Lost.i.col.k.pain.col.b)";
-        assert_eq!(util::extract_color(content2), Some('b'));
+        assert_eq!(util::extract_color(content2, false), Some('b'));
+    }
+
+    #[test]
+    fn hero_parser_malformed_propagates_error() {
+        // `heropool.` with empty content is the pathological input previously
+        // reaching `tier_strs.last_mut().unwrap()` (now replaced by the
+        // `let Some(last) = tier_strs.last_mut() else { ... }` arm above).
+        // It must now return `Err(HeroParse)` carrying the source modifier-
+        // index and the `heroes[N].blocks` field path — source-vs-IR proof:
+        // the `42` below is the index the caller passes, not a position the
+        // parser derived from the source text, so a regression that routed
+        // modifier_index through any registry/derived state would fail the
+        // `field_path` assertion.
+        let modifier = "1-4.heropool.";
+        let err = try_parse_sliceymon(modifier, 42)
+            .expect_err("empty heropool content must not parse");
+        match err.kind.as_ref() {
+            crate::error::ErrorKind::HeroParse { modifier_index, expected, found, .. } => {
+                assert_eq!(*modifier_index, 42);
+                assert_eq!(expected, "at least one tier block");
+                assert_eq!(found, "empty heropool content");
+            }
+            other => panic!("expected HeroParse, got {:?}", other),
+        }
+        assert_eq!(err.field_path.as_deref(), Some("heroes[42].blocks"));
+        assert!(err.suggestion.is_some());
     }
 }

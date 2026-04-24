@@ -7,7 +7,7 @@ pub fn parse_monster(modifier: &str, _modifier_index: usize) -> Monster {
         .unwrap_or_default();
     let base_template = extract_base_template(modifier).unwrap_or_default();
     let floor_range = extract_floor_range(modifier).unwrap_or_default();
-    let color = util::extract_color(modifier);
+    let color = util::extract_color(modifier, false);
     let doc = util::extract_simple_prop(modifier, ".doc.");
     let modifier_chain = util::extract_modifier_chain(modifier)
         .map(|s| crate::ir::ModifierChain::parse(&s));

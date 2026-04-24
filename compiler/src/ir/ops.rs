@@ -164,7 +164,7 @@ impl ModIR {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{DiceFaces, HeroBlock, HeroFormat, ReplicaItemContainer};
+    use crate::ir::{DiceFaces, HeroBlock, HeroFormat};
 
     fn make_hero(name: &str, color: char) -> Hero {
         Hero {
@@ -229,7 +229,6 @@ mod tests {
     fn make_replica_item(name: &str) -> ReplicaItem {
         ReplicaItem {
             name: name.into(),
-            container: ReplicaItemContainer::Capture { name: "Ball".into() },
             template: "Hat".into(),
             hp: None,
             sd: DiceFaces::parse("0:0:0:0:0:0"),

@@ -14,6 +14,7 @@ pub use options::{BuildOptions, SourceFilter, SourceSet};
 
 use crate::error::CompilerError;
 use crate::ir::{ModIR, StructuralType};
+use crate::ir::merge::{collect_stripped_kinds, regenerate_derived_kinds, strip_derived_structurals};
 
 /// Build a textmod string from a ModIR.
 ///
@@ -35,19 +36,65 @@ pub fn build(ir: &ModIR) -> Result<String, CompilerError> {
 /// Per PLATFORM_FOUNDATIONS_PLAN §F5, every content-emission site consults
 /// `opts.include.admits(entity.source)` before emitting. Structural modifiers
 /// carry their own `source`; heroes / replica items / monsters / bosses use
-/// their top-level `source`. Derived structurals are regenerated from the
-/// post-filter content set (this function itself emits only what is in `ir`;
-/// `build_complete` owns regeneration).
+/// their top-level `source`.
+///
+/// Derived-structural policy (SPEC §4): `build` strips any
+/// `StructuralModifier` with `derived: true` from the IR before emission and
+/// appends regenerated forms. `Source::Custom`-origin derived structurals are
+/// rejected with [`CompilerError::derived_structural_authored`];
+/// `Source::Base` / `Source::Overlay` are stripped with an `X010` warning.
+/// The strip-regenerate cycle operates on a local clone so the caller's IR
+/// is not mutated; callers that need the warnings should use `merge` (which
+/// writes to `base.warnings`).
 pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerError> {
     let filter = &opts.include;
+
+    // SPEC §4: derived structurals are stripped and regenerated. We only
+    // clone (and run the strip+regenerate cycle) when the IR actually
+    // carries a derived-flagged structural — otherwise this is a no-op cost
+    // on every build() call against extracted Base-origin IR.
+    //
+    // Plan §F5 / options.rs contract: "regenerated from the post-filter
+    // content set." We regenerate from heroes admitted by `filter` so the
+    // char-selection / hero-pool reflects the same hero set the emission
+    // loop will actually emit.
+    let needs_strip = ir.structural.iter().any(|s| s.is_derived());
+    let mut ir_buf;
+    let ir: &ModIR = if needs_strip {
+        ir_buf = ir.clone();
+        let kinds = collect_stripped_kinds(&ir_buf.structural);
+        strip_derived_structurals(
+            &mut ir_buf.structural,
+            &mut ir_buf.warnings,
+            "build",
+        )?;
+        let filtered_heroes: Vec<_> = ir_buf
+            .heroes
+            .iter()
+            .filter(|h| filter.admits(h.source))
+            .cloned()
+            .collect();
+        regenerate_derived_kinds(&mut ir_buf.structural, &filtered_heroes, &kinds);
+        &ir_buf
+    } else {
+        ir
+    };
+
     let mut modifiers: Vec<String> = Vec::new();
 
+    // Derived structurals bypass the source filter: they're regenerated from
+    // post-filter content and are tagged `Source::Base` by construction, so
+    // a filter that excludes `Base` would silently drop them. Plan §F5 /
+    // options.rs: "they do not carry their own Source filter." We use
+    // `is_derived()` (flag + kind) rather than the raw `derived` flag so a
+    // hand-authored structural with `derived:true` on a non-derived kind
+    // still honors the filter.
     let emit_structurals =
         |modifiers: &mut Vec<String>, kind: StructuralType| {
             for s in ir
                 .structural
                 .iter()
-                .filter(|s| s.modifier_type == kind && filter.admits(s.source))
+                .filter(|s| s.modifier_type == kind && (s.is_derived() || filter.admits(s.source)))
             {
                 modifiers.push(structural_emitter::emit(s));
             }
@@ -146,6 +193,10 @@ pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerErr
 /// Use this for programmatic IR creation where the IR may not have
 /// explicit structural modifiers. For round-trip builds from existing mods,
 /// use `build()` instead.
+///
+/// Invariant: any structural this function appends is marked `derived: true`,
+/// so subsequent `build` calls strip + regenerate rather than carrying
+/// staleness through. See SPEC §4 derived-structural rule.
 pub fn build_complete(ir: &ModIR) -> Result<String, CompilerError> {
     let mut ir = ir.clone();
 

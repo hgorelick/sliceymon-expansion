@@ -12,7 +12,9 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::authoring::FaceIdValue;
-use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, ReplicaItemContainer, Source, StructuralContent};
+use crate::ir::{Boss, DiceFace, DiceFaces, FightUnit, Hero, ModIR, Source, StructuralContent};
+
+pub use crate::finding::{Finding, Severity};
 
 // ---------------------------------------------------------------------------
 // Rule ID constants
@@ -41,40 +43,6 @@ pub const X016_TEMPLATE_RESTRICTIONS: &[(u16, &[&str])] = &[];
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-/// Severity level for a validation finding.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub enum Severity {
-    #[default]
-    Error,
-    Warning,
-    Info,
-}
-
-/// A single validation finding (error, warning, or info).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Finding {
-    pub rule_id: String,
-    #[serde(default)]
-    pub severity: Severity,
-    pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub field_path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub suggestion: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub modifier_index: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub modifier_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub position: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context: Option<String>,
-    /// Provenance of the offending entity. `None` for global findings that
-    /// don't bind to a single sourced entity (e.g. cross-category name clashes).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<Source>,
-}
 
 /// Source-aware severity promotion — every xref rule that visits a sourced
 /// entity runs its literal `severity` through this helper so the promotion
@@ -204,14 +172,19 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
 }
 
 // ---------------------------------------------------------------------------
-// X003: No duplicate Pokemon across heroes / captures / legendaries / monsters
+// X003: No duplicate Pokemon across heroes / legendaries / monsters
 // ---------------------------------------------------------------------------
 
 /// SPEC §6.3 — "A Pokemon may exist in at most one of: heroes, replica items
-/// (captures / legendaries), monsters." This rule matches on
-/// `ReplicaItem.container` to route items into per-kind buckets, which V020
-/// does not — V020 collapses captures and legendaries into a single
-/// `replica_item` bucket. X003 is strictly more granular.
+/// (captures / legendaries), monsters."
+///
+/// Post-Chunk-9 (2026-04-23), `ReplicaItem` models Legendaries only; Captures
+/// route as `ItemPool` structurals at the classifier (§F7, chunk-impl rule 3:
+/// no corpus instance for a Capture-shape `ReplicaItem`). X003 therefore
+/// collects buckets as `{hero, legendary, monster}` — narrower than V020's
+/// `{hero, replica_item, monster, boss}`, not more granular: the post-deletion
+/// `legendary` label and V020's `replica_item` label carry the same information
+/// one-to-one, and X003 deliberately excludes `boss` per SPEC §6.3.
 fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
     // (bucket_label, original_name) pairs keyed by lowercase name.
     let mut owners: HashMap<String, Vec<(String, &'static str)>> = HashMap::new();
@@ -226,14 +199,10 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
             .push((hero.mn_name.clone(), "hero"));
     }
     for item in &ir.replica_items {
-        let bucket = match &item.container {
-            ReplicaItemContainer::Capture { .. } => "capture",
-            ReplicaItemContainer::Legendary => "legendary",
-        };
         owners
             .entry(item.name.to_lowercase())
             .or_default()
-            .push((item.name.clone(), bucket));
+            .push((item.name.clone(), "legendary"));
     }
     for monster in &ir.monsters {
         owners
@@ -276,8 +245,10 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
             field_path: Some(format!("pokemon_buckets[{}]", display_name)),
             modifier_name: Some(display_name.clone()),
             suggestion: Some(format!(
-                "Rename '{}' so it exists in exactly one of: hero, capture, legendary, monster",
-                display_name
+                "Rename one of the colliding '{}' entries so the name appears in at \
+                 most one of these buckets: {}",
+                display_name,
+                buckets.join(" / ")
             )),
             source: None,
             ..Default::default()
@@ -803,7 +774,6 @@ mod tests {
     fn make_replica_item(name: &str) -> ReplicaItem {
         ReplicaItem {
             name: name.to_string(),
-            container: ReplicaItemContainer::Capture { name: name.to_string() },
             template: "Slime".to_string(),
             hp: Some(4),
             sd: DiceFaces { faces: vec![DiceFace::Blank] },
@@ -971,32 +941,17 @@ mod tests {
         assert!(report.errors.is_empty(), "No errors when all names are unique");
     }
 
-    // -- X003: No duplicate Pokemon across hero/capture/legendary/monster buckets --
-
-    fn make_legendary_replica_item(name: &str) -> ReplicaItem {
-        ReplicaItem {
-            name: name.to_string(),
-            container: ReplicaItemContainer::Legendary,
-            template: "Alpha".to_string(),
-            hp: Some(10),
-            sd: DiceFaces { faces: vec![DiceFace::Blank] },
-            sprite: crate::authoring::SpriteId::owned(name.to_lowercase(), ""),
-            color: None,
-            tier: None,
-            doc: None,
-            speech: None,
-            abilitydata: None,
-            item_modifiers: None,
-            sticker: None,
-            toggle_flags: None,
-            source: Source::Custom,
-        }
-    }
+    // -- X003: No duplicate Pokemon across hero/legendary/monster buckets --
+    //
+    // The former `capture` bucket was removed along with `ReplicaItemContainer`
+    // (chunk-impl rule 3: zero corpus instances for `ReplicaItem::Capture`).
+    // All `ReplicaItem` instances are now Legendary-shaped.
 
     #[test]
     fn x003_duplicate_pokemon_across_kinds() {
-        // Pikachu as both Hero and Capture — X003 must fire even though V020
-        // also catches this case. X003 reports per-bucket granularity.
+        // Pikachu as both Hero and Legendary replica item — X003 must fire
+        // even though V020 also catches this case. X003 reports per-bucket
+        // granularity.
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Pikachu", 'a'));
         ir.replica_items.push(make_replica_item("Pikachu"));
@@ -1007,22 +962,8 @@ mod tests {
         assert_eq!(x003.len(), 1, "expected one X003 finding");
         assert!(x003[0].message.contains("Pikachu"));
         assert!(x003[0].message.contains("hero"));
-        assert!(x003[0].message.contains("capture"));
-        assert_eq!(x003[0].modifier_name.as_deref(), Some("Pikachu"));
-    }
-
-    #[test]
-    fn x003_distinguishes_capture_from_legendary_buckets() {
-        // Same Pokemon as both Capture and Legendary — still two buckets.
-        let mut ir = ModIR::empty();
-        ir.replica_items.push(make_replica_item("Mewtwo"));
-        ir.replica_items.push(make_legendary_replica_item("Mewtwo"));
-
-        let report = check_references(&ir);
-        let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
-        assert_eq!(x003.len(), 1, "capture+legendary of same name must fire X003");
-        assert!(x003[0].message.contains("capture"));
         assert!(x003[0].message.contains("legendary"));
+        assert_eq!(x003[0].modifier_name.as_deref(), Some("Pikachu"));
     }
 
     #[test]
@@ -1030,7 +971,7 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Charmander", 'a'));
         ir.replica_items.push(make_replica_item("Pikachu"));
-        ir.replica_items.push(make_legendary_replica_item("Mew"));
+        ir.replica_items.push(make_replica_item("Mew"));
 
         let report = check_references(&ir);
         let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
@@ -1055,11 +996,47 @@ mod tests {
         assert_eq!(x003[0].severity, Severity::Error);
     }
 
+    /// X003's `suggestion` string must enumerate only buckets the rule can
+    /// report — never a hypothetical `capture` bucket (deleted per chunk-impl
+    /// rule 3 in Chunk 9) nor `boss` (V020's territory per SPEC §6.3). Pins
+    /// the fix for the Round-12 finding where the user-facing advice listed
+    /// `capture` as a valid rename target; source-vs-IR divergent by
+    /// construction because no ModIR this rule can see contains a `capture`
+    /// bucket, so the suggestion must not reach for one.
+    #[test]
+    fn x003_suggestion_only_enumerates_live_buckets() {
+        let mut ir = ModIR::empty();
+        ir.heroes.push(make_hero("Pikachu", 'a'));
+        ir.replica_items.push(make_replica_item("Pikachu"));
+
+        let report = check_references(&ir);
+        let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
+        assert_eq!(x003.len(), 1);
+        let suggestion = x003[0].suggestion.as_ref().expect("X003 must populate suggestion");
+        assert!(
+            !suggestion.contains("capture"),
+            "suggestion must not reference the deleted `capture` bucket: {}",
+            suggestion,
+        );
+        assert!(
+            !suggestion.contains("boss"),
+            "suggestion must not imply `boss` as a rename target — boss collisions route through V020: {}",
+            suggestion,
+        );
+        // Positive: the suggestion must mirror the buckets X003 actually found.
+        assert!(
+            suggestion.contains("hero") && suggestion.contains("legendary"),
+            "suggestion must mirror the colliding buckets the message reports: {}",
+            suggestion,
+        );
+    }
+
     #[test]
     fn x003_silent_on_intra_bucket_duplicate() {
-        // Two replica items with the same name — same bucket (capture). X003
-        // is a cross-bucket check per SPEC §6.3; intra-bucket duplicates are
-        // V-rule territory (V019 etc.), not a Pokemon-bucket collision.
+        // Two replica items with the same name — both land in the `legendary`
+        // bucket (post-Chunk-9, `ReplicaItem` is Legendary-only). X003 is a
+        // cross-bucket check per SPEC §6.3; intra-bucket duplicates are V-rule
+        // territory (V019 etc.), not a Pokemon-bucket collision.
         let mut ir = ModIR::empty();
         ir.replica_items.push(make_replica_item("Pikachu"));
         ir.replica_items.push(make_replica_item("Pikachu"));
@@ -1068,7 +1045,7 @@ mod tests {
         let x003: Vec<_> = report.errors.iter().filter(|f| f.rule_id == "X003").collect();
         assert!(
             x003.is_empty(),
-            "X003 must not fire for intra-bucket duplicates (two captures of the same name)",
+            "X003 must not fire for intra-bucket duplicates (two legendaries of the same name)",
         );
     }
 
@@ -1272,7 +1249,6 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.replica_items.push(ReplicaItem {
             name: "UnknownFaceItem".to_string(),
-            container: ReplicaItemContainer::Capture { name: "UnknownFaceItem".to_string() },
             template: "Slime".to_string(),
             hp: Some(4),
             sd: DiceFaces {
@@ -1433,7 +1409,6 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.replica_items.push(ReplicaItem {
             name: "KnownFaceItem".to_string(),
-            container: ReplicaItemContainer::Capture { name: "KnownFaceItem".to_string() },
             template: "Slime".to_string(),
             hp: Some(4),
             sd: DiceFaces {
