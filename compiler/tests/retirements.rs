@@ -28,11 +28,38 @@ fn crate_dir() -> PathBuf {
 /// Walk every `*.rs` under `root` (relative to the crate dir) and collect
 /// `(relative_path, line_number)` for each line containing `pattern`. Pure
 /// std — no external crates. Skips `target/`.
+///
+/// If `root_rel` resolves to a FILE (not a directory), grep that single file
+/// directly. Without this branch, `walk` would call `fs::read_dir(dir)` on a
+/// file path — which fails — and silently return zero hits, making the test
+/// vacuous.
 fn recursive_grep(root_rel: &Path, pattern: &str) -> Vec<(String, usize)> {
     let root = crate_dir().join(root_rel);
     let mut hits: Vec<(String, usize)> = Vec::new();
-    walk(&root, &root, pattern, &mut hits);
+    if root.is_file() {
+        grep_file(&root, &root, pattern, &mut hits);
+    } else {
+        walk(&root, &root, pattern, &mut hits);
+    }
     hits
+}
+
+fn grep_file(root: &Path, path: &Path, pattern: &str, hits: &mut Vec<(String, usize)>) {
+    if path.extension().and_then(|s| s.to_str()) != Some("rs") {
+        return;
+    }
+    if path.file_name().and_then(|s| s.to_str()) == Some("retirements.rs") {
+        return;
+    }
+    let Ok(text) = fs::read_to_string(path) else {
+        return;
+    };
+    for (i, line) in text.lines().enumerate() {
+        if line.contains(pattern) {
+            let rel = path.strip_prefix(root).unwrap_or(path).display().to_string();
+            hits.push((rel, i + 1));
+        }
+    }
 }
 
 fn walk(root: &Path, dir: &Path, pattern: &str, hits: &mut Vec<(String, usize)>) {

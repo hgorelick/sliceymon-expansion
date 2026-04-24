@@ -6,10 +6,10 @@
 //! available once dice have been set — a hallucinated empty-dice builder is
 //! a compile error, not a runtime surprise.
 //!
-//! Cast carries no `AbilityData` field (corpus has zero depth-0
-//! `.n.<spell_name>` inside `cast.sthief.abilitydata` bodies; parent plan
-//! §1.1). Widening is a separate PR with variant fields — see the
-//! `SummonTrigger::Cast` doc-comment in `ir/mod.rs`.
+//! Cast carries no ability-payload field (corpus has zero depth-0
+//! `.n.<spell_name>` inside the spell-cast envelope's inner body; parent
+//! plan §1.1). Widening is a separate PR with variant fields — see the
+//! `SummonTrigger::Cast` doc-comment in `ir/mod.rs` for the full rationale.
 
 use std::marker::PhantomData;
 
@@ -175,7 +175,7 @@ impl SideUseBuilder<HasDice> {
 }
 
 // ---------------------------------------------------------------------
-// CastBuilder — spell-cast summons. No AbilityData field (corpus zero-ev.)
+// CastBuilder — spell-cast summons. No ability-payload field (corpus zero-ev.)
 // ---------------------------------------------------------------------
 
 pub struct CastBuilder<D> {
