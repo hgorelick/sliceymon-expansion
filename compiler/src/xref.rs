@@ -199,10 +199,16 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
             .push((hero.mn_name.clone(), "hero"));
     }
     for item in &ir.replica_items {
+        // Bucket label remains "legendary" in 8A — unifying both owner-map
+        // sites to "replica_item" is 8B's scope (see plans/CHUNK_8B §9).
+        // Unilaterally renaming here would break a paired test
+        // (x003_duplicate_pokemon_across_kinds asserts
+        // `message.contains("legendary")`) and a SPEC prose surface in one
+        // atomic commit that 8A does not own.
         owners
-            .entry(item.name.to_lowercase())
+            .entry(item.target_pokemon.to_lowercase())
             .or_default()
-            .push((item.name.clone(), "legendary"));
+            .push((item.target_pokemon.clone(), "legendary"));
     }
     for monster in &ir.monsters {
         owners
@@ -304,10 +310,16 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str, So
         }
     }
     for item in &ir.replica_items {
+        // 8A stubs face-template-compat's `template` key to the lowercase
+        // literal `"thief"` — the retired template field on ReplicaItem
+        // carried `"thief"` for every corpus summon (chunk-impl §3.3). 8B's xref
+        // bucket-routing rewrite resolves the capital-Thief vs lowercase-thief
+        // asymmetry between this lookup key and the emitter's `"Thief"` literal.
+        // Dice access routes through the shared accessor — no variant branching.
         out.push((
-            format!("replica_items[{}].sd", item.name),
-            &item.sd,
-            item.template.as_str(),
+            format!("replica_items[{}].sd", item.target_pokemon),
+            item.trigger.dice_faces(),
+            "thief",
             item.source,
         ));
     }
@@ -496,8 +508,11 @@ fn check_cross_category_names(ir: &ModIR, report: &mut ValidationReport) {
     }
 
     for item in &ir.replica_items {
-        let key = item.name.to_lowercase();
-        name_owners.entry(key).or_default().push((item.name.clone(), "replica_item"));
+        let key = item.target_pokemon.to_lowercase();
+        name_owners
+            .entry(key)
+            .or_default()
+            .push((item.target_pokemon.clone(), "replica_item"));
     }
 
     for monster in &ir.monsters {
@@ -510,7 +525,7 @@ fn check_cross_category_names(ir: &ModIR, report: &mut ValidationReport) {
         name_owners.entry(key).or_default().push((boss.name.clone(), "boss"));
     }
 
-    for (_key, entries) in &name_owners {
+    for entries in name_owners.values() {
         if entries.len() > 1 {
             // Use the first original name for display
             let display_name = &entries[0].0;
@@ -616,7 +631,7 @@ pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport {
     // Cross-category name conflict
     let lower = hero.mn_name.to_lowercase();
 
-    if ir.replica_items.iter().any(|r| r.name.to_lowercase() == lower) {
+    if ir.replica_items.iter().any(|r| r.target_pokemon.to_lowercase() == lower) {
         push_finding(&mut report, Finding {
             rule_id: V020.to_string(),
             severity: promote_severity(Severity::Error, Some(hero.source)),
@@ -703,7 +718,7 @@ pub fn check_boss_in_context(boss: &Boss, ir: &ModIR) -> ValidationReport {
         });
     }
 
-    if ir.replica_items.iter().any(|r| r.name.to_lowercase() == lower) {
+    if ir.replica_items.iter().any(|r| r.target_pokemon.to_lowercase() == lower) {
         push_finding(&mut report, Finding {
             rule_id: V020.to_string(),
             severity: promote_severity(Severity::Error, Some(boss.source)),
@@ -771,21 +786,31 @@ mod tests {
     }
 
     /// Helper: create a minimal replica item for testing.
+    ///
+    /// Chunk 8A: trigger-IR shape. Dice are blank (one `DiceFace::Blank`)
+    /// because the legacy helper's `sd: DiceFaces { faces: vec![DiceFace::Blank] }`
+    /// shape is used by X017 `x017_silent_when_all_face_ids_known` negative
+    /// assertions — the shape must still produce an all-blank `DiceFaces`
+    /// so nothing in the face iteration flags a Known or Unknown face.
     fn make_replica_item(name: &str) -> ReplicaItem {
         ReplicaItem {
-            name: name.to_string(),
-            template: "Slime".to_string(),
-            hp: Some(4),
-            sd: DiceFaces { faces: vec![DiceFace::Blank] },
-            sprite: crate::authoring::SpriteId::owned(name.to_lowercase(), ""),
-            color: None,
+            container_name: "Test Ball".to_string(),
+            target_pokemon: name.to_string(),
+            trigger: SummonTrigger::SideUse {
+                dice: DiceFaces { faces: vec![DiceFace::Blank] },
+                dice_location: DiceLocation::OuterPreface,
+            },
+            enemy_template: "Wolf".to_string(),
+            team_template: "housecat".to_string(),
             tier: None,
-            doc: None,
+            hp: Some(4),
+            color: None,
+            sprite: crate::authoring::SpriteId::owned(name.to_lowercase(), ""),
+            sticker_stack: None,
             speech: None,
-            abilitydata: None,
-            item_modifiers: None,
-            sticker: None,
+            doc: None,
             toggle_flags: None,
+            item_modifiers: None,
             source: Source::Base,
         }
     }
@@ -943,9 +968,9 @@ mod tests {
 
     // -- X003: No duplicate Pokemon across hero/legendary/monster buckets --
     //
-    // The former `capture` bucket was removed along with `ReplicaItemContainer`
-    // (chunk-impl rule 3: zero corpus instances for `ReplicaItem::Capture`).
-    // All `ReplicaItem` instances are now Legendary-shaped.
+    // Post-Chunk-8A, `ReplicaItem` models trigger-based summons (SideUse /
+    // Cast) bucketed under the "legendary" label. The former `capture`
+    // bucket was retired upstream per chunk-impl rule 3 — no corpus instance.
 
     #[test]
     fn x003_duplicate_pokemon_across_kinds() {
@@ -1248,24 +1273,28 @@ mod tests {
 
         let mut ir = ModIR::empty();
         ir.replica_items.push(ReplicaItem {
-            name: "UnknownFaceItem".to_string(),
-            template: "Slime".to_string(),
-            hp: Some(4),
-            sd: DiceFaces {
-                faces: vec![DiceFace::Active {
-                    face_id: FaceIdValue::try_new(9999),
-                    pips: Pips::new(1),
-                }],
+            container_name: "Test Ball".to_string(),
+            target_pokemon: "UnknownFaceItem".to_string(),
+            trigger: SummonTrigger::SideUse {
+                dice: DiceFaces {
+                    faces: vec![DiceFace::Active {
+                        face_id: FaceIdValue::try_new(9999),
+                        pips: Pips::new(1),
+                    }],
+                },
+                dice_location: DiceLocation::OuterPreface,
             },
-            sprite: crate::authoring::SpriteId::owned("unknown", ""),
-            color: None,
+            enemy_template: "Wolf".to_string(),
+            team_template: "housecat".to_string(),
             tier: None,
-            doc: None,
+            hp: Some(4),
+            color: None,
+            sprite: crate::authoring::SpriteId::owned("unknown", ""),
+            sticker_stack: None,
             speech: None,
-            abilitydata: None,
-            item_modifiers: None,
-            sticker: None,
+            doc: None,
             toggle_flags: None,
+            item_modifiers: None,
             source: Source::Base,
         });
 
@@ -1408,24 +1437,28 @@ mod tests {
 
         let mut ir = ModIR::empty();
         ir.replica_items.push(ReplicaItem {
-            name: "KnownFaceItem".to_string(),
-            template: "Slime".to_string(),
-            hp: Some(4),
-            sd: DiceFaces {
-                faces: vec![DiceFace::Active {
-                    face_id: FaceIdValue::Known(FaceId::DAMAGE_BASIC),
-                    pips: Pips::new(2),
-                }],
+            container_name: "Test Ball".to_string(),
+            target_pokemon: "KnownFaceItem".to_string(),
+            trigger: SummonTrigger::SideUse {
+                dice: DiceFaces {
+                    faces: vec![DiceFace::Active {
+                        face_id: FaceIdValue::Known(FaceId::DAMAGE_BASIC),
+                        pips: Pips::new(2),
+                    }],
+                },
+                dice_location: DiceLocation::OuterPreface,
             },
-            sprite: crate::authoring::SpriteId::owned("known", ""),
-            color: None,
+            enemy_template: "Wolf".to_string(),
+            team_template: "housecat".to_string(),
             tier: None,
-            doc: None,
+            hp: Some(4),
+            color: None,
+            sprite: crate::authoring::SpriteId::owned("known", ""),
+            sticker_stack: None,
             speech: None,
-            abilitydata: None,
-            item_modifiers: None,
-            sticker: None,
+            doc: None,
             toggle_flags: None,
+            item_modifiers: None,
             source: Source::Custom,
         });
 

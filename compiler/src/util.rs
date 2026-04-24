@@ -228,9 +228,9 @@ pub fn has_color(modifier: &str, target: char) -> bool {
 /// §F10-MARKER — the canonical set `{.i., .sticker., .abilitydata.}`. When
 /// none exist at depth 0, returns the full `body` slice.
 ///
-/// `parse_legendary` feeds the result to scalar extractors for `hp` /
-/// `color` / `sd` / `img` so chain sub-entries (`.i.` / `.sticker.` —
-/// free-form `.sidesc.` / `.enchant.` text) and ability-effect bodies
+/// Scalar extractors for `hp` / `color` / `sd` / `img` feed the result
+/// through here so chain sub-entries (`.i.` / `.sticker.` — free-form
+/// `.sidesc.` / `.enchant.` text) and ability-effect bodies
 /// (`.abilitydata.(...)`) cannot leak interior `.hp.N` / `.col.X` /
 /// `.sd.FACES` / `.img.DATA` substrings into top-level fields. Emission
 /// places every scalar field before the chain and ability region, so the
@@ -241,10 +241,10 @@ pub fn has_color(modifier: &str, target: char) -> bool {
 /// in the corpus is a chain keyword (guide lines 642-645), not a property
 /// marker.
 ///
-/// `parse_legendary` applies this directly — its `item.TEMPLATE…` body is
-/// flat at depth 0 with no outer paren wrap. Capture-shaped items are not
-/// parsed into `ReplicaItem` (chunk-impl rule 3: no corpus instance), so
-/// this helper is Legendary-only in its live callsites.
+/// Post-8A this helper has no in-tree caller — the legacy top-level
+/// `item.TEMPLATE…` replica-item parser was retired per plan §3.1 (zero
+/// corpus instances of top-level `item.<…>`). It remains as a reusable
+/// depth-0 prefix slicer for future §F10-MARKER work.
 pub fn slice_before_chain_and_cast(body: &str) -> &str {
     let mut earliest: Option<usize> = None;
     for marker in [".i.", ".sticker.", ".abilitydata."] {

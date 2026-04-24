@@ -4,7 +4,9 @@
 //! Enforces cross-category name uniqueness and hero color uniqueness.
 
 use crate::error::CompilerError;
-use super::{ModIR, Hero, ReplicaItem, Monster, Boss, Source};
+use super::{
+    Boss, Hero, ItempoolItem, ModIR, Monster, ReplicaItem, Source, StructuralContent,
+};
 
 impl ModIR {
     /// Check if a name is already used by any content type.
@@ -14,7 +16,7 @@ impl ModIR {
         if self.heroes.iter().any(|h| h.mn_name.to_lowercase() == lower) {
             return Some("hero");
         }
-        if self.replica_items.iter().any(|r| r.name.to_lowercase() == lower) {
+        if self.replica_items.iter().any(|r| r.target_pokemon.to_lowercase() == lower) {
             return Some("replica item");
         }
         if self.monsters.iter().any(|m| m.name.to_lowercase() == lower) {
@@ -87,9 +89,9 @@ impl ModIR {
 
     /// Add a replica item. Checks cross-category name uniqueness.
     pub fn add_replica_item(&mut self, item: ReplicaItem) -> Result<(), CompilerError> {
-        if let Some(category) = self.find_name_category(&item.name) {
+        if let Some(category) = self.find_name_category(&item.target_pokemon) {
             return Err(CompilerError::duplicate_name(
-                item.name.clone(),
+                item.target_pokemon.clone(),
                 category.to_string(),
                 "replica item",
             ));
@@ -100,14 +102,69 @@ impl ModIR {
         Ok(())
     }
 
-    /// Remove a replica item by name.
+    /// Remove a replica item by target_pokemon (case-insensitive).
+    ///
+    /// Re-indexes every `ItempoolItem::Summon(i)` in every `ItemPool`
+    /// structural so no pool entry points past the end of `replica_items`
+    /// and no entry points at the wrong index after the shift. This is NOT
+    /// optional — without it, builds would emit the wrong summon or panic
+    /// on out-of-bounds. T28 (in 8b) pins this against the real parser's
+    /// output; 8a carries the invariant by the code alone.
     pub fn remove_replica_item(&mut self, name: &str) -> Result<(), CompilerError> {
         let lower = name.to_lowercase();
-        let pos = self.replica_items.iter().position(|r| r.name.to_lowercase() == lower);
-        match pos {
-            Some(i) => { self.replica_items.remove(i); Ok(()) }
-            None => Err(CompilerError::not_found("replica item", name.to_string())),
+        let j = match self
+            .replica_items
+            .iter()
+            .position(|r| r.target_pokemon.to_lowercase() == lower)
+        {
+            Some(j) => j,
+            None => return Err(CompilerError::not_found("replica item", name.to_string())),
+        };
+
+        // Step 1: remove from the flat list.
+        self.replica_items.remove(j);
+
+        // Step 2: re-index every ItempoolItem::Summon(i) in every ItemPool
+        // structural. Entries referencing the removed index are dropped;
+        // entries above it shift down by one.
+        for structural in self.structural.iter_mut() {
+            if let StructuralContent::ItemPool { items } = &mut structural.content {
+                items.retain_mut(|entry| match entry {
+                    ItempoolItem::Summon(i) if *i == j => false,
+                    ItempoolItem::Summon(i) if *i > j => {
+                        *i -= 1;
+                        true
+                    }
+                    _ => true,
+                });
+            }
         }
+
+        // Step 3: post-removal bounds invariant — no Summon(i) points out of
+        // bounds after the shift. Converts a silent out-of-bounds into an Err
+        // at the CRUD boundary (emit-time would otherwise panic on
+        // `replica_items[i]`). Uses `CompilerError::build` because no
+        // `internal` constructor exists in the current error surface.
+        for structural in self.structural.iter() {
+            if let StructuralContent::ItemPool { items } = &structural.content {
+                for item in items {
+                    if let ItempoolItem::Summon(i) = item {
+                        if *i >= self.replica_items.len() {
+                            return Err(CompilerError::build(
+                                "ir::ops::remove_replica_item",
+                                format!(
+                                    "ReplicaItem index {} out of bounds after removal (len={})",
+                                    i,
+                                    self.replica_items.len()
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Add a monster. Checks cross-category name uniqueness.
@@ -164,7 +221,7 @@ impl ModIR {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{DiceFaces, HeroBlock, HeroFormat};
+    use crate::ir::{DiceFaces, DiceLocation, HeroBlock, HeroFormat, SummonTrigger};
 
     fn make_hero(name: &str, color: char) -> Hero {
         Hero {
@@ -227,20 +284,28 @@ mod tests {
     }
 
     fn make_replica_item(name: &str) -> ReplicaItem {
+        // Chunk 8A: constructs the trigger-based shape. Defaults are sane-
+        // not-corpus (no specific Pokemon). The DiceFaces literal is a
+        // well-formed synthetic dice string; DiceFaces::parse accepts any
+        // colon-separated face list (verified at ir/mod.rs `impl DiceFaces`).
         ReplicaItem {
-            name: name.into(),
-            template: "Hat".into(),
+            container_name: "Test Ball".into(),
+            target_pokemon: name.into(),
+            trigger: SummonTrigger::SideUse {
+                dice: DiceFaces::parse("1-1:2-1:3-1:4-1:5-1:6-1"),
+                dice_location: DiceLocation::OuterPreface,
+            },
+            enemy_template: "Wolf".into(),
+            team_template: "housecat".into(),
+            tier: Some(1),
             hp: None,
-            sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite: crate::authoring::SpriteId::owned(name.to_string(), ""),
             color: None,
-            tier: None,
-            doc: None,
+            sprite: crate::authoring::SpriteId::owned(name.to_string(), ""),
+            sticker_stack: None,
             speech: None,
-            abilitydata: None,
-            item_modifiers: None,
-            sticker: None,
+            doc: None,
             toggle_flags: None,
+            item_modifiers: None,
             source: Source::Base,
         }
     }

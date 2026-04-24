@@ -4,7 +4,10 @@
 //! derived from the hero list. These are generated during build if no explicit
 //! structural of that type exists in the IR.
 
-use crate::ir::{Hero, Source, StructuralContent, StructuralModifier, StructuralType};
+use crate::ir::{
+    Hero, ItempoolItem, ReplicaItem, Source, StructuralContent, StructuralModifier,
+    StructuralType, SummonTrigger,
+};
 
 /// Generate a character selection Selector from the hero list.
 /// Options are sorted by hero color alphabetically.
@@ -27,6 +30,58 @@ pub fn generate_char_selection(heroes: &[Hero]) -> StructuralModifier {
         derived: true,
         source: Source::Base,
     }
+}
+
+/// Generate hero-bound ItemPool structurals from the trigger-based
+/// `ReplicaItem` list.
+///
+/// Walks `replica_items`; each `SummonTrigger::SideUse` (both `OuterPreface`
+/// and `InnerWrapper` — `dice_location` is a source-shape sub-axis, not a
+/// game-mechanic axis) whose `target_pokemon` matches a hero's `mn_name`
+/// routes into a hero-bound pool keyed on that hero's `internal_name`.
+/// `Cast` entries are skipped — Cast summons have their own top-level
+/// emission path per the emitter's trigger dispatch and are not
+/// hero-pool-routed.
+///
+/// Post-8A stub: the `extract_from_itempool` stub produces zero
+/// `ReplicaItem` entries, so this function produces zero output from
+/// extracted corpus input. 8B's real parser surfaces SideUse entries that
+/// this function routes into hero-bound pools. A byte-match-vs-sliceymon
+/// round-trip test for this function ships in 8B (it requires the real
+/// parser to populate `ir.replica_items`).
+///
+/// Returned `StructuralModifier` entries carry `derived: true` so the
+/// merge / build strip-regenerate cycle (SPEC §4) handles them uniformly
+/// with `generate_char_selection` / `generate_hero_pool_base`.
+pub fn generate_hero_item_pool(
+    heroes: &[Hero],
+    replica_items: &[ReplicaItem],
+) -> Vec<StructuralModifier> {
+    let mut out: Vec<StructuralModifier> = Vec::new();
+    for hero in heroes {
+        let hero_lower = hero.mn_name.to_lowercase();
+        let mut items: Vec<ItempoolItem> = Vec::new();
+        for (i, replica) in replica_items.iter().enumerate() {
+            if !matches!(replica.trigger, SummonTrigger::SideUse { .. }) {
+                continue;
+            }
+            if replica.target_pokemon.to_lowercase() != hero_lower {
+                continue;
+            }
+            items.push(ItempoolItem::Summon(i));
+        }
+        if items.is_empty() {
+            continue;
+        }
+        out.push(StructuralModifier {
+            modifier_type: StructuralType::ItemPool,
+            name: Some(format!("{}Item", hero.mn_name)),
+            content: StructuralContent::ItemPool { items },
+            derived: true,
+            source: Source::Base,
+        });
+    }
+    out
 }
 
 /// Generate a HeroPoolBase from the hero list.

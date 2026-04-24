@@ -183,23 +183,27 @@ fn v019_finding_source_populated() {
 fn v020_cross_category_source_is_global() {
     // V020 in `check_cross_category_names` is a global finding (no single
     // offender) — source=None, severity stays Error.
-    use textmod_compiler::ir::ReplicaItem;
+    use textmod_compiler::ir::{DiceLocation, ReplicaItem, SummonTrigger};
     let mut ir = ModIR::empty();
     ir.heroes.push(minimal_hero("Pikachu", 'a', Source::Base));
     ir.replica_items.push(ReplicaItem {
-        name: "Pikachu".to_string(),
-        template: "Slime".to_string(),
-        hp: Some(4),
-        sd: DiceFaces { faces: vec![DiceFace::Blank] },
-        sprite: SpriteId::owned("pikachu", ""),
-        color: None,
+        container_name: "Test Ball".to_string(),
+        target_pokemon: "Pikachu".to_string(),
+        trigger: SummonTrigger::SideUse {
+            dice: DiceFaces { faces: vec![DiceFace::Blank] },
+            dice_location: DiceLocation::OuterPreface,
+        },
+        enemy_template: "Wolf".to_string(),
+        team_template: "housecat".to_string(),
         tier: None,
-        doc: None,
+        hp: Some(4),
+        color: None,
+        sprite: SpriteId::owned("pikachu", ""),
+        sticker_stack: None,
         speech: None,
-        abilitydata: None,
-        item_modifiers: None,
-        sticker: None,
+        doc: None,
         toggle_flags: None,
+        item_modifiers: None,
         source: Source::Base,
     });
 

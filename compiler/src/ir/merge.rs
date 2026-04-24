@@ -143,10 +143,14 @@ pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
     }
     base.heroes.retain(|h| !h.removed);
 
-    // Replica items: replace by name, add new
+    // Replica items: replace by target_pokemon, add new
     for mut item in overlay.replica_items {
         item.source = Source::Overlay;
-        if let Some(pos) = base.replica_items.iter().position(|r| r.name == item.name) {
+        if let Some(pos) = base
+            .replica_items
+            .iter()
+            .position(|r| r.target_pokemon == item.target_pokemon)
+        {
             base.replica_items[pos] = item;
         } else {
             base.replica_items.push(item);

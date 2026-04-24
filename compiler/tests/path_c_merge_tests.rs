@@ -85,7 +85,7 @@ fn is_derived_truth_table() {
         (StructuralType::Selector, StructuralContent::Selector { body: "x".into(), options: vec![] }),
         (StructuralType::HeroPoolBase, StructuralContent::HeroPoolBase { body: "x".into(), hero_refs: vec![] }),
         (StructuralType::PoolReplacement, StructuralContent::PoolReplacement { body: "x".into(), hero_names: vec![] }),
-        (StructuralType::ItemPool, StructuralContent::ItemPool { body: "x".into(), items: vec![] }),
+        (StructuralType::ItemPool, StructuralContent::ItemPool { items: vec![] }),
     ] {
         let mut s = StructuralModifier {
             modifier_type: ty.clone(),

@@ -1,4 +1,4 @@
-use crate::ir::{ItemPoolEntry, StructuralContent, StructuralType};
+use crate::ir::{StructuralContent, StructuralType};
 use crate::util;
 
 /// Extract the .mn. name from a structural modifier.
@@ -68,39 +68,29 @@ fn parse_heropoolbase(raw: &str) -> StructuralContent {
     StructuralContent::HeroPoolBase { body: raw.to_string(), hero_refs }
 }
 
+/// Chunk 8A stub: the `ItemPool` arm of `parse_structural_content` is a
+/// fallback for callers that still route through `make_structural`
+/// (non-itempool-extracting paths). The extractor's real itempool route is
+/// `extract_from_itempool` in `replica_item_parser.rs`, which 8a wires in
+/// `extractor/mod.rs` directly — bypassing this arm for `ModifierType::ItemPool`.
+///
+/// This fn returns the same stub-sentinel shape (`NonSummon { name: "",
+/// tier: None, content: <whole body> }`) as `extract_from_itempool`, so a
+/// caller that reaches this arm still round-trips byte-equal via the
+/// emitter's sentinel path. 8b retires this arm when the real per-entry
+/// classifier lands.
 fn parse_itempool(raw: &str) -> StructuralContent {
-    let mut items = Vec::new();
-    let lower = raw.to_lowercase();
-
-    let start = if let Some(pos) = lower.find("itempool.") {
-        pos + "itempool.".len()
-    } else if let Some(pos) = lower.find("!mitempool.") {
-        pos + "!mitempool.".len()
-    } else {
-        return StructuralContent::ItemPool { body: raw.to_string(), items };
-    };
-
-    let content = &raw[start..];
-
-    let item_strs = util::split_at_depth0(content, '#');
-    for item_str in &item_strs {
-        let trimmed = item_str.trim().trim_matches(|c| c == '(' || c == ')');
-        if trimmed.is_empty() {
-            continue;
-        }
-        let name = util::extract_simple_prop(trimmed, ".n.")
-            .or_else(|| util::extract_mn_name(trimmed))
-            .unwrap_or_default();
-        let tier = util::extract_simple_prop(trimmed, ".tier.")
-            .and_then(|v| v.parse::<i8>().ok());
-        items.push(ItemPoolEntry {
-            name,
-            tier,
-            content: item_str.to_string(),
-        });
+    StructuralContent::ItemPool {
+        items: if raw.is_empty() {
+            Vec::new()
+        } else {
+            vec![crate::ir::ItempoolItem::NonSummon {
+                name: String::new(),
+                tier: None,
+                content: raw.to_string(),
+            }]
+        },
     }
-
-    StructuralContent::ItemPool { body: raw.to_string(), items }
 }
 
 fn parse_bossmodifier(raw: &str) -> StructuralContent {

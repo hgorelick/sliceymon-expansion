@@ -9,13 +9,6 @@ pub enum ModifierType {
     Monster,
     Boss,
     BossEncounter,
-    /// Top-level `item.(...)` — a Legendary replica item (persistent ally with
-    /// spell). Capture-shaped items (wrapped in `itempool.(...)`) route as
-    /// `ItemPool` structurals — there is no `ReplicaItem::Capture` variant
-    /// because no corpus instance exists for it (chunk-impl rule 3:
-    /// "Every IR variant discriminator must have at least one corpus
-    /// instance per variant before it ships").
-    Legendary,
     ItemPool,
     PartyConfig,
     EventModifier,
@@ -178,12 +171,20 @@ pub fn classify(modifier: &str, modifier_index: usize) -> Result<ModifierType, C
         return Ok(ModifierType::ItemPool);
     }
 
-    // Legendary: top-level `item.TEMPLATE...` (persistent ally with spell).
-    // Must be AFTER itempool / ItemPool checks so `itempool.` doesn't slip
-    // through. Distinct from the Capture path, which is always wrapped in
-    // `itempool.(((...))).n.BallName`.
+    // Chunk 8A: top-level `item.<…>` modifiers are retired. The four working
+    // mods contain zero top-level `item.` modifiers (verified 2026-04-24:
+    // `rg -o '^item\.|[,!+]item\.[a-z]' working-mods/*.txt` returns empty).
+    // Any future mod that uses this shape is a new corpus that needs a
+    // design decision, not a silent fallthrough.
     if starts_with_ci(modifier, "item.") {
-        return Ok(ModifierType::Legendary);
+        let preview: String = modifier.chars().take(120).collect();
+        return Err(CompilerError::classify(
+            modifier_index,
+            preview,
+            "Top-level `item.<…>` modifiers are not currently modeled. \
+             Summon items belong inside `itempool.((…))` envelopes. \
+             See plans/CHUNK_8_REPLICA_ITEM_TRIGGER_PLAN.md §1.2.",
+        ));
     }
 
     // PartyConfig: starts with "=party." OR starts with "((party." OR "party."
