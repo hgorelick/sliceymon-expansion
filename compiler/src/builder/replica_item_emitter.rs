@@ -37,7 +37,7 @@ pub fn emit_replica_item(item: &ReplicaItem) -> String {
 }
 
 /// Pure-IR rebuild of an entire `itempool.((…))` structural body. Walks
-/// `items` in source order, joins with `+` at paren-depth 0.
+/// `items` in source order, joins with `#` at paren-depth 0.
 ///
 /// For `Summon(i)`, emits `emit_replica_item(&replica_items[i])`.
 /// For `NonSummon { name, tier, content }`:
@@ -47,9 +47,30 @@ pub fn emit_replica_item(item: &ReplicaItem) -> String {
 ///     `<content>.n.<name>` followed by optional `.tier.<t>`. Reserved for
 ///     callers that supply a populated shape before 8A.5 retypes the variant.
 ///
+/// Delimiter `#` is corpus-sourced:
+/// `working-mods/sliceymon.txt` line 67 (Upgrade pool) shows
+/// `!mitempool.((ritemx.1697d.part.0)#(ocular amulet)#(Citrine Ring))` —
+/// depth-0 entries inside an itempool body are joined by `#`, not `+`.
+/// (`split_at_depth0(content, '#')` was the historical read-side delimiter
+/// in the retired `structural_parser::parse_itempool` before 8A.)
+///
 /// 8a behavior: `items` is always a single sentinel NonSummon whose
 /// `content` is the entire pool body, so this function emits `content`
-/// verbatim and the pool round-trips byte-equal against source.
+/// verbatim and the pool round-trips byte-equal against source. The `#`
+/// delimiter is not exercised by 8A's stub — the single-element case
+/// short-circuits through the sentinel path — but it is the correct choice
+/// for the moment `generate_hero_item_pool` or 8B's real parser surfaces
+/// multi-entry pools.
+///
+/// **Envelope scope (8B carve-out):** This function returns the pool BODY
+/// only. The outer `itempool.((…)).mn.<pool>` envelope (and the `!m` hidden
+/// prefix) is structural-level metadata that 8A does not own — the stub
+/// sentinel smuggles it through `content`. When `Summon(i)` entries ship in
+/// 8B, the envelope construction site (structural emitter vs this function)
+/// is chosen alongside the SideUse outer-preface / inner-wrapper
+/// decomposition question (corpus emits one Pokemon as TWO depth-0 entries
+/// inside one pool; current IR models it as ONE `ReplicaItem`). Leaving the
+/// envelope out of 8A keeps the stub sentinel the single source of truth.
 pub fn emit_itempool(
     items: &[ItempoolItem],
     replica_items: &[ReplicaItem],
@@ -95,7 +116,7 @@ pub fn emit_itempool(
             }
         }
     }
-    parts.join("+")
+    parts.join("#")
 }
 
 // -----------------------------------------------------------------------

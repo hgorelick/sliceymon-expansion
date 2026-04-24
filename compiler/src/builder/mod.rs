@@ -74,7 +74,12 @@ pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerErr
             .filter(|h| filter.admits(h.source))
             .cloned()
             .collect();
-        regenerate_derived_kinds(&mut ir_buf.structural, &filtered_heroes, &kinds);
+        regenerate_derived_kinds(
+            &mut ir_buf.structural,
+            &filtered_heroes,
+            &ir_buf.replica_items,
+            &kinds,
+        );
         &ir_buf
     } else {
         ir

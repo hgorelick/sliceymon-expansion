@@ -1,6 +1,6 @@
 use crate::error::CompilerError;
 use crate::finding::{Finding, Severity};
-use crate::ir::{Hero, ModIR, Source, StructuralModifier, StructuralType};
+use crate::ir::{Hero, ModIR, ReplicaItem, Source, StructuralModifier, StructuralType};
 
 /// X010 — derived structural (`CharacterSelection`, `HeroPoolBase`,
 /// `PoolReplacement`, hero-bound `ItemPool`) present in IR. Authoring derived
@@ -103,7 +103,7 @@ pub fn strip_derived_structurals(
 /// Merge rules:
 /// - Heroes: overlay heroes REPLACE base heroes with the same `internal_name`.
 ///   New heroes ADDED. Heroes with `removed: true` are filtered out.
-/// - ReplicaItems: match by `name`, replace or add.
+/// - ReplicaItems: match by `target_pokemon`, replace or add.
 /// - Monsters: match by `name`, replace or add.
 /// - Bosses: match by `name`, replace or add.
 /// - Structural: overlay structural modifiers REPLACE base modifiers with
@@ -228,10 +228,16 @@ pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
 
     // Regenerate the derived kinds we stripped, against the merged content.
     // Merge operates at the IR level with no build-time filter concept, so
-    // pass the full merged hero set. `build_with` applies its own filter-aware
-    // regen pass on top of a local clone. Disjoint-field borrow: `structural`
-    // is mut-borrowed while `heroes` is immut-borrowed.
-    regenerate_derived_kinds(&mut base.structural, &base.heroes, &stripped_kinds);
+    // pass the full merged hero set + full replica list. `build_with` applies
+    // its own filter-aware regen pass on top of a local clone. Disjoint-field
+    // borrow: `structural` is mut-borrowed while `heroes` and `replica_items`
+    // are immut-borrowed.
+    regenerate_derived_kinds(
+        &mut base.structural,
+        &base.heroes,
+        &base.replica_items,
+        &stripped_kinds,
+    );
 
     Ok(())
 }
@@ -250,22 +256,23 @@ pub fn collect_stripped_kinds(structural: &[StructuralModifier]) -> Vec<Structur
 }
 
 /// Regenerate derived structurals for the listed kinds into `structural`,
-/// deriving from the supplied `heroes` slice.
+/// deriving from the supplied `heroes` and `replica_items` slices.
 ///
 /// Used by both `merge` (post-strip, pre-return — passes the full merged
-/// hero set) and `build_with` (passes the post-`BuildOptions` filter hero
-/// set, so plan §F5's "regenerated from the post-filter content set"
-/// contract is observable). Only regenerates kinds that were
-/// present-and-stripped — this preserves format-specific roundtrip
-/// (sliceymon's inline `!mheropool.` encoding has no separate char-selection
-/// Selector, and nothing in this function adds one unless the input already
-/// had one marked derived).
+/// hero set and full replica list) and `build_with` (passes the
+/// post-`BuildOptions` filter hero set + full replica list, so plan §F5's
+/// "regenerated from the post-filter content set" contract is observable
+/// for heroes; replica indices are preserved across the filter because
+/// `ItempoolItem::Summon(i)` indexes the flat `replica_items` list).
+/// Only regenerates kinds that were present-and-stripped — this preserves
+/// format-specific roundtrip (sliceymon's inline `!mheropool.` encoding has
+/// no separate char-selection Selector, and nothing in this function adds
+/// one unless the input already had one marked derived).
 ///
-/// The two additional derived kinds (PoolReplacement, hero-bound ItemPool)
-/// will route here once Chunk 5b lands them. Today they hit the `_ => {}`
-/// arm — a stripped derived PoolReplacement is dropped without regeneration.
-/// This is acceptable today because no regenerator exists yet; it is the
-/// exact ticket for Chunk 5b.
+/// Hero-bound `ItemPool` regeneration is wired as of 8A: a stripped derived
+/// `ItemPool` is re-authored by `derived::generate_hero_item_pool` against
+/// the trigger-based replica list. `PoolReplacement` remains a `_ => {}`
+/// sink — its regenerator is Chunk 5b's exact ticket, not 8A's.
 ///
 /// Contract: callers must invoke `strip_derived_structurals` on `structural`
 /// before calling this — `collect_stripped_kinds` returns a deduped `kinds`
@@ -274,6 +281,7 @@ pub fn collect_stripped_kinds(structural: &[StructuralModifier]) -> Vec<Structur
 pub fn regenerate_derived_kinds(
     structural: &mut Vec<StructuralModifier>,
     heroes: &[Hero],
+    replica_items: &[ReplicaItem],
     kinds: &[StructuralType],
 ) {
     if heroes.is_empty() || kinds.is_empty() {
@@ -287,7 +295,12 @@ pub fn regenerate_derived_kinds(
             StructuralType::HeroPoolBase => {
                 structural.push(crate::builder::derived::generate_hero_pool_base(heroes));
             }
-            // PoolReplacement + ItemPool regenerators deferred to Chunk 5b.
+            StructuralType::ItemPool => {
+                structural.extend(
+                    crate::builder::derived::generate_hero_item_pool(heroes, replica_items),
+                );
+            }
+            // PoolReplacement regenerator deferred to Chunk 5b.
             _ => {}
         }
     }
