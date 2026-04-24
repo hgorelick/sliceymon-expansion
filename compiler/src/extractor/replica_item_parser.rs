@@ -1,3 +1,4 @@
+use crate::error::CompilerError;
 use crate::ir::{ReplicaItem, Source};
 use crate::util;
 
@@ -6,18 +7,31 @@ use crate::util;
 /// Legendaries are the only replica shape the classifier produces; Capture-shaped
 /// items route as `ItemPool` structurals because no corpus instance has ever
 /// been observed in the 4 working mods (chunk-impl rule 3).
-pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
+///
+/// Returns a structured error rather than panicking if the classifier ever
+/// routes a non-`item.*` modifier here — the caller in `extractor/mod.rs`
+/// propagates it through `?`.
+pub fn parse_legendary(modifier: &str, modifier_index: usize) -> Result<ReplicaItem, CompilerError> {
     // Strip the leading `item.` (case-insensitive). The classifier's
     // `ModifierType::Legendary` gate (extractor/classifier.rs) only routes
-    // top-level `item.*` here; if that invariant is ever broken, fail loud
-    // rather than silently parsing garbage as a Legendary body.
-    let body = modifier
+    // top-level `item.*` here; if that invariant is ever broken, surface a
+    // structured error rather than panicking.
+    let Some(body) = modifier
         .get(5..)
         .filter(|_| modifier.len() >= 5 && modifier[..5].eq_ignore_ascii_case("item."))
-        .expect(
-            "parse_legendary invoked with a modifier that does not start with `item.` — \
-             classifier invariant broken (see extractor/classifier.rs)",
-        );
+    else {
+        return Err(CompilerError::build(
+            "replica_item_parser::parse_legendary",
+            format!(
+                "expected modifier to start with `item.` (case-insensitive), got: {:.40}",
+                modifier
+            ),
+        )
+        .with_field_path(format!("replica_items[{}]", modifier_index))
+        .with_suggestion(
+            "classifier::ModifierType::Legendary must only route modifiers beginning with `item.`",
+        ));
+    };
     // Scalar fields (hp/sd/color/img) must only be scanned in the top-level
     // prefix that precedes any chain (`.i.` / `.sticker.`) or ability block.
     // Chain sub-entries carry free-form `.sidesc.` / `.enchant.` text and
@@ -74,7 +88,7 @@ pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
     let img_data = util::extract_img_data(scalar_slice);
     let sprite = crate::authoring::SpriteId::owned(name.clone(), img_data.unwrap_or_default());
 
-    ReplicaItem {
+    Ok(ReplicaItem {
         name,
         template,
         hp,
@@ -89,7 +103,7 @@ pub fn parse_legendary(modifier: &str, _modifier_index: usize) -> ReplicaItem {
         sticker: None,
         toggle_flags: None,
         source: Source::Base,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -106,7 +120,7 @@ mod tests {
     #[test]
     fn parses_legendary_from_top_level_item() {
         let modifier = "item.Alpha.sd.0:0:0:0:0:0.n.Mew";
-        let item = parse_legendary(modifier, 0);
+        let item = parse_legendary(modifier, 0).expect("valid legendary parses");
         assert_eq!(item.name, "Mew");
         assert_eq!(item.template, "Alpha");
     }
@@ -119,7 +133,7 @@ mod tests {
         // LAST pre-ability depth-0 `.n.` is the character name. First-match
         // would incorrectly pick the chain's internal `.n.`.
         let modifier = "item.Alpha.hp.9.i.hat.statue.n.Viscera.sd.0:0:0:0:0:0.n.Mew";
-        let item = parse_legendary(modifier, 0);
+        let item = parse_legendary(modifier, 0).expect("valid legendary parses");
         assert_eq!(item.name, "Mew", "character name must be the last pre-ability `.n.`, not a chain-internal `.n.`");
     }
 
@@ -143,14 +157,14 @@ mod tests {
         // top-level `.hp.` → `None`. A non-depth-aware `extract_hp` would
         // wrongly return `Some(99)`.
         let modifier = "item.Alpha.sticker.sidesc.hp.99.sd.0:0:0:0:0:0.n.Mew";
-        let item = parse_legendary(modifier, 0);
+        let item = parse_legendary(modifier, 0).expect("valid legendary parses");
         assert_eq!(item.hp, None, "chain-interior .hp. must not leak into top-level hp");
     }
 
     #[test]
     fn legendary_color_ignores_chain_interior_sidesc() {
         let modifier = "item.Alpha.sticker.sidesc.col.z.sd.0:0:0:0:0:0.n.Mew";
-        let item = parse_legendary(modifier, 0);
+        let item = parse_legendary(modifier, 0).expect("valid legendary parses");
         assert_eq!(item.color, None, "chain-interior .col. must not leak into top-level color");
     }
 
@@ -163,7 +177,7 @@ mod tests {
         // first-match on the full body would return the decoy and fail
         // this assertion (source-vs-IR divergence, per chunk-impl rule 2).
         let modifier = "item.Alpha.sticker.sidesc.sd.999-1:0:0:0:0:0.n.Mew";
-        let item = parse_legendary(modifier, 0);
+        let item = parse_legendary(modifier, 0).expect("valid legendary parses");
         assert_eq!(
             item.sd,
             crate::ir::DiceFaces { faces: vec![] },
@@ -178,7 +192,7 @@ mod tests {
         // the chain start) would produce a populated sprite. The helper
         // must trim the chain region so img_data stays empty.
         let modifier = "item.Alpha.sticker.sidesc.img.BADIMG.sd.0:0:0:0:0:0.n.Mew";
-        let item = parse_legendary(modifier, 0);
+        let item = parse_legendary(modifier, 0).expect("valid legendary parses");
         assert_eq!(
             item.sprite.img_data(),
             "",
@@ -195,7 +209,7 @@ mod tests {
         // up into the top-level fields — silently flipping `None`/empty
         // into `Some(...)` at parse time. Guards against that leakage.
         let modifier = "item.Alpha.n.Mew.abilitydata.(Spell.sd.170-1:0:0:0:0:0.col.a.hp.5.img.bas99:9.n.Psy)";
-        let item = parse_legendary(modifier, 0);
+        let item = parse_legendary(modifier, 0).expect("valid legendary parses");
         assert_eq!(item.name, "Mew");
         assert_eq!(item.template, "Alpha");
         assert_eq!(item.hp, None, "ability-interior .hp. must not leak into top-level hp");
@@ -211,5 +225,26 @@ mod tests {
             "ability-interior .img. must not leak into top-level sprite img_data",
         );
         assert!(item.abilitydata.is_some(), "ability body still parses into abilitydata");
+    }
+
+    #[test]
+    fn legendary_without_item_prefix_propagates_error() {
+        // Classifier invariant: `ModifierType::Legendary` is only produced for
+        // top-level `item.*` modifiers. If that invariant is ever broken, the
+        // parser must surface a structured error — not panic, not silently
+        // parse the wrong shape. Source-vs-IR: the returned error carries the
+        // *source* modifier-index, so a regression that derived the index from
+        // some other state (e.g. the position of the last-successfully-parsed
+        // item) would fail this assertion.
+        let modifier = "boss.AAA.hp.100.n.Nope";
+        let err = parse_legendary(modifier, 42).expect_err("non-`item.` prefix must not parse");
+        match err.kind.as_ref() {
+            crate::error::ErrorKind::Build { component, .. } => {
+                assert_eq!(component, "replica_item_parser::parse_legendary");
+            }
+            other => panic!("expected Build error, got {:?}", other),
+        }
+        assert_eq!(err.field_path.as_deref(), Some("replica_items[42]"));
+        assert!(err.suggestion.is_some(), "classifier-invariant hint must be present");
     }
 }

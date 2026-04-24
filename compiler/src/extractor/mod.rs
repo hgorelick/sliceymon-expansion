@@ -57,7 +57,7 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
                 bosses.push(boss_parser::parse_encounter(modifier, i));
             }
             ModifierType::Legendary => {
-                replica_items.push(replica_item_parser::parse_legendary(modifier, i));
+                replica_items.push(replica_item_parser::parse_legendary(modifier, i)?);
             }
             ModifierType::HeroPoolBase => {
                 structural.push(make_structural(StructuralType::HeroPoolBase, modifier.clone()));
@@ -122,5 +122,6 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
         monsters,
         bosses,
         structural,
+        warnings: Vec::new(),
     })
 }
