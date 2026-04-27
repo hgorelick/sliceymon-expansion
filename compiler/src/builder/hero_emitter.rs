@@ -306,7 +306,8 @@ fn emit_grouped(hero: &Hero) -> Result<String, CompilerError> {
     Ok(out)
 }
 
-/// Resolve sprite data for emission. Per SPEC §F4/§3.3, every `HeroBlock.sprite`
+/// Resolve sprite data for emission. Per the 2026-04-20 "no legacy back-compat"
+/// ruling on sprite shape and SPEC §3.3, every `HeroBlock.sprite`
 /// is a complete `SpriteId` carrying its own `img_data`. An empty `img_data()`
 /// means the source had no `.img.` at all (e.g. an inherited block), so we
 /// return `None` to suppress emission and preserve roundtrip.
