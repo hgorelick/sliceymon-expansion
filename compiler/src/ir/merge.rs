@@ -104,10 +104,11 @@ pub fn strip_derived_structurals(
 /// - Heroes: overlay heroes REPLACE base heroes with the same `internal_name`.
 ///   New heroes ADDED. Heroes with `removed: true` are filtered out.
 /// - ReplicaItems: match by `(target_name, trigger discriminant)`, replace
-///   or add. Pokemon may carry one ReplicaItem per trigger variant
-///   (`SummonTrigger::SideUse` and `SummonTrigger::Cast`), so the merge key
-///   must include the trigger discriminant — matching by `target_name`
-///   alone would silently collapse SideUse + Cast pairs into the first match.
+///   or add. A single `target_name` may carry one ReplicaItem per trigger
+///   variant (`SummonTrigger::SideUse` and `SummonTrigger::Cast`), so the
+///   merge key must include the trigger discriminant — matching by
+///   `target_name` alone would silently collapse SideUse + Cast pairs into
+///   the first match.
 /// - Monsters: match by `name`, replace or add.
 /// - Bosses: match by `name`, replace or add.
 /// - Structural: overlay structural modifiers REPLACE base modifiers with
@@ -148,10 +149,10 @@ pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
     base.heroes.retain(|h| !h.removed);
 
     // Replica items: replace by (target_name, trigger discriminant), add
-    // new. The IR allows one ReplicaItem per trigger variant per Pokemon
-    // (e.g. a Pokemon with both a SideUse Pokeball and a Cast spell — corpus
-    // shape that 8B's parser will produce). Matching on target_name alone
-    // would silently collapse such pairs.
+    // new. The IR allows one ReplicaItem per trigger variant per
+    // `target_name` (e.g. a single target with both a SideUse Pokeball and a
+    // Cast spell — corpus shape that 8B's parser will produce). Matching on
+    // target_name alone would silently collapse such pairs.
     for mut item in overlay.replica_items {
         item.source = Source::Overlay;
         let item_disc = std::mem::discriminant(&item.trigger);

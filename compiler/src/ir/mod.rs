@@ -594,22 +594,22 @@ pub struct HeroBlock {
 
 // -- Replica Items --
 //
-// A Pokemon-summon item extracted from an entry inside `itempool.((…))`.
+// A summon item extracted from an entry inside `itempool.((…))`.
 // An entry is a `ReplicaItem` iff its inner
 // `hat.(replica.Thief.i.(all.(…)))` wrapper contains BOTH a
-// `hat.egg.<enemy_template>.n.<Pokemon>…` egg and a matching
-// `vase.(add.((replica.<team_template>.n.<Pokemon>…)))` team-join replica.
+// `hat.egg.<enemy_template>.n.<target_name>…` egg and a matching
+// `vase.(add.((replica.<team_template>.n.<target_name>…)))` team-join replica.
 
-/// A Pokemon-summon item extracted from an entry inside `itempool.((…))`.
+/// A summon item extracted from an entry inside `itempool.((…))`.
 ///
 /// An entry is classified as a `ReplicaItem` iff its inner
 /// `hat.(replica.Thief.i.(all.(…)))` wrapper contains BOTH:
 ///
-///   1. a `hat.egg.<enemy_template>.n.<Pokemon>…` sub-block (the summoned
-///      enemy that must be defeated), AND
-///   2. a `vase.(add.((replica.<team_template>.n.<Pokemon>…)))` sub-block
-///      (the team-join replica emitted on defeat) whose `<Pokemon>` matches
-///      the egg's.
+///   1. a `hat.egg.<enemy_template>.n.<target_name>…` sub-block (the
+///      summoned enemy that must be defeated), AND
+///   2. a `vase.(add.((replica.<team_template>.n.<target_name>…)))`
+///      sub-block (the team-join replica emitted on defeat) whose
+///      `<target_name>` matches the egg's.
 ///
 /// No raw-passthrough escape hatch — every field below must be derivable
 /// from verified corpus bytes; if implementation finds a sub-block not
@@ -689,7 +689,7 @@ pub enum SummonTrigger {
 /// round-trip byte-equal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum DiceLocation {
-    /// Outer flat preface: `hat.replica.Thief.n.<Pokemon>.sd.<faces>` sits
+    /// Outer flat preface: `hat.replica.Thief.n.<target_name>.sd.<faces>` sits
     /// BEFORE the wrapper's opening. 18 corpus entries.
     OuterPreface,
     /// Inner wrapper: no outer preface; dice live inside the wrapper's egg
