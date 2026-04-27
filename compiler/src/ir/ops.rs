@@ -87,15 +87,64 @@ impl ModIR {
         }
     }
 
-    /// Add a replica item. Checks cross-category name uniqueness.
+    /// Add a replica item.
+    ///
+    /// Two invariants gate insertion:
+    /// 1. **Cross-bucket** (SPEC §6.3 / X003): `target_name` must not collide
+    ///    with any hero / monster / boss name.
+    /// 2. **Intra-replica** (post-Round-8 merge contract per
+    ///    [`merge.rs:106-111`](super::merge)): a single `target_name` may
+    ///    carry one `ReplicaItem` per trigger variant
+    ///    (`SummonTrigger::SideUse` + `SummonTrigger::Cast`), so the
+    ///    uniqueness key inside `replica_items` is
+    ///    `(target_name, std::mem::discriminant(&trigger))`. Matching by
+    ///    `target_name` alone would block the corpus shape that 4 Pokemon
+    ///    (Ho-Oh, Lugia, Kyogre, Groudon) carry — see
+    ///    `tests/path_c_merge_tests.rs::merge_replicas_distinguishes_sideuse_and_cast_for_same_pokemon`.
     pub fn add_replica_item(&mut self, item: ReplicaItem) -> Result<(), CompilerError> {
-        if let Some(category) = self.find_name_category(&item.target_name) {
+        let lower = item.target_name.to_lowercase();
+
+        // Cross-bucket check (SPEC §6.3): heroes / monsters / bosses only —
+        // intra-replica uniqueness is governed by the trigger-discriminant
+        // rule below, not by `find_name_category` (which collapses all
+        // same-`target_name` replicas into a single hit).
+        if self.heroes.iter().any(|h| h.mn_name.to_lowercase() == lower) {
             return Err(CompilerError::duplicate_name(
                 item.target_name.clone(),
-                category.to_string(),
+                "hero".to_string(),
                 "replica item",
             ));
         }
+        if self.monsters.iter().any(|m| m.name.to_lowercase() == lower) {
+            return Err(CompilerError::duplicate_name(
+                item.target_name.clone(),
+                "monster".to_string(),
+                "replica item",
+            ));
+        }
+        if self.bosses.iter().any(|b| b.name.to_lowercase() == lower) {
+            return Err(CompilerError::duplicate_name(
+                item.target_name.clone(),
+                "boss".to_string(),
+                "replica item",
+            ));
+        }
+
+        // Intra-replica check (round-9 merge contract): block only if the
+        // SAME `(target_name, trigger discriminant)` is already present.
+        // SideUse + Cast for the same target is a valid corpus shape.
+        let item_disc = std::mem::discriminant(&item.trigger);
+        if self.replica_items.iter().any(|r| {
+            r.target_name.to_lowercase() == lower
+                && std::mem::discriminant(&r.trigger) == item_disc
+        }) {
+            return Err(CompilerError::duplicate_name(
+                item.target_name.clone(),
+                "replica item".to_string(),
+                "replica item",
+            ));
+        }
+
         let mut item = item;
         item.source = Source::Custom;
         self.replica_items.push(item);
@@ -356,6 +405,75 @@ mod tests {
         ir.add_hero(make_hero("Charmander", 'a')).unwrap();
         let result = ir.add_replica_item(make_replica_item("Charmander"));
         assert!(result.is_err());
+    }
+
+    /// Round-12 sibling of round-9's merge fix. The merge contract
+    /// (`ir/merge.rs:106-111`) explicitly permits one ReplicaItem per
+    /// trigger variant per `target_name` — corpus shape carried by Ho-Oh,
+    /// Lugia, Kyogre, Groudon. CRUD's `add_replica_item` must accept the
+    /// same shape, otherwise web-backend authoring of those 4 Pokemon is
+    /// impossible without bypassing the public API.
+    #[test]
+    fn add_replica_item_allows_same_target_name_different_trigger_discriminant() {
+        let mut ir = ModIR::empty();
+
+        let sideuse = make_replica_item("HoOh"); // default = SideUse / OuterPreface
+        ir.add_replica_item(sideuse).unwrap();
+
+        let cast = ReplicaItem {
+            container_name: "HoOh Spell".into(),
+            target_name: "HoOh".into(),
+            trigger: SummonTrigger::Cast {
+                dice: DiceFaces::parse("36-10:36-10:0:0:36-10:0"),
+            },
+            enemy_template: "dragon".into(),
+            team_template: "prodigy".into(),
+            tier: Some(3),
+            hp: Some(30),
+            color: None,
+            sprite: crate::authoring::SpriteId::owned("hooh", ""),
+            sticker_stack: None,
+            speech: None,
+            doc: None,
+            toggle_flags: None,
+            item_modifiers: None,
+            source: Source::Base,
+        };
+        ir.add_replica_item(cast).expect(
+            "merge contract permits SideUse + Cast for same target_name; CRUD must accept it",
+        );
+
+        assert_eq!(ir.replica_items.len(), 2);
+        assert!(matches!(
+            ir.replica_items[0].trigger,
+            SummonTrigger::SideUse { .. }
+        ));
+        assert!(matches!(
+            ir.replica_items[1].trigger,
+            SummonTrigger::Cast { .. }
+        ));
+    }
+
+    /// Intra-replica uniqueness is keyed on
+    /// `(target_name, std::mem::discriminant(&trigger))` per the round-9
+    /// merge predicate. Two SideUse replicas with the same target_name
+    /// (regardless of `dice_location`, which is a source-shape sub-axis with
+    /// identical engine behavior — `ir/mod.rs:686-698`) collide on the
+    /// merge key, so CRUD must reject the second.
+    #[test]
+    fn add_replica_item_blocks_same_target_name_same_trigger_discriminant() {
+        let mut ir = ModIR::empty();
+        ir.add_replica_item(make_replica_item("HoOh")).unwrap();
+        let err = ir
+            .add_replica_item(make_replica_item("HoOh"))
+            .expect_err("second SideUse(HoOh) must collide on merge key");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("HoOh") && msg.contains("replica item"),
+            "expected DuplicateName error naming the colliding target_name + bucket; got: {}",
+            msg
+        );
+        assert_eq!(ir.replica_items.len(), 1);
     }
 
     #[test]
