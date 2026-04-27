@@ -977,9 +977,12 @@ mod tests {
 
     #[test]
     fn x003_duplicate_pokemon_across_kinds() {
-        // Pikachu as both Hero and Legendary replica item — X003 must fire
-        // even though V020 also catches this case. X003 reports per-bucket
-        // granularity.
+        // Pikachu as both Hero and replica item (legendary bucket) — X003
+        // must fire even though V020 also catches this case. X003 reports
+        // per-bucket granularity. The bucket label "legendary" is preserved
+        // across the 8A rewrite per the function-doc on
+        // check_duplicate_pokemon_buckets; the IR itself is no longer
+        // Legendary-only (SummonTrigger::SideUse / Cast).
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Pikachu", 'a'));
         ir.replica_items.push(make_replica_item("Pikachu"));
@@ -1025,12 +1028,14 @@ mod tests {
     }
 
     /// X003's `suggestion` string must enumerate only buckets the rule can
-    /// report — never a hypothetical `capture` bucket (deleted per chunk-impl
-    /// rule 3 in Chunk 9) nor `boss` (V020's territory per SPEC §6.3). Pins
-    /// the fix for the Round-12 finding where the user-facing advice listed
-    /// `capture` as a valid rename target; source-vs-IR divergent by
-    /// construction because no ModIR this rule can see contains a `capture`
-    /// bucket, so the suggestion must not reach for one.
+    /// report — never a hypothetical `capture` bucket (deleted upstream per
+    /// chunk-impl rule 3, no corpus instance) nor `boss` (V020's territory
+    /// per SPEC §6.3). Pins the fix for the Round-12 finding where the
+    /// user-facing advice listed `capture` as a valid rename target;
+    /// source-vs-IR divergent by construction because no ModIR this rule
+    /// can see contains a `capture` bucket, so the suggestion must not
+    /// reach for one. (Post-8A bucket set is `{hero, legendary, monster}`
+    /// per the function-doc on `check_duplicate_pokemon_buckets`.)
     #[test]
     fn x003_suggestion_only_enumerates_live_buckets() {
         let mut ir = ModIR::empty();
@@ -1062,9 +1067,12 @@ mod tests {
     #[test]
     fn x003_silent_on_intra_bucket_duplicate() {
         // Two replica items with the same name — both land in the `legendary`
-        // bucket (post-Chunk-9, `ReplicaItem` is Legendary-only). X003 is a
-        // cross-bucket check per SPEC §6.3; intra-bucket duplicates are V-rule
-        // territory (V019 etc.), not a Pokemon-bucket collision.
+        // bucket. Post-8A, `ReplicaItem` models trigger-based summons
+        // (`SummonTrigger::SideUse` / `Cast`); the `legendary` bucket label
+        // is preserved for X003-message stability per the function-doc on
+        // `check_duplicate_pokemon_buckets`. X003 is a cross-bucket check
+        // per SPEC §6.3; intra-bucket duplicates are V-rule territory
+        // (V019 etc.), not a Pokemon-bucket collision.
         let mut ir = ModIR::empty();
         ir.replica_items.push(make_replica_item("Pikachu"));
         ir.replica_items.push(make_replica_item("Pikachu"));

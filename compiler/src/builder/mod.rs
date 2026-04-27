@@ -20,8 +20,11 @@ use crate::ir::merge::{collect_stripped_kinds, regenerate_derived_kinds, strip_d
 ///
 /// Assembly order matches sliceymon convention:
 /// party, events, dialogs, selectors, heropool base, heroes, level-up,
-/// items, captures, legendaries, monsters, bosses, boss modifiers,
-/// gen select, difficulty, end screen, art credits
+/// item pools, replica items (trigger-based summons), monsters, bosses,
+/// boss modifiers, gen select, difficulty, end screen, art credits.
+/// (Post-8A: a single `replica_items` loop replaces the pre-rewrite
+/// capture / legendary stages — `ReplicaItem` now models trigger-based
+/// summons via `SummonTrigger::SideUse` / `Cast` per `ir/mod.rs`.)
 ///
 /// Output format: one modifier per line, comma-terminated, with blank spacer lines.
 ///
