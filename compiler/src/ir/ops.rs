@@ -408,4 +408,90 @@ mod tests {
         assert_eq!(ir.bosses.len(), 1);
         assert_eq!(ir.heroes.len(), 1);
     }
+
+    /// Pin all three branches of the `Summon(i)` re-index logic in
+    /// `remove_replica_item` (ops.rs:113-167). Round-3 tribunal: the function
+    /// shipped with 35 lines of non-trivial logic and zero unit coverage —
+    /// only `remove_replica_item_by_name` exercised it, with no ItemPool
+    /// structurals so the re-index path was unreached. T28 (8B) tests against
+    /// the real parser; this test pins the unit behavior today.
+    #[test]
+    fn remove_replica_item_reindexes_summon_entries() {
+        use crate::ir::{StructuralContent, StructuralModifier, StructuralType};
+
+        // Three replicas at indices 0, 1, 2; one ItemPool referencing all three.
+        let mut ir = ModIR::empty();
+        ir.add_replica_item(make_replica_item("Alpha")).unwrap();
+        ir.add_replica_item(make_replica_item("Beta")).unwrap();
+        ir.add_replica_item(make_replica_item("Gamma")).unwrap();
+        ir.structural.push(StructuralModifier {
+            modifier_type: StructuralType::ItemPool,
+            name: Some("TestPool".into()),
+            content: StructuralContent::ItemPool {
+                items: vec![
+                    ItempoolItem::Summon(0), // Alpha — leave alone after Beta removed
+                    ItempoolItem::Summon(1), // Beta  — must be dropped
+                    ItempoolItem::Summon(2), // Gamma — must decrement to 1
+                ],
+            },
+            derived: false,
+            source: Source::Base,
+        });
+
+        // Remove the middle replica (target_pokemon = "Beta", index 1).
+        ir.remove_replica_item("Beta").unwrap();
+
+        // replica_items: Beta dropped, Alpha + Gamma survive.
+        assert_eq!(ir.replica_items.len(), 2);
+        assert_eq!(ir.replica_items[0].target_pokemon, "Alpha");
+        assert_eq!(ir.replica_items[1].target_pokemon, "Gamma");
+
+        // ItemPool: Summon(1) dropped, Summon(0) unchanged, Summon(2) → Summon(1).
+        match &ir.structural[0].content {
+            StructuralContent::ItemPool { items } => {
+                assert_eq!(
+                    items,
+                    &vec![ItempoolItem::Summon(0), ItempoolItem::Summon(1)],
+                    "expected drop(Summon(1)) + decrement(Summon(2)→Summon(1)); got {:?}",
+                    items
+                );
+            }
+            other => panic!("expected ItemPool content, got {:?}", other),
+        }
+    }
+
+    /// Step 3 of `remove_replica_item` (ops.rs:148-165) is the post-removal
+    /// out-of-bounds bounds invariant. A hand-constructed `Summon(i)` whose
+    /// index already exceeds `replica_items.len() - 1` after removal must
+    /// surface as `Err(CompilerError::build(...))`, not panic at emit time.
+    /// This pins the CRUD-boundary guard against silent out-of-bounds.
+    #[test]
+    fn remove_replica_item_errors_on_out_of_bounds_summon() {
+        use crate::ir::{StructuralContent, StructuralModifier, StructuralType};
+
+        // One replica, one pool with Summon(99) — out of bounds for any
+        // post-removal state. (Pre-removal it's also OOB, but the function
+        // doesn't pre-check; Step 3 is the bounds gate.)
+        let mut ir = ModIR::empty();
+        ir.add_replica_item(make_replica_item("Alpha")).unwrap();
+        ir.structural.push(StructuralModifier {
+            modifier_type: StructuralType::ItemPool,
+            name: Some("TestPool".into()),
+            content: StructuralContent::ItemPool {
+                items: vec![ItempoolItem::Summon(99)],
+            },
+            derived: false,
+            source: Source::Base,
+        });
+
+        let err = ir
+            .remove_replica_item("Alpha")
+            .expect_err("Summon(99) > replica_items.len() must surface as Err");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("out of bounds"),
+            "expected out-of-bounds error message; got: {}",
+            msg
+        );
+    }
 }

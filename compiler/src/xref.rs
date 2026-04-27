@@ -178,12 +178,15 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
 /// SPEC §6.3 — "A Pokemon may exist in at most one of: heroes, replica items
 /// (captures / legendaries), monsters."
 ///
-/// Post-Chunk-9 (2026-04-23), `ReplicaItem` models Legendaries only; Captures
-/// route as `ItemPool` structurals at the classifier (§F7, chunk-impl rule 3:
-/// no corpus instance for a Capture-shape `ReplicaItem`). X003 therefore
-/// collects buckets as `{hero, legendary, monster}` — narrower than V020's
-/// `{hero, replica_item, monster, boss}`, not more granular: the post-deletion
-/// `legendary` label and V020's `replica_item` label carry the same information
+/// Post-Chunk-8A, `ReplicaItem` models trigger-based summons
+/// (`SummonTrigger::SideUse` and `SummonTrigger::Cast`) — both bucketed under
+/// the `"legendary"` label here so X003 collects buckets as
+/// `{hero, legendary, monster}`. The label is preserved across the 8A rewrite
+/// for stability of the paired test (`x003_duplicate_pokemon_across_kinds`
+/// asserts `message.contains("legendary")`) and the SPEC §6.3 prose surface;
+/// 8B unifies it to `"replica_item"` per `plans/CHUNK_8B…` §9. The bucket set
+/// remains narrower than V020's `{hero, replica_item, monster, boss}` — not
+/// more granular: `legendary` and `replica_item` carry the same information
 /// one-to-one, and X003 deliberately excludes `boss` per SPEC §6.3.
 fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
     // (bucket_label, original_name) pairs keyed by lowercase name.
