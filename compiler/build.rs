@@ -241,9 +241,7 @@ fn emit_generated(ids: &BTreeMap<u16, FaceIdMeta>) -> String {
     // without relying on curated names alone.
     out.push_str("/// Every FaceID harvested from the corpus or curated by name,\n");
     out.push_str("/// in ascending order. Used by the `FaceIdValue::try_new` lookup.\n");
-    out.push_str(&format!(
-        "pub const KNOWN_FACE_IDS: &[u16] = &[\n"
-    ));
+    out.push_str("pub const KNOWN_FACE_IDS: &[u16] = &[\n");
     for id in ids.keys() {
         out.push_str(&format!("    {id},\n"));
     }

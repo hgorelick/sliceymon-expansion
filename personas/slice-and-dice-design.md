@@ -140,11 +140,11 @@ Study the existing Sliceymon bosses as templates for new designs:
 - **Boss**: `ch.omN.fight.(replica.TEMPLATE...+replica.TEMPLATE...).mn.NAME`
 - **Structural**: Various (selectors, dialogs, item pools, party config, difficulty)
 
-**Compiler IR**: The Rust textmod compiler (`compiler/`) parses textmods into structured IR (JSON-serializable). The IR is the authoritative schema for mod content. Heroes, captures, monsters, bosses, and structural modifiers are all represented as typed structs with named fields. The compiler builds valid textmod strings from IR — no raw passthrough.
+**Compiler IR**: The Rust textmod compiler (`compiler/`) parses textmods into structured IR (JSON-serializable). The IR is the authoritative schema for mod content. Heroes, replica items, monsters, bosses, and structural modifiers are all represented as typed structs with named fields. The compiler builds valid textmod strings from IR — no raw passthrough.
 
 **Key design patterns**:
 - **Derived structural modifiers**: Character selection, hero pools, and pool replacements are auto-generated from the hero list — not hand-authored
-- **`.part.1` appending**: Adds to existing pools without replacing. Standard for new monsters, captures
+- **`.part.1` appending**: Adds to existing pools without replacing. Standard for new monsters, replica items
 - **Template inheritance**: `replica.TEMPLATE` provides base config; `.hp.`, `.sd.`, `.col.`, `.img.` override
 - **Tier separators**: `+` at depth 0 separates evolution tiers within a hero
 
@@ -281,7 +281,7 @@ Before considering any hero, monster, or boss design complete:
 - [ ] Pip values are tier-appropriate (T1: 1-2, T2: 2-3, T3: 3-6)
 - [ ] Blank face count follows guidelines (T1: 2-3, T2: 1-2, T3: 0-1)
 - [ ] HP is within tier range and justified by role
-- [ ] No duplicate Pokemon across hero/monster/capture pools
+- [ ] No duplicate Pokemon across hero/monster/replica-item pools
 - [ ] Pokemon type → keyword mapping is respected
 - [ ] Pokemon competitive role → S&D role mapping is respected
 - [ ] Spell (if any) has appropriate mana cost and effect for tier

@@ -20,8 +20,11 @@ use crate::ir::merge::{collect_stripped_kinds, regenerate_derived_kinds, strip_d
 ///
 /// Assembly order matches sliceymon convention:
 /// party, events, dialogs, selectors, heropool base, heroes, level-up,
-/// items, captures, legendaries, monsters, bosses, boss modifiers,
-/// gen select, difficulty, end screen, art credits
+/// item pools, replica items (trigger-based summons), monsters, bosses,
+/// boss modifiers, gen select, difficulty, end screen, art credits.
+/// (Post-8A: a single `replica_items` loop replaces the pre-rewrite
+/// capture / legendary stages — `ReplicaItem` now models trigger-based
+/// summons via `SummonTrigger::SideUse` / `Cast` per `ir/mod.rs`.)
 ///
 /// Output format: one modifier per line, comma-terminated, with blank spacer lines.
 ///
@@ -74,7 +77,12 @@ pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerErr
             .filter(|h| filter.admits(h.source))
             .cloned()
             .collect();
-        regenerate_derived_kinds(&mut ir_buf.structural, &filtered_heroes, &kinds);
+        regenerate_derived_kinds(
+            &mut ir_buf.structural,
+            &filtered_heroes,
+            &ir_buf.replica_items,
+            &kinds,
+        );
         &ir_buf
     } else {
         ir
@@ -96,7 +104,7 @@ pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerErr
                 .iter()
                 .filter(|s| s.modifier_type == kind && (s.is_derived() || filter.admits(s.source)))
             {
-                modifiers.push(structural_emitter::emit(s));
+                modifiers.push(structural_emitter::emit(s, &ir.replica_items));
             }
         };
 
@@ -126,9 +134,12 @@ pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerErr
     // 8. Item pools
     emit_structurals(&mut modifiers, StructuralType::ItemPool);
 
-    // 9. Replica items (captures, legendaries, etc.)
+    // 9. Replica items (trigger-based summons — 8A stub produces zero here
+    //    because itempool extraction demotes every entry to a sentinel
+    //    NonSummon. 8B's real parser surfaces SideUse / Cast entries that
+    //    this loop will emit alongside their itempool envelopes.)
     for item in ir.replica_items.iter().filter(|i| filter.admits(i.source)) {
-        modifiers.push(replica_item_emitter::emit(item)?);
+        modifiers.push(replica_item_emitter::emit_replica_item(item));
     }
 
     // 11. Monsters

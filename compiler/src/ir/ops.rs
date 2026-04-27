@@ -4,7 +4,10 @@
 //! Enforces cross-category name uniqueness and hero color uniqueness.
 
 use crate::error::CompilerError;
-use super::{ModIR, Hero, ReplicaItem, Monster, Boss, Source};
+use super::{
+    Boss, Hero, ItempoolItem, ModIR, Monster, ReplicaItem, ReplicaTriggerKey, Source,
+    StructuralContent,
+};
 
 impl ModIR {
     /// Check if a name is already used by any content type.
@@ -14,7 +17,7 @@ impl ModIR {
         if self.heroes.iter().any(|h| h.mn_name.to_lowercase() == lower) {
             return Some("hero");
         }
-        if self.replica_items.iter().any(|r| r.name.to_lowercase() == lower) {
+        if self.replica_items.iter().any(|r| r.target_name.to_lowercase() == lower) {
             return Some("replica item");
         }
         if self.monsters.iter().any(|m| m.name.to_lowercase() == lower) {
@@ -85,29 +88,146 @@ impl ModIR {
         }
     }
 
-    /// Add a replica item. Checks cross-category name uniqueness.
+    /// Add a replica item.
+    ///
+    /// Two invariants gate insertion:
+    /// 1. **Cross-bucket** (SPEC §6.3 / X003): `target_name` must not collide
+    ///    with any hero / monster / boss name.
+    /// 2. **Intra-replica** (post-Round-8 merge contract per
+    ///    [`merge.rs:106-111`](super::merge)): a single `target_name` may
+    ///    carry one `ReplicaItem` per trigger variant
+    ///    (`SummonTrigger::SideUse` + `SummonTrigger::Cast`), so the
+    ///    uniqueness key inside `replica_items` is
+    ///    `(target_name, std::mem::discriminant(&trigger))`. Matching by
+    ///    `target_name` alone would block the corpus shape that 4 Pokemon
+    ///    (Ho-Oh, Lugia, Kyogre, Groudon) carry — see
+    ///    `tests/path_c_merge_tests.rs::merge_replicas_distinguishes_sideuse_and_cast_for_same_pokemon`.
     pub fn add_replica_item(&mut self, item: ReplicaItem) -> Result<(), CompilerError> {
-        if let Some(category) = self.find_name_category(&item.name) {
+        let lower = item.target_name.to_lowercase();
+
+        // Cross-bucket check (SPEC §6.3): heroes / monsters / bosses only —
+        // intra-replica uniqueness is governed by the trigger-discriminant
+        // rule below, not by `find_name_category` (which collapses all
+        // same-`target_name` replicas into a single hit).
+        if self.heroes.iter().any(|h| h.mn_name.to_lowercase() == lower) {
             return Err(CompilerError::duplicate_name(
-                item.name.clone(),
-                category.to_string(),
+                item.target_name.clone(),
+                "hero".to_string(),
                 "replica item",
             ));
         }
+        if self.monsters.iter().any(|m| m.name.to_lowercase() == lower) {
+            return Err(CompilerError::duplicate_name(
+                item.target_name.clone(),
+                "monster".to_string(),
+                "replica item",
+            ));
+        }
+        if self.bosses.iter().any(|b| b.name.to_lowercase() == lower) {
+            return Err(CompilerError::duplicate_name(
+                item.target_name.clone(),
+                "boss".to_string(),
+                "replica item",
+            ));
+        }
+
+        // Intra-replica check (round-9 merge contract): block only if the
+        // SAME `(target_name, trigger discriminant)` is already present.
+        // SideUse + Cast for the same target is a valid corpus shape.
+        let item_disc = std::mem::discriminant(&item.trigger);
+        if self.replica_items.iter().any(|r| {
+            r.target_name.to_lowercase() == lower
+                && std::mem::discriminant(&r.trigger) == item_disc
+        }) {
+            return Err(CompilerError::duplicate_name(
+                item.target_name.clone(),
+                "replica item".to_string(),
+                "replica item",
+            ));
+        }
+
         let mut item = item;
         item.source = Source::Custom;
         self.replica_items.push(item);
         Ok(())
     }
 
-    /// Remove a replica item by name.
-    pub fn remove_replica_item(&mut self, name: &str) -> Result<(), CompilerError> {
+    /// Remove a replica item by `(target_name, trigger_key)` (case-insensitive
+    /// on `target_name`).
+    ///
+    /// The IR may carry one `ReplicaItem` per trigger variant per `target_name`
+    /// (round-9 merge contract at `merge.rs:106-111`, round-12 add contract at
+    /// `add_replica_item` above). Removing by `target_name` alone would silently
+    /// pick a "first match" and leave the other variant behind, with no way for
+    /// the caller to indicate which variant it intended. The `trigger_key`
+    /// parameter mirrors the merge/add uniqueness key so the three predicates
+    /// agree.
+    ///
+    /// Re-indexes every `ItempoolItem::Summon(i)` in every `ItemPool`
+    /// structural so no pool entry points past the end of `replica_items`
+    /// and no entry points at the wrong index after the shift. This is NOT
+    /// optional — without it, builds would emit the wrong summon or panic
+    /// on out-of-bounds. T28 (in 8b) pins this against the real parser's
+    /// output; 8a carries the invariant by the code alone.
+    pub fn remove_replica_item(
+        &mut self,
+        name: &str,
+        trigger_key: ReplicaTriggerKey,
+    ) -> Result<(), CompilerError> {
         let lower = name.to_lowercase();
-        let pos = self.replica_items.iter().position(|r| r.name.to_lowercase() == lower);
-        match pos {
-            Some(i) => { self.replica_items.remove(i); Ok(()) }
-            None => Err(CompilerError::not_found("replica item", name.to_string())),
+        let j = match self
+            .replica_items
+            .iter()
+            .position(|r| r.target_name.to_lowercase() == lower && r.trigger.key() == trigger_key)
+        {
+            Some(j) => j,
+            None => return Err(CompilerError::not_found("replica item", name.to_string())),
+        };
+
+        // Step 1: remove from the flat list.
+        self.replica_items.remove(j);
+
+        // Step 2: re-index every ItempoolItem::Summon(i) in every ItemPool
+        // structural. Entries referencing the removed index are dropped;
+        // entries above it shift down by one.
+        for structural in self.structural.iter_mut() {
+            if let StructuralContent::ItemPool { items } = &mut structural.content {
+                items.retain_mut(|entry| match entry {
+                    ItempoolItem::Summon(i) if *i == j => false,
+                    ItempoolItem::Summon(i) if *i > j => {
+                        *i -= 1;
+                        true
+                    }
+                    _ => true,
+                });
+            }
         }
+
+        // Step 3: post-removal bounds invariant — no Summon(i) points out of
+        // bounds after the shift. Converts a silent out-of-bounds into an Err
+        // at the CRUD boundary (emit-time would otherwise panic on
+        // `replica_items[i]`). Uses `CompilerError::build` because no
+        // `internal` constructor exists in the current error surface.
+        for structural in self.structural.iter() {
+            if let StructuralContent::ItemPool { items } = &structural.content {
+                for item in items {
+                    if let ItempoolItem::Summon(i) = item {
+                        if *i >= self.replica_items.len() {
+                            return Err(CompilerError::build(
+                                "ir::ops::remove_replica_item",
+                                format!(
+                                    "ReplicaItem index {} out of bounds after removal (len={})",
+                                    i,
+                                    self.replica_items.len()
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Add a monster. Checks cross-category name uniqueness.
@@ -164,7 +284,9 @@ impl ModIR {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ir::{DiceFaces, HeroBlock, HeroFormat};
+    use crate::ir::{
+        DiceFaces, DiceLocation, HeroBlock, HeroFormat, ReplicaTriggerKey, SummonTrigger,
+    };
 
     fn make_hero(name: &str, color: char) -> Hero {
         Hero {
@@ -227,20 +349,28 @@ mod tests {
     }
 
     fn make_replica_item(name: &str) -> ReplicaItem {
+        // Chunk 8A: constructs the trigger-based shape. Defaults are sane-
+        // not-corpus (no specific Pokemon). The DiceFaces literal is a
+        // well-formed synthetic dice string; DiceFaces::parse accepts any
+        // colon-separated face list (verified at ir/mod.rs `impl DiceFaces`).
         ReplicaItem {
-            name: name.into(),
-            template: "Hat".into(),
+            container_name: "Test Ball".into(),
+            target_name: name.into(),
+            trigger: SummonTrigger::SideUse {
+                dice: DiceFaces::parse("1-1:2-1:3-1:4-1:5-1:6-1"),
+                dice_location: DiceLocation::OuterPreface,
+            },
+            enemy_template: "Wolf".into(),
+            team_template: "housecat".into(),
+            tier: Some(1),
             hp: None,
-            sd: DiceFaces::parse("0:0:0:0:0:0"),
-            sprite: crate::authoring::SpriteId::owned(name.to_string(), ""),
             color: None,
-            tier: None,
-            doc: None,
+            sprite: crate::authoring::SpriteId::owned(name.to_string(), ""),
+            sticker_stack: None,
             speech: None,
-            abilitydata: None,
-            item_modifiers: None,
-            sticker: None,
+            doc: None,
             toggle_flags: None,
+            item_modifiers: None,
             source: Source::Base,
         }
     }
@@ -293,11 +423,81 @@ mod tests {
         assert!(result.is_err());
     }
 
+    /// Round-12 sibling of round-9's merge fix. The merge contract
+    /// (`ir/merge.rs:106-111`) explicitly permits one ReplicaItem per
+    /// trigger variant per `target_name` — corpus shape carried by Ho-Oh,
+    /// Lugia, Kyogre, Groudon. CRUD's `add_replica_item` must accept the
+    /// same shape, otherwise web-backend authoring of those 4 Pokemon is
+    /// impossible without bypassing the public API.
+    #[test]
+    fn add_replica_item_allows_same_target_name_different_trigger_discriminant() {
+        let mut ir = ModIR::empty();
+
+        let sideuse = make_replica_item("HoOh"); // default = SideUse / OuterPreface
+        ir.add_replica_item(sideuse).unwrap();
+
+        let cast = ReplicaItem {
+            container_name: "HoOh Spell".into(),
+            target_name: "HoOh".into(),
+            trigger: SummonTrigger::Cast {
+                dice: DiceFaces::parse("36-10:36-10:0:0:36-10:0"),
+            },
+            enemy_template: "dragon".into(),
+            team_template: "prodigy".into(),
+            tier: Some(3),
+            hp: Some(30),
+            color: None,
+            sprite: crate::authoring::SpriteId::owned("hooh", ""),
+            sticker_stack: None,
+            speech: None,
+            doc: None,
+            toggle_flags: None,
+            item_modifiers: None,
+            source: Source::Base,
+        };
+        ir.add_replica_item(cast).expect(
+            "merge contract permits SideUse + Cast for same target_name; CRUD must accept it",
+        );
+
+        assert_eq!(ir.replica_items.len(), 2);
+        assert!(matches!(
+            ir.replica_items[0].trigger,
+            SummonTrigger::SideUse { .. }
+        ));
+        assert!(matches!(
+            ir.replica_items[1].trigger,
+            SummonTrigger::Cast { .. }
+        ));
+    }
+
+    /// Intra-replica uniqueness is keyed on
+    /// `(target_name, std::mem::discriminant(&trigger))` per the round-9
+    /// merge predicate. Two SideUse replicas with the same target_name
+    /// (regardless of `dice_location`, which is a source-shape sub-axis with
+    /// identical engine behavior — `ir/mod.rs:686-698`) collide on the
+    /// merge key, so CRUD must reject the second.
+    #[test]
+    fn add_replica_item_blocks_same_target_name_same_trigger_discriminant() {
+        let mut ir = ModIR::empty();
+        ir.add_replica_item(make_replica_item("HoOh")).unwrap();
+        let err = ir
+            .add_replica_item(make_replica_item("HoOh"))
+            .expect_err("second SideUse(HoOh) must collide on merge key");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("HoOh") && msg.contains("replica item"),
+            "expected DuplicateName error naming the colliding target_name + bucket; got: {}",
+            msg
+        );
+        assert_eq!(ir.replica_items.len(), 1);
+    }
+
     #[test]
     fn remove_replica_item_by_name() {
         let mut ir = ModIR::empty();
         ir.add_replica_item(make_replica_item("Pikachu")).unwrap();
-        ir.remove_replica_item("Pikachu").unwrap();
+        ir.remove_replica_item("Pikachu", ReplicaTriggerKey::SideUse)
+            .unwrap();
         assert_eq!(ir.replica_items.len(), 0);
     }
 
@@ -342,5 +542,254 @@ mod tests {
         assert_eq!(ir.monsters.len(), 1);
         assert_eq!(ir.bosses.len(), 1);
         assert_eq!(ir.heroes.len(), 1);
+    }
+
+    /// Pin all three branches of the `Summon(i)` re-index logic in
+    /// `remove_replica_item` (ops.rs:113-167). Round-3 tribunal: the function
+    /// shipped with 35 lines of non-trivial logic and zero unit coverage —
+    /// only `remove_replica_item_by_name` exercised it, with no ItemPool
+    /// structurals so the re-index path was unreached. T28 (8B) tests against
+    /// the real parser; this test pins the unit behavior today.
+    #[test]
+    fn remove_replica_item_reindexes_summon_entries() {
+        use crate::ir::{StructuralContent, StructuralModifier, StructuralType};
+
+        // Three replicas at indices 0, 1, 2; one ItemPool referencing all three.
+        let mut ir = ModIR::empty();
+        ir.add_replica_item(make_replica_item("Alpha")).unwrap();
+        ir.add_replica_item(make_replica_item("Beta")).unwrap();
+        ir.add_replica_item(make_replica_item("Gamma")).unwrap();
+        ir.structural.push(StructuralModifier {
+            modifier_type: StructuralType::ItemPool,
+            name: Some("TestPool".into()),
+            content: StructuralContent::ItemPool {
+                items: vec![
+                    ItempoolItem::Summon(0), // Alpha — leave alone after Beta removed
+                    ItempoolItem::Summon(1), // Beta  — must be dropped
+                    ItempoolItem::Summon(2), // Gamma — must decrement to 1
+                ],
+            },
+            derived: false,
+            source: Source::Base,
+        });
+
+        // Remove the middle replica (target_name = "Beta", index 1).
+        ir.remove_replica_item("Beta", ReplicaTriggerKey::SideUse)
+            .unwrap();
+
+        // replica_items: Beta dropped, Alpha + Gamma survive.
+        assert_eq!(ir.replica_items.len(), 2);
+        assert_eq!(ir.replica_items[0].target_name, "Alpha");
+        assert_eq!(ir.replica_items[1].target_name, "Gamma");
+
+        // ItemPool: Summon(1) dropped, Summon(0) unchanged, Summon(2) → Summon(1).
+        match &ir.structural[0].content {
+            StructuralContent::ItemPool { items } => {
+                assert_eq!(
+                    items,
+                    &vec![ItempoolItem::Summon(0), ItempoolItem::Summon(1)],
+                    "expected drop(Summon(1)) + decrement(Summon(2)→Summon(1)); got {:?}",
+                    items
+                );
+            }
+            other => panic!("expected ItemPool content, got {:?}", other),
+        }
+    }
+
+    /// Step 3 of `remove_replica_item` (ops.rs:148-165) is the post-removal
+    /// out-of-bounds bounds invariant. A hand-constructed `Summon(i)` whose
+    /// index already exceeds `replica_items.len() - 1` after removal must
+    /// surface as `Err(CompilerError::build(...))`, not panic at emit time.
+    /// This pins the CRUD-boundary guard against silent out-of-bounds.
+    #[test]
+    fn remove_replica_item_errors_on_out_of_bounds_summon() {
+        use crate::ir::{StructuralContent, StructuralModifier, StructuralType};
+
+        // One replica, one pool with Summon(99) — out of bounds for any
+        // post-removal state. (Pre-removal it's also OOB, but the function
+        // doesn't pre-check; Step 3 is the bounds gate.)
+        let mut ir = ModIR::empty();
+        ir.add_replica_item(make_replica_item("Alpha")).unwrap();
+        ir.structural.push(StructuralModifier {
+            modifier_type: StructuralType::ItemPool,
+            name: Some("TestPool".into()),
+            content: StructuralContent::ItemPool {
+                items: vec![ItempoolItem::Summon(99)],
+            },
+            derived: false,
+            source: Source::Base,
+        });
+
+        let err = ir
+            .remove_replica_item("Alpha", ReplicaTriggerKey::SideUse)
+            .expect_err("Summon(99) > replica_items.len() must surface as Err");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("out of bounds"),
+            "expected out-of-bounds error message; got: {}",
+            msg
+        );
+    }
+
+    /// Round-14 sibling of round-12's add fix. After adding both a `SideUse`
+    /// and a `Cast` ReplicaItem for the same `target_name`, the remove API
+    /// must let the caller pick which variant to delete via the
+    /// `ReplicaTriggerKey` parameter. Two parallel scenarios pin both
+    /// directions of the choice — without this, "first match by `target_name`
+    /// alone" semantics would silently delete whichever variant is at the
+    /// lower vec index, with no way for the caller to invert the choice.
+    #[test]
+    fn remove_replica_item_with_trigger_key_picks_correct_variant() {
+        fn make_cast(name: &str) -> ReplicaItem {
+            ReplicaItem {
+                container_name: format!("{} Spell", name),
+                target_name: name.into(),
+                trigger: SummonTrigger::Cast {
+                    dice: DiceFaces::parse("36-10:36-10:0:0:36-10:0"),
+                },
+                enemy_template: "dragon".into(),
+                team_template: "prodigy".into(),
+                tier: Some(3),
+                hp: Some(30),
+                color: None,
+                sprite: crate::authoring::SpriteId::owned(name.to_lowercase(), ""),
+                sticker_stack: None,
+                speech: None,
+                doc: None,
+                toggle_flags: None,
+                item_modifiers: None,
+                source: Source::Base,
+            }
+        }
+
+        // Direction A: remove SideUse, Cast survives.
+        let mut ir_a = ModIR::empty();
+        ir_a.add_replica_item(make_replica_item("HoOh")).unwrap();
+        ir_a.add_replica_item(make_cast("HoOh")).unwrap();
+        assert_eq!(ir_a.replica_items.len(), 2);
+        ir_a.remove_replica_item("HoOh", ReplicaTriggerKey::SideUse)
+            .expect("remove(SideUse) must succeed when SideUse is present");
+        assert_eq!(ir_a.replica_items.len(), 1);
+        assert!(matches!(
+            ir_a.replica_items[0].trigger,
+            SummonTrigger::Cast { .. }
+        ));
+
+        // Direction B: remove Cast, SideUse survives.
+        let mut ir_b = ModIR::empty();
+        ir_b.add_replica_item(make_replica_item("HoOh")).unwrap();
+        ir_b.add_replica_item(make_cast("HoOh")).unwrap();
+        ir_b.remove_replica_item("HoOh", ReplicaTriggerKey::Cast)
+            .expect("remove(Cast) must succeed when Cast is present");
+        assert_eq!(ir_b.replica_items.len(), 1);
+        assert!(matches!(
+            ir_b.replica_items[0].trigger,
+            SummonTrigger::SideUse { .. }
+        ));
+    }
+
+    /// With only a `SideUse` variant present for a `target_name`, asking to
+    /// remove the `Cast` variant must return `NotFound` rather than silently
+    /// falling through to "first match" and deleting the `SideUse`. This is
+    /// the round-14 contract's most load-bearing assertion: the trigger key
+    /// is a real predicate, not a documentation-only hint.
+    #[test]
+    fn remove_replica_item_not_found_distinguishes_trigger_mismatch() {
+        let mut ir = ModIR::empty();
+        ir.add_replica_item(make_replica_item("HoOh")).unwrap(); // SideUse
+        let err = ir
+            .remove_replica_item("HoOh", ReplicaTriggerKey::Cast)
+            .expect_err("remove(Cast) must NOT silently fall through to the SideUse variant");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("HoOh"),
+            "expected NotFound naming the target; got: {}",
+            msg
+        );
+        // SideUse must still be present — proving the caller's `Cast` request
+        // did not accidentally delete it.
+        assert_eq!(ir.replica_items.len(), 1);
+        assert!(matches!(
+            ir.replica_items[0].trigger,
+            SummonTrigger::SideUse { .. }
+        ));
+    }
+
+    /// Extends the round-3 `remove_replica_item_reindexes_summon_entries`
+    /// pin to the multi-trigger case. Three replicas at indices 0/1/2 with
+    /// `[SideUse(Alpha), Cast(Alpha), SideUse(Beta)]`; an ItemPool refers to
+    /// all three. Removing `("Alpha", Cast)` (index 1) must drop `Summon(1)`
+    /// and decrement `Summon(2)` to `Summon(1)` — and crucially must leave
+    /// `SideUse(Alpha)` at index 0 untouched. The round-3 test could not
+    /// exercise this path because it used three distinct target_names.
+    #[test]
+    fn remove_replica_item_reindexes_summon_entries_for_multi_trigger() {
+        use crate::ir::{StructuralContent, StructuralModifier, StructuralType};
+
+        fn make_cast(name: &str) -> ReplicaItem {
+            ReplicaItem {
+                container_name: format!("{} Spell", name),
+                target_name: name.into(),
+                trigger: SummonTrigger::Cast {
+                    dice: DiceFaces::parse("36-10:36-10:0:0:36-10:0"),
+                },
+                enemy_template: "dragon".into(),
+                team_template: "prodigy".into(),
+                tier: Some(3),
+                hp: Some(30),
+                color: None,
+                sprite: crate::authoring::SpriteId::owned(name.to_lowercase(), ""),
+                sticker_stack: None,
+                speech: None,
+                doc: None,
+                toggle_flags: None,
+                item_modifiers: None,
+                source: Source::Base,
+            }
+        }
+
+        let mut ir = ModIR::empty();
+        ir.add_replica_item(make_replica_item("Alpha")).unwrap(); // index 0: SideUse(Alpha)
+        ir.add_replica_item(make_cast("Alpha")).unwrap();         // index 1: Cast(Alpha)
+        ir.add_replica_item(make_replica_item("Beta")).unwrap();  // index 2: SideUse(Beta)
+        ir.structural.push(StructuralModifier {
+            modifier_type: StructuralType::ItemPool,
+            name: Some("TestPool".into()),
+            content: StructuralContent::ItemPool {
+                items: vec![
+                    ItempoolItem::Summon(0), // SideUse(Alpha) — leave alone
+                    ItempoolItem::Summon(1), // Cast(Alpha)    — must be dropped
+                    ItempoolItem::Summon(2), // SideUse(Beta)  — must decrement to 1
+                ],
+            },
+            derived: false,
+            source: Source::Base,
+        });
+
+        // Remove the Cast variant of Alpha (index 1).
+        ir.remove_replica_item("Alpha", ReplicaTriggerKey::Cast)
+            .unwrap();
+
+        // replica_items: Cast(Alpha) dropped, SideUse(Alpha) and SideUse(Beta) survive.
+        assert_eq!(ir.replica_items.len(), 2);
+        assert_eq!(ir.replica_items[0].target_name, "Alpha");
+        assert!(matches!(
+            ir.replica_items[0].trigger,
+            SummonTrigger::SideUse { .. }
+        ));
+        assert_eq!(ir.replica_items[1].target_name, "Beta");
+
+        // ItemPool: Summon(1) dropped, Summon(0) unchanged, Summon(2) → Summon(1).
+        match &ir.structural[0].content {
+            StructuralContent::ItemPool { items } => {
+                assert_eq!(
+                    items,
+                    &vec![ItempoolItem::Summon(0), ItempoolItem::Summon(1)],
+                    "expected drop(Summon(1)) + decrement(Summon(2)→Summon(1)); got {:?}",
+                    items
+                );
+            }
+            other => panic!("expected ItemPool content, got {:?}", other),
+        }
     }
 }

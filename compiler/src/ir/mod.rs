@@ -28,7 +28,7 @@ impl Source {
 
 // -- Shared Types --
 
-/// Dice faces — the .sd. field on heroes, captures, monsters, spells, etc.
+/// Dice faces — the .sd. field on heroes, replica items, monsters, spells, etc.
 /// Format: colon-separated entries, each is "0" (blank) or "FaceID-Pips"
 /// Example: "34-1:30-1:0:0:30-1:0" → [Active(34,1), Active(30,1), Blank, Blank, Active(30,1), Blank]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, JsonSchema)]
@@ -594,38 +594,173 @@ pub struct HeroBlock {
 
 // -- Replica Items --
 //
-// Top-level `item.(...)` — Legendary replica items (persistent allies with
-// spell). Capture-shaped items (`itempool.((...)).n.name`) are not modelled
-// here because no corpus instance exists (chunk-impl rule 3: delete
-// unevidenced variants rather than carry hypotheses). They route as
-// `ItemPool` structurals through `extractor::classifier`.
+// A summon item extracted from an entry inside `itempool.((…))`.
+// An entry is a `ReplicaItem` iff its inner
+// `hat.(replica.Thief.i.(all.(…)))` wrapper contains BOTH a
+// `hat.egg.<enemy_template>.n.<target_name>…` egg and a matching
+// `vase.(add.((replica.<team_template>.n.<target_name>…)))` team-join replica.
 
+/// A summon item extracted from an entry inside `itempool.((…))`.
+///
+/// An entry is classified as a `ReplicaItem` iff its inner
+/// `hat.(replica.Thief.i.(all.(…)))` wrapper contains BOTH:
+///
+///   1. a `hat.egg.<enemy_template>.n.<target_name>…` sub-block (the
+///      summoned enemy that must be defeated), AND
+///   2. a `vase.(add.((replica.<team_template>.n.<target_name>…)))`
+///      sub-block (the team-join replica emitted on defeat) whose
+///      `<target_name>` matches the egg's.
+///
+/// No raw-passthrough escape hatch — every field below must be derivable
+/// from verified corpus bytes; if implementation finds a sub-block not
+/// covered by the field list below, the struct must be widened in the same
+/// commit (`extras: Vec<RawSubBlock>` is explicitly rejected).
+///
+/// 8b widening obligation: the Red Orb (Groudon) entry on sliceymon line
+/// 117 contains a nested `hat.egg.(wolf.n.Geyser.sd.…)` inside the outer
+/// `hat.egg.dragon.n.Groudon`. The single `enemy_template: String` below
+/// captures only the outer template; 8b must widen the struct (e.g. an
+/// `Option<NestedEgg>` field) before producing any `Summon(i)` entry whose
+/// body contains a nested `hat.egg.`. 8a's stub never classifies this case.
+///
+/// 8a stub note: the stub `extract_from_itempool` never produces a
+/// `ReplicaItem` — every entry is demoted to `ItempoolItem::NonSummon`.
+/// Field population is exercised by authoring-builder tests + compile-guards.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ReplicaItem {
-    /// Inner character name (used for .mn. suffix)
-    pub name: String,
-    pub template: String,
-    pub hp: Option<u16>,
-    pub sd: DiceFaces,
-    pub sprite: SpriteId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub color: Option<char>,
+    pub container_name: String,
+    pub target_name: String,
+    pub trigger: SummonTrigger,
+    pub enemy_template: String,
+    pub team_template: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tier: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub doc: Option<String>,
+    pub hp: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<char>,
+    pub sprite: SpriteId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sticker_stack: Option<ModifierChain>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speech: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub abilitydata: Option<AbilityData>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub item_modifiers: Option<ModifierChain>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sticker: Option<String>,
+    pub doc: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub toggle_flags: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item_modifiers: Option<ModifierChain>,
     #[serde(default, skip_serializing_if = "Source::is_base")]
     pub source: Source,
+}
+
+/// The player action that triggers the summon. Two variants — `SideUse`
+/// (use a thief side) and `Cast` (cast a thief spell) — capture the only
+/// two distinct game mechanics observed in the corpus. Historical
+/// "OnWrapped" (Master Ball?) is NOT a third variant: engine reads
+/// `hat.Thief.sd.<faces>` identically whether dice live on the outer
+/// preface or inside the wrapper — captured by `dice_location` on SideUse.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum SummonTrigger {
+    /// Player uses a thief-side during a fight. Corpus:
+    ///   `OuterPreface` = 18 (every Ball entry except `Master Ball?`),
+    ///   `InnerWrapper` = 1 (`Master Ball?` only).
+    SideUse {
+        dice: DiceFaces,
+        dice_location: DiceLocation,
+    },
+
+    /// Player casts a thief-spell. The summon fires on cast. Corpus count:
+    /// 4 (Rainbow Wing, Silver Wing, Blue Orb, Red Orb).
+    ///
+    /// Payload: `dice: DiceFaces` — the PER-ITEM inner
+    /// `.i.hat.(replica.thief.sd.<faces>)` chain segment, NOT the outer
+    /// `thief.sd.<UNIVERSAL>`. Outer cast-template (`"thief"`) and outer
+    /// cast-dice are emitter literals in `builder/replica_item_emitter.rs`.
+    /// Widening contract: if a future corpus entry has a different outer
+    /// template or depth-0 `.n.`, lift the constants into variant fields
+    /// in the same PR.
+    Cast { dice: DiceFaces },
+}
+
+/// Where the dice live in the source bytes for a `SideUse` summon.
+/// Source-shape sub-axis — both locations produce identical engine
+/// behavior; the discriminator exists only to make extract → build
+/// round-trip byte-equal.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum DiceLocation {
+    /// Outer flat preface: `hat.replica.Thief.n.<target_name>.sd.<faces>` sits
+    /// BEFORE the wrapper's opening. 18 corpus entries.
+    OuterPreface,
+    /// Inner wrapper: no outer preface; dice live inside the wrapper's egg
+    /// body as `.i.(hat.Thief.sd.<faces>)`. 1 corpus entry (Master Ball?).
+    InnerWrapper,
+}
+
+impl SummonTrigger {
+    /// Shared accessor — every consumer (emitter, xref, authoring) routes
+    /// dice through this method. Variant-branching for dice access is
+    /// forbidden; this is the hook rule against duplicated incantations.
+    pub fn dice_faces(&self) -> &DiceFaces {
+        match self {
+            SummonTrigger::SideUse { dice, .. } => dice,
+            SummonTrigger::Cast { dice } => dice,
+        }
+    }
+
+    /// Lossy projection to `ReplicaTriggerKey` — the same discriminant the
+    /// round-9 merge predicate (`merge.rs:151-171`) and the round-12 add
+    /// predicate (`ops.rs:104-152`) key on, with no payload. Use this when
+    /// a CRUD caller needs to identify *which* trigger variant on a given
+    /// `target_name` without supplying its dice/`dice_location` payload —
+    /// e.g. `remove_replica_item(name, key)`.
+    pub fn key(&self) -> ReplicaTriggerKey {
+        match self {
+            SummonTrigger::SideUse { .. } => ReplicaTriggerKey::SideUse,
+            SummonTrigger::Cast { .. } => ReplicaTriggerKey::Cast,
+        }
+    }
+}
+
+/// Discriminant-only projection of `SummonTrigger`. CRUD operations that
+/// need to address a specific trigger variant on a `target_name` (e.g.
+/// `remove_replica_item`) take this enum as a parameter so callers do not
+/// have to fabricate dice/`dice_location` payload they do not care about.
+/// Pairs with `target_name` to form the round-9/12 uniqueness key
+/// `(target_name, trigger discriminant)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum ReplicaTriggerKey {
+    SideUse,
+    Cast,
+}
+
+/// Typed sum for `StructuralContent::ItemPool.items`. Every itempool entry
+/// is one of:
+///   - a summon (index into `ModIR.replica_items`), or
+///   - a NON-summon entry (everything else in an itempool — base-game refs,
+///     multipliers, ritemx refs, splices, inline definitions).
+///
+/// TRANSITIONAL raw-passthrough form (8a only). The `NonSummon` variant
+/// carries a raw `content: String` — a known, tracked SPEC §3.2 violation
+/// that 8A.5 closes by replacing the variant with a typed `NonSummonEntry`
+/// sum before 8b starts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub enum ItempoolItem {
+    /// Index into `ModIR.replica_items`. Index stability is enforced by
+    /// `ir::ops::remove_replica_item`, which removes the entry matching
+    /// `(target_name, ReplicaTriggerKey)` — the round-9/12 multi-trigger
+    /// uniqueness key — and re-indexes every `Summon(i)` accordingly.
+    Summon(usize),
+    /// Non-summon itempool entry — transitional raw-passthrough. `name` is
+    /// the entry's inline `.n.<name>` where one exists (empty for the 8a
+    /// stub's whole-pool passthrough); `tier` is the entry's `.tier.<n>`
+    /// where one exists; `content` is the verbatim entry body bytes. 8A.5
+    /// replaces this variant with the typed `NonSummonEntry` sum.
+    NonSummon {
+        name: String,
+        tier: Option<i8>,
+        content: String,
+    },
 }
 
 // -- Monsters --
@@ -819,8 +954,7 @@ pub enum StructuralContent {
         hero_refs: Vec<String>,
     },
     ItemPool {
-        body: String,
-        items: Vec<ItemPoolEntry>,
+        items: Vec<ItempoolItem>,
     },
     BossModifier {
         body: String,
@@ -904,7 +1038,25 @@ impl StructuralContent {
     pub fn from_body(stype: &StructuralType, body: String) -> Self {
         match stype {
             StructuralType::HeroPoolBase => Self::HeroPoolBase { body, hero_refs: vec![] },
-            StructuralType::ItemPool => Self::ItemPool { body, items: vec![] },
+            StructuralType::ItemPool => Self::ItemPool {
+                // Transitional raw-passthrough per §3.2: `from_body` is called
+                // by `StructuralModifier::new` from callers that still supply a
+                // raw body string. Wrap the whole body in a single sentinel
+                // NonSummon (empty name, None tier) — the emitter's
+                // `emit_itempool` treats this as the stub-passthrough path and
+                // re-emits `content` verbatim. 8a's extractor bypasses this
+                // and calls `extract_from_itempool` directly; `from_body` stays
+                // consistent for in-crate callers that still route through it.
+                items: if body.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![ItempoolItem::NonSummon {
+                        name: String::new(),
+                        tier: None,
+                        content: body,
+                    }]
+                },
+            },
             StructuralType::BossModifier => Self::BossModifier { body, flags: vec![] },
             StructuralType::PartyConfig => Self::PartyConfig { body, party_name: String::new(), members: vec![] },
             StructuralType::EventModifier => Self::EventModifier { body, event_name: String::new() },
@@ -928,7 +1080,24 @@ impl StructuralContent {
     pub fn body(&self) -> &str {
         match self {
             Self::HeroPoolBase { body, .. } => body,
-            Self::ItemPool { body, .. } => body,
+            Self::ItemPool { items } => {
+                // The ItemPool variant no longer stores a raw body. For the
+                // stub-sentinel shape (single NonSummon with empty name + None
+                // tier), return the raw `content` bytes so callers that still
+                // read `body()` on an ItemPool see the source bytes back. The
+                // authoritative emitter path is `replica_item_emitter::emit_itempool`
+                // via the structural emitter dispatch; this accessor is a
+                // compatibility shim for call sites that pre-date the 8a
+                // trigger-IR rewrite. Non-sentinel shapes fall through to "".
+                match items.as_slice() {
+                    [ItempoolItem::NonSummon { content, name, tier }]
+                        if name.is_empty() && tier.is_none() =>
+                    {
+                        content.as_str()
+                    }
+                    _ => "",
+                }
+            }
             Self::BossModifier { body, .. } => body,
             Self::PartyConfig { body, .. } => body,
             Self::EventModifier { body, .. } => body,
@@ -947,14 +1116,6 @@ impl StructuralContent {
             Self::FightModifier { body, .. } => body,
         }
     }
-}
-
-/// An item entry within an ItemPool structural modifier
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
-pub struct ItemPoolEntry {
-    pub name: String,
-    pub tier: Option<i8>,
-    pub content: String,
 }
 
 // =========================================================================
@@ -1757,6 +1918,79 @@ mod chunk_1_tests {
             parsed_legacy.is_err(),
             "legacy sprite_name+img_data JSON must NOT deserialize into the post-§F4 HeroBlock"
         );
+    }
+}
+
+// =========================================================================
+// Chunk 8A — new-enum compile-guards (T29a / T29b)
+// =========================================================================
+
+#[cfg(test)]
+mod new_enum_compile_guards {
+    use super::*;
+
+    /// T29a: every SummonTrigger variant is constructible and equality-sensible.
+    #[test]
+    fn summon_trigger_variants_compile_and_eq() {
+        let dice = DiceFaces::parse("1-1:2-1:3-1:4-1:5-1:6-1");
+        let a = SummonTrigger::SideUse {
+            dice: dice.clone(),
+            dice_location: DiceLocation::OuterPreface,
+        };
+        let b = SummonTrigger::SideUse {
+            dice: dice.clone(),
+            dice_location: DiceLocation::InnerWrapper,
+        };
+        let c = SummonTrigger::Cast { dice: dice.clone() };
+        assert_ne!(a, b, "OuterPreface vs InnerWrapper must be distinct");
+        assert_ne!(a, c, "SideUse vs Cast must be distinct");
+        // dice_faces() shared accessor returns the same payload across variants.
+        assert_eq!(a.dice_faces(), &dice);
+        assert_eq!(b.dice_faces(), &dice);
+        assert_eq!(c.dice_faces(), &dice);
+    }
+
+    /// T29b: ItempoolItem's two transitional variants (Summon index, and the
+    /// transitional raw-passthrough NonSummon { name, tier, content }) are
+    /// constructible, equality-sensible, and serde-roundtrippable. 8A.5
+    /// retypes NonSummon into a typed NonSummonEntry sum and extends this
+    /// coverage to each typed variant; until then, this test pins the
+    /// transitional shape.
+    #[test]
+    fn itempool_item_variants_compile_and_eq() {
+        let summon = ItempoolItem::Summon(0);
+        let nonsummon = ItempoolItem::NonSummon {
+            name: String::new(),
+            tier: None,
+            content: "hat.Dragon Egg".into(),
+        };
+        assert_ne!(summon, nonsummon, "Summon vs NonSummon must be distinct");
+        assert_eq!(summon, ItempoolItem::Summon(0), "Summon(0) equals itself");
+        assert_ne!(
+            summon,
+            ItempoolItem::Summon(1),
+            "Summon(0) vs Summon(1) must be distinct"
+        );
+
+        // Serde round-trip — anchors the Deserialize derive that extract JSON
+        // relies on. Breaks loudly if a future edit drops Deserialize, which
+        // would silently break `extract` JSON output.
+        for item in [summon, nonsummon] {
+            let j = serde_json::to_string(&item).expect("ItempoolItem serializes");
+            let r: ItempoolItem =
+                serde_json::from_str(&j).expect("ItempoolItem deserializes");
+            assert_eq!(item, r);
+        }
+
+        // SummonTrigger serde round-trip too — catches a dropped Deserialize
+        // on SummonTrigger or DiceLocation.
+        let t = SummonTrigger::Cast {
+            dice: DiceFaces::parse("1-1:2-1:3-1:4-1:5-1:6-1"),
+        };
+        let j = serde_json::to_string(&t).expect("SummonTrigger serializes");
+        let r: SummonTrigger =
+            serde_json::from_str(&j).expect("SummonTrigger deserializes");
+        assert_eq!(t, r);
     }
 }
 

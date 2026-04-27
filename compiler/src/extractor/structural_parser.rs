@@ -1,4 +1,4 @@
-use crate::ir::{ItemPoolEntry, StructuralContent, StructuralType};
+use crate::ir::{StructuralContent, StructuralType};
 use crate::util;
 
 /// Extract the .mn. name from a structural modifier.
@@ -9,10 +9,18 @@ pub fn extract_structural_name(raw: &str) -> Option<String> {
 /// Parse structured content from a structural modifier based on its type.
 /// Each variant stores the full modifier text as `body` for emission,
 /// plus typed summary fields for introspection.
+///
+/// `StructuralType::ItemPool` is intentionally absent — itempool extraction
+/// goes through `replica_item_parser::extract_from_itempool` directly from
+/// `extractor/mod.rs`, bypassing this dispatcher. Routing an ItemPool here
+/// is a contract violation and panics.
 pub fn parse_structural_content(stype: &StructuralType, raw: &str) -> StructuralContent {
     match stype {
         StructuralType::HeroPoolBase => parse_heropoolbase(raw),
-        StructuralType::ItemPool => parse_itempool(raw),
+        StructuralType::ItemPool => unreachable!(
+            "ItemPool is parsed via replica_item_parser::extract_from_itempool, \
+             not parse_structural_content"
+        ),
         StructuralType::BossModifier => parse_bossmodifier(raw),
         StructuralType::PartyConfig => parse_partyconfig(raw),
         StructuralType::EventModifier => parse_eventmodifier(raw),
@@ -66,41 +74,6 @@ fn parse_heropoolbase(raw: &str) -> StructuralContent {
         }
     }
     StructuralContent::HeroPoolBase { body: raw.to_string(), hero_refs }
-}
-
-fn parse_itempool(raw: &str) -> StructuralContent {
-    let mut items = Vec::new();
-    let lower = raw.to_lowercase();
-
-    let start = if let Some(pos) = lower.find("itempool.") {
-        pos + "itempool.".len()
-    } else if let Some(pos) = lower.find("!mitempool.") {
-        pos + "!mitempool.".len()
-    } else {
-        return StructuralContent::ItemPool { body: raw.to_string(), items };
-    };
-
-    let content = &raw[start..];
-
-    let item_strs = util::split_at_depth0(content, '#');
-    for item_str in &item_strs {
-        let trimmed = item_str.trim().trim_matches(|c| c == '(' || c == ')');
-        if trimmed.is_empty() {
-            continue;
-        }
-        let name = util::extract_simple_prop(trimmed, ".n.")
-            .or_else(|| util::extract_mn_name(trimmed))
-            .unwrap_or_default();
-        let tier = util::extract_simple_prop(trimmed, ".tier.")
-            .and_then(|v| v.parse::<i8>().ok());
-        items.push(ItemPoolEntry {
-            name,
-            tier,
-            content: item_str.to_string(),
-        });
-    }
-
-    StructuralContent::ItemPool { body: raw.to_string(), items }
 }
 
 fn parse_bossmodifier(raw: &str) -> StructuralContent {

@@ -59,8 +59,13 @@ pub fn build_hero(hero: &ir::Hero) -> Result<String, CompilerError> {
 }
 
 /// Build a single replica item into a modifier string.
+///
+/// Post-8A the emitter is non-fallible (no `CompilerError` surface), but the
+/// public `Result` return type is preserved so sibling `build_hero` /
+/// `build_monster` / `build_boss` signatures stay uniform and downstream
+/// callers do not churn. The inner call always returns `Ok`.
 pub fn build_replica_item(item: &ir::ReplicaItem) -> Result<String, CompilerError> {
-    builder::replica_item_emitter::emit(item)
+    Ok(builder::replica_item_emitter::emit_replica_item(item))
 }
 
 /// Build a single monster into a modifier string.

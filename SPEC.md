@@ -75,7 +75,7 @@ Use Rust enums and newtypes to encode constraints at compile time wherever the c
                 │                  Compiler library                        │
                 │                                                          │
 mod.txt ────────┤  Extractor                                              │
-                │   classifier → type parsers (hero/capture/monster/      │
+                │   classifier → type parsers (hero/replica_item/monster/ │
                 │   boss/structural/chain/fight/phase/reward/level)        │
                 │                       ↓                                  │
                 │                    ModIR                                 │
@@ -101,7 +101,7 @@ mod.txt ────────┤  Extractor                                  
 
 ```
 structural (non-derived) → derived structural (char selection, hero pools)
-  → heroes → items → replica items (captures, legendaries)
+  → heroes → items → replica items
   → monsters → bosses
 ```
 
@@ -173,7 +173,7 @@ The IR is the contract between extractor, builder, CLI, app frontend, and LLM au
 2. **Human-readable**: meaningful field names, no positional encoding leaks.
 3. **Self-contained**: `img_data` lives on the type that needs it; nothing depends on an external file at build time.
 4. **Provenance-tracked and consumed**: every item carries `Source::{Base, Custom, Overlay}`. Provenance is not decorative — `build` accepts a `BuildOptions { include: SourceFilter }` that can restrict emission to (e.g.) `Custom | Overlay` for diff-style exports; `xref` uses provenance to scope rules (e.g., a `Base` item that violates a rule is a warning about the source mod, a `Custom` violation is an author error); and `merge` stamps provenance on the result. An item with no consumer for its provenance is a schema bug.
-5. **Lossless across all types**: heroes, replica items (captures, legendaries), monsters, bosses, structurals, chains, fights, phases, rewards, level scopes — all roundtrip through fields.
+5. **Lossless across all types**: heroes, replica items, monsters, bosses, structurals, chains, fights, phases, rewards, level scopes — all roundtrip through fields.
 6. **Authorable**: a user (or an LLM) can write valid IR JSON without ever opening a textmod.
 
 ### Public library surface (sketch)
@@ -193,7 +193,9 @@ pub fn build_hero(h: &Hero)                                   -> Result<String, 
 pub fn check_hero_in_context(h: &Hero, ir: &ModIR)            -> Vec<Finding>;
 pub fn add_hero(ir: &mut ModIR, h: Hero)                      -> Result<(), CompilerError>;
 pub fn remove_hero(ir: &mut ModIR, mn_name: &str)             -> Result<(), CompilerError>;
-// ... same for Monster, Boss, ReplicaItem (captures and legendaries are both ReplicaItem kinds)
+// ... same for Monster, Boss. ReplicaItem CRUD takes an extra ReplicaTriggerKey
+// arg on remove/update so SideUse and Cast variants for the same target can be
+// addressed independently (one ReplicaItem per (target_name, trigger discriminant)).
 
 // Authoring layer — the only supported way to construct content
 pub fn face(id: FaceId, pips: Pips)        -> DiceFace;                 // typed, whitelisted
@@ -251,7 +253,7 @@ Don't suggest Pokemon to add. Don't preemptively design rosters. The user names 
 
 ### 6.3 No duplicate Pokemon
 
-A Pokemon may exist in **at most one** of: heroes, replica items (captures / legendaries), monsters. CRUD operations enforce this; the author cannot accidentally bypass it.
+A Pokemon may exist in **at most one** of: heroes, replica items, monsters. CRUD operations enforce this; the author cannot accidentally bypass it.
 
 ### 6.4 Game-design rules (from `personas/slice-and-dice-design.md`)
 
@@ -340,15 +342,15 @@ A change is only "done" when **all** of these hold:
 ## 10. Glossary
 
 - **Textmod** — The plain-text mod format Slice & Dice ingests (paste into in-game ledger).
-- **Modifier** — One comma-separated entry in a textmod (one hero, capture, monster, structural, etc.).
+- **Modifier** — One comma-separated entry in a textmod (one hero, replica item, monster, structural, etc.).
 - **IR** — Intermediate Representation. The typed Rust structure produced by the extractor and consumed by the builder.
 - **ModIR** — The full mod as IR — the root struct of a parsed textmod.
 - **Replica** — Game term for a unit (hero / monster / boss). Templates are `replica.NAME`.
 - **Face ID** — Numeric ID for a die face's behavior (e.g., 15 = basic damage, 126 = Cantrip, 170 = enemy damage). Encoded in `.sd.` as `FaceID-Pips:...`.
 - **Pips** — The numeric magnitude on a face (damage amount, shield amount, heal amount).
 - **Tier** — Evolution stage of a hero (T1 → T2 → T3). Separated by `+` at depth 0 in the modifier.
-- **ReplicaItem** — IR type for items that summon a Pokemon as a unit. Two kinds: **Capture** (one-shot, mid-fight, via ball-style item) and **Legendary** (persistent ally with spell). Both share the same IR struct with a kind discriminant; "capturable" and "legendary" are *kinds*, not separate IR types.
-- **Capturable / Legendary** — Kinds of `ReplicaItem` (see above). User-facing vocabulary only.
+- **ReplicaItem** — IR type for items that summon a Pokemon as a unit. Discriminated by a `trigger: SummonTrigger` field with two variants: `SideUse { dice, dice_location }` (player activates a die-side, e.g. ball-style or spell-cast envelopes that key off `replica.Thief.i.…left.…`) and `Cast { dice }` (spell-cast envelopes that key off `cast.sthief.abilitydata.…`). A single `target_name` may carry one ReplicaItem per trigger variant — the merge / `add_replica_item` / `remove_replica_item` predicates all key uniqueness on `(target_name, trigger discriminant)`. CRUD operations that need to address a specific variant take a `ReplicaTriggerKey { SideUse, Cast }` parameter (e.g. `remove_replica_item(name, trigger_key)`).
+- **Capturable / Legendary** — Game-design vocabulary for the player-facing roles a `ReplicaItem` can fill (one-shot ball-style capture vs persistent ally with spell). NOT IR identifiers — the IR discriminator is `SummonTrigger::{SideUse, Cast}`. See `personas/slice-and-dice-design.md` for the design vocabulary; see `compiler/src/ir/mod.rs` for the IR shape.
 - **Authoring layer** — The `authoring/` module: typed `FaceId` / `SpriteId` constructors, dice macros, and roster-aware hero/monster/boss builders. The only supported path from human/LLM intent to IR values. Hand-written struct literals bypass it and are unsupported.
 - **Overlay / Merge** — Path C flow. An overlay is a `ModIR` authored or loaded independently of a base mod; `merge(base, overlay)` composes them additively by identity key, with overlay winning on collisions and `Source::Overlay` stamped on merged items. Derived structurals are regenerated, never merged.
 - **Structural modifier** — Non-content modifier: character selection, hero pools, party config, dialog, difficulty.
