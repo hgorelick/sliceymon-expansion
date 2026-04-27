@@ -103,7 +103,11 @@ pub fn strip_derived_structurals(
 /// Merge rules:
 /// - Heroes: overlay heroes REPLACE base heroes with the same `internal_name`.
 ///   New heroes ADDED. Heroes with `removed: true` are filtered out.
-/// - ReplicaItems: match by `target_pokemon`, replace or add.
+/// - ReplicaItems: match by `(target_pokemon, trigger discriminant)`, replace
+///   or add. Pokemon may carry one ReplicaItem per trigger variant
+///   (`SummonTrigger::SideUse` and `SummonTrigger::Cast`), so the merge key
+///   must include the trigger discriminant — matching by `target_pokemon`
+///   alone would silently collapse SideUse + Cast pairs into the first match.
 /// - Monsters: match by `name`, replace or add.
 /// - Bosses: match by `name`, replace or add.
 /// - Structural: overlay structural modifiers REPLACE base modifiers with
@@ -143,13 +147,21 @@ pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
     }
     base.heroes.retain(|h| !h.removed);
 
-    // Replica items: replace by target_pokemon, add new
+    // Replica items: replace by (target_pokemon, trigger discriminant), add
+    // new. The IR allows one ReplicaItem per trigger variant per Pokemon
+    // (e.g. a Pokemon with both a SideUse Pokeball and a Cast spell — corpus
+    // shape that 8B's parser will produce). Matching on target_pokemon alone
+    // would silently collapse such pairs.
     for mut item in overlay.replica_items {
         item.source = Source::Overlay;
+        let item_disc = std::mem::discriminant(&item.trigger);
         if let Some(pos) = base
             .replica_items
             .iter()
-            .position(|r| r.target_pokemon == item.target_pokemon)
+            .position(|r| {
+                r.target_pokemon == item.target_pokemon
+                    && std::mem::discriminant(&r.trigger) == item_disc
+            })
         {
             base.replica_items[pos] = item;
         } else {

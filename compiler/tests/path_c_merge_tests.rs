@@ -494,3 +494,108 @@ fn build_with_filter_regenerates_derived_from_post_filter_heroes() {
         out
     );
 }
+
+// -- multi-replica-per-Pokemon merge (Round 8) --
+//
+// `ReplicaItem.trigger: SummonTrigger` is singular, with variants `SideUse`
+// and `Cast` (`ir/mod.rs:664-684`). The IR allows one ReplicaItem per
+// trigger variant per Pokemon — the corpus has 4 Pokemon (Ho-Oh, Lugia,
+// Kyogre, Groudon) with Cast triggers and the authoring API exposes both
+// `SideUseBuilder` and `CastBuilder` for the same target_pokemon. xref's
+// X003 is cross-bucket only (`xref.rs:233-238`) and does not enforce
+// intra-replica-bucket uniqueness, so the merge key MUST distinguish
+// triggers; matching by `target_pokemon` alone collapses SideUse + Cast
+// pairs into the first match. Pre-Round-8 merge had this exact bug
+// (`merge.rs:147-158` matched on target_pokemon alone). This test pins the
+// fix.
+#[test]
+fn merge_replicas_distinguishes_sideuse_and_cast_for_same_pokemon() {
+    use textmod_compiler::ir::{DiceLocation, ReplicaItem, SummonTrigger};
+
+    fn make_sideuse(target: &str, dice: &str) -> ReplicaItem {
+        ReplicaItem {
+            container_name: format!("{} Ball", target),
+            target_pokemon: target.to_string(),
+            trigger: SummonTrigger::SideUse {
+                dice: DiceFaces::parse(dice),
+                dice_location: DiceLocation::OuterPreface,
+            },
+            enemy_template: "Wolf".into(),
+            team_template: "housecat".into(),
+            tier: Some(1),
+            hp: Some(4),
+            color: None,
+            sprite: SpriteId::owned(target.to_lowercase(), ""),
+            sticker_stack: None,
+            speech: None,
+            doc: None,
+            toggle_flags: None,
+            item_modifiers: None,
+            source: Source::Base,
+        }
+    }
+
+    fn make_cast(target: &str, dice: &str) -> ReplicaItem {
+        use textmod_compiler::ir::SummonTrigger;
+        ReplicaItem {
+            container_name: format!("{} Spell", target),
+            target_pokemon: target.to_string(),
+            trigger: SummonTrigger::Cast { dice: DiceFaces::parse(dice) },
+            enemy_template: "dragon".into(),
+            team_template: "prodigy".into(),
+            tier: Some(3),
+            hp: Some(30),
+            color: None,
+            sprite: SpriteId::owned(target.to_lowercase(), ""),
+            sticker_stack: None,
+            speech: None,
+            doc: None,
+            toggle_flags: None,
+            item_modifiers: None,
+            source: Source::Base,
+        }
+    }
+
+    let mut base = ModIR::empty();
+    base.replica_items.push(make_sideuse("HoOh", "1-1:2-1:3-1:4-1:5-1:6-1"));
+    base.replica_items.push(make_cast("HoOh", "36-10:36-10:0:0:36-10:0"));
+
+    // Overlay updates the Cast (different dice). SideUse must remain intact.
+    let mut overlay = ModIR::empty();
+    overlay.replica_items.push(make_cast("HoOh", "182-25:0:0:0:76-0:0"));
+
+    merge(&mut base, overlay).unwrap();
+
+    assert_eq!(
+        base.replica_items.len(),
+        2,
+        "merge must distinguish SideUse from Cast for the same Pokemon — \
+         neither should be dropped. Got: {:?}",
+        base.replica_items.iter().map(|r| (&r.target_pokemon, &r.trigger)).collect::<Vec<_>>()
+    );
+
+    let sideuse = base.replica_items.iter().find(|r| matches!(
+        r.trigger,
+        textmod_compiler::ir::SummonTrigger::SideUse { .. }
+    )).expect("SideUse for HoOh must survive");
+    assert_eq!(sideuse.target_pokemon, "HoOh");
+    assert_eq!(sideuse.source, Source::Base, "untouched SideUse keeps Base source");
+
+    let cast = base.replica_items.iter().find(|r| matches!(
+        r.trigger,
+        textmod_compiler::ir::SummonTrigger::Cast { .. }
+    )).expect("Cast for HoOh must survive");
+    assert_eq!(cast.target_pokemon, "HoOh");
+    assert_eq!(cast.source, Source::Overlay, "merged Cast picks up Overlay source");
+    // The overlay's Cast dice must replace the base's Cast dice (the merge
+    // semantics for the same `(target_pokemon, trigger)` key).
+    if let textmod_compiler::ir::SummonTrigger::Cast { dice } = &cast.trigger {
+        assert_eq!(
+            dice.emit(),
+            "182-25:0:0:0:76-0:0",
+            "overlay Cast dice must overwrite base Cast dice"
+        );
+    } else {
+        panic!("expected Cast trigger");
+    }
+}
