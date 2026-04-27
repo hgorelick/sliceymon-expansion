@@ -95,7 +95,7 @@ fn parse_all_sliceymon_heroes() {
 #[test]
 fn emit_hero_parens_balanced() {
     let hero = parse_hero(SAMPLE_HERO_LINE).unwrap();
-    let output = emit_hero(&hero, &sprites);
+    let output = build_hero(&hero).unwrap();
     let depth: i32 = output.chars().map(|c| match c {
         '(' => 1, ')' => -1, _ => 0
     }).sum();
@@ -105,7 +105,7 @@ fn emit_hero_parens_balanced() {
 #[test]
 fn emit_hero_tier_separators_at_depth_zero() {
     let hero = parse_hero(SAMPLE_HERO_LINE).unwrap();
-    let output = emit_hero(&hero, &sprites);
+    let output = build_hero(&hero).unwrap();
     let mut depth = 0i32;
     for (i, ch) in output.char_indices() {
         match ch {
@@ -122,7 +122,7 @@ fn emit_hero_tier_separators_at_depth_zero() {
 #[test]
 fn emit_hero_name_is_last_before_separator() {
     let hero = parse_hero(SAMPLE_HERO_LINE).unwrap();
-    let output = emit_hero(&hero, &sprites);
+    let output = build_hero(&hero).unwrap();
     // Split at depth-0 '+' and check each segment ends with .n.NAME
     for segment in split_at_depth_zero_plus(&output) {
         let last_dot_n = segment.rfind(".n.");
@@ -182,7 +182,7 @@ fn roundtrip_replica_items() {
 fn roundtrip_pansaer() {
     let original = fs::read_to_string("../working-mods/pansaer.txt").unwrap();
     let ir_a = extract(&original).unwrap();
-    let rebuilt = build(&ir_a, &sprites);
+    let rebuilt = build(&ir_a).unwrap();
     let ir_b = extract(&rebuilt).unwrap();
     assert_ir_equal(&ir_a, &ir_b);
 }
@@ -192,6 +192,9 @@ fn roundtrip_punpuns() { /* same pattern */ }
 
 #[test]
 fn roundtrip_sliceymon() { /* same pattern */ }
+
+#[test]
+fn roundtrip_community() { /* same pattern */ }
 ```
 
 **`assert_ir_equal` compares semantically**, not string equality:
