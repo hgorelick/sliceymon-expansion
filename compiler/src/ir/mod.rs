@@ -707,6 +707,31 @@ impl SummonTrigger {
             SummonTrigger::Cast { dice } => dice,
         }
     }
+
+    /// Lossy projection to `ReplicaTriggerKey` — the same discriminant the
+    /// round-9 merge predicate (`merge.rs:151-171`) and the round-12 add
+    /// predicate (`ops.rs:104-152`) key on, with no payload. Use this when
+    /// a CRUD caller needs to identify *which* trigger variant on a given
+    /// `target_name` without supplying its dice/`dice_location` payload —
+    /// e.g. `remove_replica_item(name, key)`.
+    pub fn key(&self) -> ReplicaTriggerKey {
+        match self {
+            SummonTrigger::SideUse { .. } => ReplicaTriggerKey::SideUse,
+            SummonTrigger::Cast { .. } => ReplicaTriggerKey::Cast,
+        }
+    }
+}
+
+/// Discriminant-only projection of `SummonTrigger`. CRUD operations that
+/// need to address a specific trigger variant on a `target_name` (e.g.
+/// `remove_replica_item`) take this enum as a parameter so callers do not
+/// have to fabricate dice/`dice_location` payload they do not care about.
+/// Pairs with `target_name` to form the round-9/12 uniqueness key
+/// `(target_name, trigger discriminant)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub enum ReplicaTriggerKey {
+    SideUse,
+    Cast,
 }
 
 /// Typed sum for `StructuralContent::ItemPool.items`. Every itempool entry
@@ -722,7 +747,9 @@ impl SummonTrigger {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum ItempoolItem {
     /// Index into `ModIR.replica_items`. Index stability is enforced by
-    /// `ir::ops::remove_replica_item`.
+    /// `ir::ops::remove_replica_item`, which removes the entry matching
+    /// `(target_name, ReplicaTriggerKey)` — the round-9/12 multi-trigger
+    /// uniqueness key — and re-indexes every `Summon(i)` accordingly.
     Summon(usize),
     /// Non-summon itempool entry — transitional raw-passthrough. `name` is
     /// the entry's inline `.n.<name>` where one exists (empty for the 8a
