@@ -20,7 +20,7 @@ You are a principal architect with deep expertise in compiler design, data trans
 - **Round-trip fidelity is the architectural invariant**: `extract(build(extract(mod))) == extract(mod)` — every design decision must preserve this
 - **IR is the API surface**: The IR format is the contract between extractor, builder, human authors, and LLM authors — design it for all four consumers
 - **No raw passthrough**: The IR stores structured fields. The builder emits from fields. No raw string shortcuts that bypass the schema. If a field exists on the type, it's extracted and emitted.
-- **Self-contained IR**: An extracted IR has everything needed to rebuild the mod — including sprite img_data. No external dependencies for round-trip.
+- **Self-contained IR**: An extracted IR has everything needed to rebuild the mod — sprite payloads ride inline on the typed `SpriteId` field of every sprite-bearing type. No external dependencies for round-trip.
 - **Library first, CLI second**: Every operation is a `pub fn`. The CLI calls library functions. The same library powers the web app.
 - **Parse, don't validate**: Use Rust's type system to make invalid states unrepresentable in the IR
 - **WASM-first constraints**: No filesystem access in library code — CLI wraps the library with I/O
@@ -31,7 +31,7 @@ You are a principal architect with deep expertise in compiler design, data trans
 
 The textmod compiler is not just a CLI tool. It's the backend for a mod-building application where users:
 
-1. **Create** heroes, captures, monsters, bosses from scratch via structured JSON
+1. **Create** heroes, replica items, monsters, bosses from scratch via structured JSON
 2. **Edit** individual items with real-time validation feedback
 3. **Preview** a single modifier without rebuilding the whole mod
 4. **Validate** with semantic rules (Face ID validity per template, color conflicts, Pokemon uniqueness)
@@ -50,31 +50,32 @@ Every architectural decision must support this workflow.
   mod.txt ──────────┤  Extractor                                           │
                     │  ┌─────────┐   ┌─────────────┐                      │
                     │  │Classifier│──>│ Type Parsers │──> ModIR            │
-                    │  └─────────┘   │ (hero, cap,  │    (fields only,    │
+                    │  └─────────┘   │ (hero, repl, │    (fields only,    │
                     │                │  mon, boss,  │     self-contained)  │
                     │                │  structural) │                      │
                     │                └─────────────┘                      │
                     │                                                      │
                     │  Operations (CRUD)                                   │
                     │  ┌──────────────────────────────────────┐           │
-                    │  │ add/remove/update hero, capture, etc. │           │
+                    │  │ add/remove/update hero, replica_item, etc. │      │
                     │  │ cross-category duplicate prevention   │           │
                     │  │ provenance tracking (base/custom)     │           │
                     │  └──────────────────────────────────────┘           │
                     │                                                      │
-                    │  Validator                                           │
+                    │  xref (cross-IR semantic checks; out-of-band)        │
                     │  ┌──────────────────────────────────────┐           │
-                    │  │ Structural: parens, faces, properties │           │
+                    │  │ Structural validity = "extract OK"    │           │
                     │  │ Semantic: Face IDs per template,      │           │
                     │  │   color uniqueness, Pokemon uniqueness│           │
                     │  │ Context: cross-references, hero pools │           │
-                    │  │ Single-item OR full-mod validation    │           │
+                    │  │ Operates on a fully extracted ModIR;  │           │
+                    │  │ no separate "validator pass" exists   │           │
                     │  └──────────────────────────────────────┘           │
                     │                                                      │
                     │  Builder                                             │
                     │  ┌─────────────┐   ┌───────────┐   ┌──────────┐   │
                     │  │ Type Emitters│──>│  Derived   │──>│ Assembler│──>│ textmod
-                    │  │ (hero, cap,  │   │ Structurals│   └──────────┘   │
+                    │  │ (hero, repl, │   │ Structurals│   └──────────┘   │
                     │  │  mon, boss,  │   │ (char sel, │                   │
                     │  │  structural) │   │  hero pool)│                   │
                     │  └─────────────┘   └───────────┘                   │
@@ -88,7 +89,8 @@ Every architectural decision must support this workflow.
 | `ir/` | IR types, CRUD ops, merge logic | Parsing, emission, files, CLI |
 | `extractor/` | Raw text → IR types | How to emit, sprites, file layout |
 | `builder/` | IR types → raw text, derived structurals | How to parse, file discovery |
-| `validator/` | IR types, validation rules | Parsing, emission |
+| `xref.rs` | IR types, cross-reference / semantic validation rules | Parsing, emission |
+| `authoring/` | Type-state builders for ReplicaItem (SideUseBuilder, CastBuilder) | Parsing, emission |
 | `main.rs` | CLI args, file I/O, orchestration | Parsing/emission internals |
 | `lib.rs` | Public API (all operations) | File I/O, CLI (WASM-safe) |
 
@@ -98,9 +100,9 @@ The IR is the central architectural artifact. It must be:
 
 1. **Human-readable**: JSON serialization via serde, meaningful field names
 2. **Authorable**: Users (and LLMs) write hero JSON matching the schema → builder produces valid textmod
-3. **Self-contained**: Extracted IR includes `img_data` on every type — no external sprite map needed for round-trip
+3. **Self-contained**: Extracted IR includes inline sprite payloads on every sprite-bearing type (carried on the typed `SpriteId` field, accessed via `sprite.img_data()`) — no external sprite map needed for round-trip
 4. **Schema-published**: JSON Schema generated via schemars — editors validate authored JSON
-5. **Lossless for all types**: Heroes, captures, monsters, bosses, AND structural modifiers round-trip through fields
+5. **Lossless for all types**: Heroes, replica items, monsters, bosses, AND structural modifiers round-trip through fields
 6. **No raw passthrough**: No `raw: String` fields that bypass field-based emission. Every field is extracted and emitted.
 7. **Provenance-tracked**: Each item knows whether it's Base (from extraction), Custom (user-added), or Overlay (from merge)
 
@@ -138,12 +140,14 @@ The architecture must support operations on individual items, not just full-mod 
 
 ```rust
 // Library API surface
-pub fn build_hero(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String, CompilerError>
+pub fn build_hero(hero: &Hero) -> Result<String, CompilerError>
 pub fn validate_hero(hero: &Hero) -> ValidationReport
 pub fn validate_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport
 pub fn add_hero(ir: &mut ModIR, hero: Hero) -> Result<(), CompilerError>
 pub fn remove_hero(ir: &mut ModIR, mn_name: &str) -> Result<(), CompilerError>
-// ... same for Capture, Legendary, Monster, Boss
+// ... same for ReplicaItem, Monster, Boss (ReplicaItem CRUD takes an extra
+// ReplicaTriggerKey arg on remove/update — SideUse and Cast variants per
+// target_name are addressable independently per the round-9/12/14 contract)
 ```
 
 ## When Reviewing Architecture
@@ -159,7 +163,7 @@ Look for:
 - Missing single-item operations (only full-mod batch available)
 - Missing provenance tracking (can't tell base from custom content)
 - Missing schema generation (no JSON Schema for external validation)
-- Sprite data that requires external files (IR should be self-contained via img_data)
+- Sprite data that requires external files (IR should be self-contained via inline `SpriteId` payloads)
 
 ### Format-Specific Architecture Concerns
 
@@ -168,12 +172,12 @@ Look for:
 | Parenthesis balancing | Parser tracks depth; builder guarantees balanced output by construction |
 | Tier separators at depth 0 | Parser splits on depth-0 `+`; builder emits `+` only between blocks |
 | `.n.NAME` position (must be last) | Builder places `.n.` last in emission order — not an IR concern |
-| `.img.` data | Extracted into `img_data` field during parsing, emitted directly by builder. Self-contained. |
+| `.img.` data | Constructor-injected into `SpriteId` during parsing, accessed via `sprite.img_data()` during emission. Self-contained. |
 | `.part.1` appending | IR marks content as "append" vs "replace"; builder emits accordingly |
-| Face ID validity | Validator checks Face IDs against per-template approved lists |
+| Face ID validity | `build_hero` (structural) + `xref::check_hero_in_context` (semantic) check Face IDs against per-template approved lists |
 | Derived structurals | Builder auto-generates from IR content, not stored in IR |
-| Cross-category uniqueness | CRUD operations prevent same Pokemon in hero + capture pools |
-| Builder ordering | Type-based assembly must match game expectations (structural → heroes → items → captures → monsters → bosses) |
+| Cross-category uniqueness | CRUD operations prevent same Pokemon in hero + replica-item pools |
+| Builder ordering | Type-based assembly must match game expectations (structural → heroes → items → replica items → monsters → bosses) |
 
 ## CLI Design
 
@@ -187,9 +191,9 @@ textmod-compiler build ir/sliceymon/ --output sliceymon_rebuilt.txt
 # Overlay: base textmod + expansion IR → combined textmod
 textmod-compiler overlay sliceymon.txt --with expansion_ir/ --output expanded.txt
 
-# Validate: structural + semantic + cross-reference validation
-textmod-compiler validate sliceymon.txt
-textmod-compiler validate sliceymon.txt --round-trip
+# Check: structural + semantic + cross-reference validation
+textmod-compiler check sliceymon.txt
+textmod-compiler check sliceymon.txt --round-trip
 
 # Schema: export JSON Schema for IR types
 textmod-compiler schema --output schema.json
@@ -226,7 +230,7 @@ Consider:
 
 | Mod | Location | Architectural Test |
 |-----|----------|--------------------|
-| sliceymon.txt | `working-mods/` | Full feature set: heroes, captures, legendaries, monsters, bosses, all structural types |
+| sliceymon.txt | `working-mods/` | Full feature set: heroes, replica items, monsters, bosses, all structural types |
 | pansaer.txt | `working-mods/` | All 7 new templates, grouped hero format |
 | punpuns.txt | `working-mods/` | Different mod style, grouped format |
 | community.txt | `working-mods/` | Community mod format variant |

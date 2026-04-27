@@ -4,7 +4,10 @@
 //! derived from the hero list. These are generated during build if no explicit
 //! structural of that type exists in the IR.
 
-use crate::ir::{Hero, Source, StructuralContent, StructuralModifier, StructuralType};
+use crate::ir::{
+    Hero, ItempoolItem, ReplicaItem, Source, StructuralContent, StructuralModifier,
+    StructuralType, SummonTrigger,
+};
 
 /// Generate a character selection Selector from the hero list.
 /// Options are sorted by hero color alphabetically.
@@ -27,6 +30,58 @@ pub fn generate_char_selection(heroes: &[Hero]) -> StructuralModifier {
         derived: true,
         source: Source::Base,
     }
+}
+
+/// Generate hero-bound ItemPool structurals from the trigger-based
+/// `ReplicaItem` list.
+///
+/// Walks `replica_items`; each `SummonTrigger::SideUse` (both `OuterPreface`
+/// and `InnerWrapper` — `dice_location` is a source-shape sub-axis, not a
+/// game-mechanic axis) whose `target_name` matches a hero's `mn_name`
+/// routes into a hero-bound pool keyed on that hero's `internal_name`.
+/// `Cast` entries are skipped — Cast summons have their own top-level
+/// emission path per the emitter's trigger dispatch and are not
+/// hero-pool-routed.
+///
+/// Post-8A stub: the `extract_from_itempool` stub produces zero
+/// `ReplicaItem` entries, so this function produces zero output from
+/// extracted corpus input. 8B's real parser surfaces SideUse entries that
+/// this function routes into hero-bound pools. A byte-match-vs-sliceymon
+/// round-trip test for this function ships in 8B (it requires the real
+/// parser to populate `ir.replica_items`).
+///
+/// Returned `StructuralModifier` entries carry `derived: true` so the
+/// merge / build strip-regenerate cycle (SPEC §4) handles them uniformly
+/// with `generate_char_selection` / `generate_hero_pool_base`.
+pub fn generate_hero_item_pool(
+    heroes: &[Hero],
+    replica_items: &[ReplicaItem],
+) -> Vec<StructuralModifier> {
+    let mut out: Vec<StructuralModifier> = Vec::new();
+    for hero in heroes {
+        let hero_lower = hero.mn_name.to_lowercase();
+        let mut items: Vec<ItempoolItem> = Vec::new();
+        for (i, replica) in replica_items.iter().enumerate() {
+            if !matches!(replica.trigger, SummonTrigger::SideUse { .. }) {
+                continue;
+            }
+            if replica.target_name.to_lowercase() != hero_lower {
+                continue;
+            }
+            items.push(ItempoolItem::Summon(i));
+        }
+        if items.is_empty() {
+            continue;
+        }
+        out.push(StructuralModifier {
+            modifier_type: StructuralType::ItemPool,
+            name: Some(format!("{}Item", hero.mn_name)),
+            content: StructuralContent::ItemPool { items },
+            derived: true,
+            source: Source::Base,
+        });
+    }
+    out
 }
 
 /// Generate a HeroPoolBase from the hero list.
@@ -185,5 +240,142 @@ mod tests {
         assert!(output.contains("@1Alpha"), "missing char selection option Alpha");
         assert!(output.contains("@1Beta"), "missing char selection option Beta");
         assert!(output.contains("heropool."), "missing hero pool base");
+    }
+
+    fn make_sideuse_replica(target: &str) -> ReplicaItem {
+        use crate::ir::{DiceLocation, SummonTrigger};
+        ReplicaItem {
+            container_name: format!("{} Ball", target),
+            target_name: target.to_string(),
+            trigger: SummonTrigger::SideUse {
+                dice: DiceFaces::parse("1-1:2-1:3-1:4-1:5-1:6-1"),
+                dice_location: DiceLocation::OuterPreface,
+            },
+            enemy_template: "Wolf".into(),
+            team_template: "housecat".into(),
+            tier: Some(1),
+            hp: Some(4),
+            color: None,
+            sprite: crate::authoring::SpriteId::owned(target.to_lowercase(), ""),
+            sticker_stack: None,
+            speech: None,
+            doc: None,
+            toggle_flags: None,
+            item_modifiers: None,
+            source: Source::Base,
+        }
+    }
+
+    fn make_cast_replica(target: &str) -> ReplicaItem {
+        use crate::ir::SummonTrigger;
+        ReplicaItem {
+            container_name: format!("{} Orb", target),
+            target_name: target.to_string(),
+            trigger: SummonTrigger::Cast {
+                dice: DiceFaces::parse("36-10:36-10:0:0:36-10:0"),
+            },
+            enemy_template: "dragon".into(),
+            team_template: "prodigy".into(),
+            tier: Some(3),
+            hp: Some(30),
+            color: None,
+            sprite: crate::authoring::SpriteId::owned(target.to_lowercase(), ""),
+            sticker_stack: None,
+            speech: None,
+            doc: None,
+            toggle_flags: None,
+            item_modifiers: None,
+            source: Source::Base,
+        }
+    }
+
+    /// `generate_hero_item_pool` routes each SideUse replica whose
+    /// `target_name` matches a hero's `mn_name` into a hero-bound
+    /// `StructuralType::ItemPool` keyed as `<Hero>Item`. Cast entries are
+    /// skipped (they emit through the top-level replica loop, not the pool).
+    #[test]
+    fn generate_hero_item_pool_routes_sideuse_by_target_name() {
+        let heroes = vec![make_hero("Alpha", 'a'), make_hero("Beta", 'b')];
+        let replica_items = vec![
+            make_sideuse_replica("Alpha"), // index 0 — Alpha's pool
+            make_cast_replica("Alpha"),    // index 1 — skipped (Cast)
+            make_sideuse_replica("Beta"),  // index 2 — Beta's pool
+            make_sideuse_replica("Alpha"), // index 3 — Alpha's pool again
+        ];
+        let pools = generate_hero_item_pool(&heroes, &replica_items);
+
+        assert_eq!(pools.len(), 2, "one hero-bound pool per hero with >=1 SideUse match");
+
+        let alpha_pool = pools.iter().find(|p| p.name.as_deref() == Some("AlphaItem"))
+            .expect("AlphaItem pool present");
+        assert_eq!(alpha_pool.modifier_type, StructuralType::ItemPool);
+        assert!(alpha_pool.derived, "derived flag must be set so strip+regenerate cycle owns the pool");
+        assert_eq!(alpha_pool.source, Source::Base);
+        match &alpha_pool.content {
+            StructuralContent::ItemPool { items } => {
+                assert_eq!(
+                    items,
+                    &vec![ItempoolItem::Summon(0), ItempoolItem::Summon(3)],
+                    "Alpha pool routes replica indices 0 and 3; Cast at index 1 skipped"
+                );
+            }
+            other => panic!("expected ItemPool content, got {:?}", other),
+        }
+
+        let beta_pool = pools.iter().find(|p| p.name.as_deref() == Some("BetaItem"))
+            .expect("BetaItem pool present");
+        match &beta_pool.content {
+            StructuralContent::ItemPool { items } => {
+                assert_eq!(items, &vec![ItempoolItem::Summon(2)]);
+            }
+            other => panic!("expected ItemPool content, got {:?}", other),
+        }
+    }
+
+    /// Heroes with no SideUse matches produce no pool at all — the derived
+    /// structural is absent rather than empty.
+    #[test]
+    fn generate_hero_item_pool_skips_heroes_with_no_sideuse_matches() {
+        let heroes = vec![make_hero("Alpha", 'a'), make_hero("Beta", 'b')];
+        let replica_items = vec![make_sideuse_replica("Alpha")];
+        let pools = generate_hero_item_pool(&heroes, &replica_items);
+        assert_eq!(pools.len(), 1, "only heroes with matches get a pool");
+        assert_eq!(pools[0].name.as_deref(), Some("AlphaItem"));
+    }
+
+    /// The strip-regenerate cycle (SPEC §4) must re-author stripped derived
+    /// hero-bound ItemPools. Pre-8A the `regenerate_derived_kinds` match arm
+    /// for `ItemPool` dropped the kind silently — this test locks the wiring
+    /// so a regression that re-introduces `_ => {}` for `ItemPool` fails
+    /// loudly. Guards against the "dead `generate_hero_item_pool`" class of
+    /// defect caught in the round-1 tribunal.
+    #[test]
+    fn regenerate_derived_kinds_rebuilds_hero_item_pool() {
+        use crate::ir::merge::regenerate_derived_kinds;
+
+        let heroes = vec![make_hero("Alpha", 'a')];
+        let replica_items = vec![make_sideuse_replica("Alpha")];
+        let mut structural: Vec<StructuralModifier> = Vec::new();
+
+        regenerate_derived_kinds(
+            &mut structural,
+            &heroes,
+            &replica_items,
+            &[StructuralType::ItemPool],
+        );
+
+        assert_eq!(
+            structural.len(),
+            1,
+            "ItemPool arm must regenerate via generate_hero_item_pool"
+        );
+        assert_eq!(structural[0].modifier_type, StructuralType::ItemPool);
+        assert_eq!(structural[0].name.as_deref(), Some("AlphaItem"));
+        match &structural[0].content {
+            StructuralContent::ItemPool { items } => {
+                assert_eq!(items, &vec![ItempoolItem::Summon(0)]);
+            }
+            other => panic!("expected ItemPool content, got {:?}", other),
+        }
     }
 }

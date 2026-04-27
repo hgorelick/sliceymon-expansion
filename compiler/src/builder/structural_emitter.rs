@@ -1,13 +1,22 @@
-use crate::ir::{StructuralContent, StructuralModifier};
+use crate::ir::{ReplicaItem, StructuralContent, StructuralModifier};
 
 /// Emit a structural modifier from its typed content.
 ///
-/// Each StructuralContent variant stores a `body` field containing the full modifier
-/// text. The emitter dispatches on the variant and returns the body.
-pub fn emit(s: &StructuralModifier) -> String {
+/// Most variants store a `body` field containing the full modifier text;
+/// the emitter dispatches on the variant and returns the body. The
+/// `ItemPool` variant is the exception: post-8A it no longer carries a
+/// `body` field — the emitter rebuilds the pool body from the typed
+/// `items: Vec<ItempoolItem>` via `replica_item_emitter::emit_itempool`,
+/// which also needs a `&[ReplicaItem]` slice so `Summon(i)` entries can
+/// dereference into the flat replica list.
+pub fn emit(s: &StructuralModifier, replica_items: &[ReplicaItem]) -> String {
     match &s.content {
         StructuralContent::HeroPoolBase { body, .. } => body.clone(),
-        StructuralContent::ItemPool { body, .. } => body.clone(),
+        StructuralContent::ItemPool { items } => crate::builder::replica_item_emitter::emit_itempool(
+            items,
+            replica_items,
+            s.name.as_deref().unwrap_or(""),
+        ),
         StructuralContent::BossModifier { body, .. } => body.clone(),
         StructuralContent::PartyConfig { body, .. } => body.clone(),
         StructuralContent::EventModifier { body, .. } => body.clone(),
@@ -44,7 +53,6 @@ mod tests {
             derived: false,
             source: Source::Base,
         };
-        assert_eq!(emit(&s), "1.ph.4 Hello.mn.Intro");
+        assert_eq!(emit(&s, &[]), "1.ph.4 Hello.mn.Intro");
     }
-
 }

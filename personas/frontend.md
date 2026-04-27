@@ -34,13 +34,15 @@ You are a principal frontend engineer specializing in Rust-to-WASM compilation a
 │  │                 │<──│                  │  │
 │  │  - Editor       │   │  - extract()     │  │
 │  │  - Hero forms   │   │  - build()       │  │
-│  │  - Validation   │   │  - validate()    │  │
+│  │  - Validation   │   │  - check_refs()  │  │
 │  │  - Export       │   │                  │  │
 │  └────────────────┘   └──────────────────┘  │
 │                                              │
 │  ┌────────────────────────────────────────┐  │
-│  │  Sprite Data (sprites.json)            │  │
-│  │  Loaded once, cached in IndexedDB      │  │
+│  │  Sprite registry: compiled into the    │  │
+│  │  WASM binary at build time from        │  │
+│  │  working-mods/*.txt; payloads inline   │  │
+│  │  on the IR's SpriteId fields.          │  │
 │  └────────────────────────────────────────┘  │
 └─────────────────────────────────────────────┘
 ```
@@ -60,16 +62,18 @@ pub fn extract_textmod(input: &str) -> Result<JsValue, JsError> {
 }
 
 #[wasm_bindgen]
-pub fn build_textmod(ir_json: &str, sprites_json: &str) -> Result<String, JsError> {
+pub fn build_textmod(ir_json: &str) -> Result<String, JsError> {
     let ir: ModIR = serde_json::from_str(ir_json)?;
-    let sprites: SpriteMap = serde_json::from_str(sprites_json)?;
-    Ok(build(&ir, &sprites)?)
+    Ok(build(&ir)?)
 }
 
 #[wasm_bindgen]
-pub fn validate_textmod(input: &str) -> JsValue {
-    let errors = validate(input);
-    serde_wasm_bindgen::to_value(&errors).unwrap_or(JsValue::NULL)
+pub fn validate_textmod(input: &str) -> Result<JsValue, JsError> {
+    // Structural validity = extract() success; semantic checks = check_references().
+    // (There is no single validate(textmod) entry point — the pipeline IS validation.)
+    let ir = extract(input)?;
+    let report = check_references(&ir);
+    Ok(serde_wasm_bindgen::to_value(&report)?)
 }
 ```
 
@@ -139,7 +143,7 @@ Since Slice & Dice is a mobile game:
 
 Look for:
 - WASM module loaded synchronously on main thread (must be async/Web Worker)
-- Large sprite data passed through WASM boundary repeatedly (cache on JS side)
+- Large IR repeatedly serialized across the WASM boundary (sprite payloads ride inline via `SpriteId::img_data()`, so a re-emit re-ships every byte; cache the IR JSON on the JS side and only re-cross the boundary on actual change)
 - Missing error handling on WASM calls (Rust panics become WASM traps — catch them)
 - `std::fs` or other non-WASM-safe code in the Rust library
 - Unnecessary data serialization across the WASM boundary
@@ -162,7 +166,7 @@ Consider:
 |------|---------|
 | `compiler/src/lib.rs` | WASM-compatible library API — the frontend's interface to Rust |
 | `compiler/src/ir/mod.rs` | IR types — the schema the frontend constructs |
-| `compiler/src/sprite.rs` | Sprite registry exported by the compiler (built from `working-mods/`) — frontend reads this for sprite payloads |
+| `compiler/src/authoring/sprite.rs` | `SpriteId` newtype + build-time sprite registry harvested from `working-mods/*.txt` (re-exported as `compiler::SpriteId` from `lib.rs`); the frontend constructs heroes/replicas with these IDs and the inline `.img.` payload rides through to the emitter |
 | `reference/textmod_guide.md` | Format spec for validation error messages and field semantics |
 | `CLAUDE.md` | Working principles |
 

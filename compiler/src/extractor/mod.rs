@@ -56,14 +56,32 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
             ModifierType::BossEncounter => {
                 bosses.push(boss_parser::parse_encounter(modifier, i));
             }
-            ModifierType::Legendary => {
-                replica_items.push(replica_item_parser::parse_legendary(modifier, i)?);
-            }
             ModifierType::HeroPoolBase => {
                 structural.push(make_structural(StructuralType::HeroPoolBase, modifier.clone()));
             }
             ModifierType::ItemPool => {
-                structural.push(make_structural(StructuralType::ItemPool, modifier.clone()));
+                // Chunk 8A: route ItemPool through the trigger-IR stub extractor.
+                // The stub returns zero new `ReplicaItem`s plus a single
+                // `NonSummon { name: "", tier: None, content: <whole body> }`
+                // sentinel whose emitter-side sentinel path re-emits the body
+                // verbatim for byte-equal round-trip. 8b replaces the stub
+                // body with the real per-entry classifier.
+                let extraction = replica_item_parser::extract_from_itempool(
+                    modifier,
+                    i,
+                    replica_items.len(),
+                )?;
+                replica_items.extend(extraction.new_replica_items);
+                let name = structural_parser::extract_structural_name(modifier);
+                structural.push(StructuralModifier {
+                    modifier_type: StructuralType::ItemPool,
+                    name,
+                    content: StructuralContent::ItemPool {
+                        items: extraction.items,
+                    },
+                    derived: false,
+                    source: Source::Base,
+                });
             }
             ModifierType::PartyConfig => {
                 structural.push(make_structural(StructuralType::PartyConfig, modifier.clone()));

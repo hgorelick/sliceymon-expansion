@@ -11,7 +11,9 @@
 //! `PLATFORM_FOUNDATIONS_PLAN.md` / `AUTHORING_ERGONOMICS_PLAN.md`.
 
 pub mod face_id;
+pub mod replica_item;
 pub mod sprite;
 
 pub use face_id::{FaceId, FaceIdError, FaceIdValue, Pips, KNOWN_FACE_IDS};
+pub use replica_item::{CastBuilder, HasDice, NoDice, SideUseBuilder};
 pub use sprite::SpriteId;
