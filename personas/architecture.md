@@ -143,7 +143,9 @@ pub fn validate_hero(hero: &Hero) -> ValidationReport
 pub fn validate_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport
 pub fn add_hero(ir: &mut ModIR, hero: Hero) -> Result<(), CompilerError>
 pub fn remove_hero(ir: &mut ModIR, mn_name: &str) -> Result<(), CompilerError>
-// ... same for Capture, Legendary, Monster, Boss
+// ... same for ReplicaItem, Monster, Boss (ReplicaItem CRUD takes an extra
+// ReplicaTriggerKey arg on remove/update — SideUse and Cast variants per
+// target_name are addressable independently per the round-9/12/14 contract)
 ```
 
 ## When Reviewing Architecture
@@ -226,7 +228,7 @@ Consider:
 
 | Mod | Location | Architectural Test |
 |-----|----------|--------------------|
-| sliceymon.txt | `working-mods/` | Full feature set: heroes, captures, legendaries, monsters, bosses, all structural types |
+| sliceymon.txt | `working-mods/` | Full feature set: heroes, replica items, monsters, bosses, all structural types |
 | pansaer.txt | `working-mods/` | All 7 new templates, grouped hero format |
 | punpuns.txt | `working-mods/` | Different mod style, grouped format |
 | community.txt | `working-mods/` | Community mod format variant |

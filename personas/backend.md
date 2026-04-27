@@ -200,7 +200,7 @@ compiler/
     lib.rs               # Public API: extract, build, validate, CRUD, single-item ops
     error.rs             # CompilerError + structured Finding
     ir/
-      mod.rs             # ModIR, Hero, HeroBlock, Capture, Monster, Boss, StructuralModifier
+      mod.rs             # ModIR, Hero, HeroBlock, ReplicaItem (trigger: SummonTrigger), Monster, Boss, StructuralModifier
       ops.rs             # CRUD operations: add/remove/update per type
       merge.rs           # Merge base IR + overlay IR
     extractor/
@@ -208,14 +208,14 @@ compiler/
       classifier.rs      # Classify modifier by type
       splitter.rs        # Split textmod at depth-0 commas
       hero_parser.rs     # Parse hero modifier → Hero
-      capture_parser.rs  # Parse capture/legendary → Capture/Legendary
+      replica_item_parser.rs  # Parse replica-item modifiers → ReplicaItem (with SummonTrigger::SideUse | Cast)
       monster_parser.rs  # Parse monster → Monster
       boss_parser.rs     # Parse boss → Boss
       structural_parser.rs # Parse structural → StructuralModifier with typed content
     builder/
       mod.rs             # Top-level: ModIR → textmod string (type-based assembly)
       hero_emitter.rs    # Hero → modifier string (Sliceymon + Grouped formats)
-      capture_emitter.rs # Capture/Legendary → modifier string
+      replica_item_emitter.rs # ReplicaItem → modifier string (dispatches on SummonTrigger variant)
       monster_emitter.rs # Monster → modifier string
       boss_emitter.rs    # Boss → modifier string with fight units
       structural_emitter.rs # StructuralModifier → modifier string (field-based)
@@ -226,7 +226,7 @@ compiler/
     img_extraction_tests.rs  # img_data extraction
     emitter_tests.rs         # Field-based emission per type
     hero_tests.rs            # Hero parsing
-    capture_tests.rs         # Capture/legendary parsing
+    path_c_merge_tests.rs    # ReplicaItem merge contract (SideUse + Cast per target_name)
     boss_tests.rs            # Boss parsing
     builder_tests.rs         # Builder assembly + ordering
     roundtrip_tests.rs       # Round-trip on all 4 test mods

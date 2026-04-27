@@ -344,7 +344,7 @@ cargo test --test cli_tests
 | Tier | Code | Coverage Standard |
 |------|------|-------------------|
 | **Critical** | Round-trip (extract → build → extract), hero parser, hero emitter | Every hero in all 3 test mods |
-| **High** | Capture parser/emitter, monster parser/emitter, charselect, ditto | Happy path + edge cases |
+| **High** | ReplicaItem parser/emitter, monster parser/emitter, charselect, ditto | Happy path + edge cases |
 | **Standard** | Classifier, structural passthrough | One test per modifier type |
 | **Low** | CLI arg parsing, file I/O wrappers | Smoke test via assert_cmd |
 

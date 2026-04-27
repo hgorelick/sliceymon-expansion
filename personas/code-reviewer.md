@@ -112,7 +112,7 @@ AI-generated Rust code commonly:
 
 - Sprite name not found in sprites.json at build time (should error, not emit empty)
 - Hero with wrong number of tiers (always 5: T1 + T2A + T2B + T3A + T3B)
-- Capture/monster data lost during extraction
+- ReplicaItem/monster data lost during extraction
 - Structural modifier content changed (must be raw passthrough)
 
 ## Issue Format

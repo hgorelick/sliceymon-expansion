@@ -47,21 +47,21 @@ Use the Rust engineer persona.
 Task: Implement capture_parser.rs
 
 Files to Read First:
-- working-mods/sliceymon.txt (capture lines)
-- reference/textmod_guide.md (property codes, capture semantics)
-- compiler/src/ir/mod.rs (ReplicaItem IR type)
+- working-mods/sliceymon.txt (replica-item modifier lines)
+- reference/textmod_guide.md (property codes, summon-envelope semantics)
+- compiler/src/ir/mod.rs (ReplicaItem IR type, SummonTrigger enum)
 
 Requirements:
-- Parse capture modifiers into Capture structs
-- Handle all captures in sliceymon.txt
+- Parse replica-item modifiers into ReplicaItem structs (trigger: SummonTrigger)
+- Handle all replica-item entries in sliceymon.txt
 
 Constraints:
 - Return Result, never panic
 - No std::fs (WASM-safe)
 
 Verification:
-- [ ] All sliceymon captures parse successfully
-- [ ] Round-trip: parse -> emit -> parse produces identical Capture
+- [ ] All sliceymon replica items parse successfully
+- [ ] Round-trip: parse -> emit -> parse produces identical ReplicaItem
 ```
 
 ## Recommended Combinations
