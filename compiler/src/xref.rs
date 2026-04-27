@@ -32,7 +32,7 @@ pub const X017: &str = "X017";
 /// template-restriction claim, so this table is intentionally empty —
 /// populating it with corpus-derived guesses would violate the plan's
 /// "no hardcoded lists based on game-design persona claims" directive
-/// (PLATFORM_FOUNDATIONS_PLAN.md §F3). Add entries here only when the guide
+/// (the 2026-04-20 "permissive face IDs" ruling). Add entries here only when the guide
 /// documents a restriction.
 ///
 /// Each entry: `(face_id, &[allowed_template_prefix, ...])`. An entry with
