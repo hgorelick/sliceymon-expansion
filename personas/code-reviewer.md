@@ -53,7 +53,7 @@ For every emitter function, answer:
 2. **Are tier separators (`+`) at depth 0?** Emitter must close all parens before joining with `+`
 3. **Is `.n.NAME` last before `+` or line end?** Check emission order
 4. **Does the emitter handle all optional fields?** `keywords`, `abilitydata`, `doc`, `items_inside`
-5. **Are sprites resolved correctly?** `sprite_name` -> actual `.img.` encoding from sprites.json
+5. **Are sprites preserved byte-for-byte?** The textmod's inline `.img.<base64>` payload (carried on `SpriteId` in the IR) must round-trip extract -> emit unchanged
 6. **Is the output ASCII-only?** No Unicode sneaking in from string literals or format strings
 
 ### Phase 3: Round-Trip Fidelity
@@ -110,7 +110,7 @@ AI-generated Rust code commonly:
 
 ### Data Integrity (HIGH)
 
-- Sprite name not found in sprites.json at build time (should error, not emit empty)
+- Authoring-layer `SpriteId` lookup against an unknown name (call `SpriteId::try_registered`, which errors via `CompilerError`) — never silently fall back to `SpriteId::owned(name, "")`, which emits an empty `.img.` payload
 - Hero with wrong number of tiers (always 5: T1 + T2A + T2B + T3A + T3B)
 - ReplicaItem/monster data lost during extraction
 - Structural modifier content changed (must be raw passthrough)

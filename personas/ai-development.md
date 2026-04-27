@@ -592,7 +592,7 @@ Task: [Action] [Component]
 
 ### Vision
 
-The textmod compiler is the **backend foundation for a web/mobile mod-building app**. Users create heroes, captures, monsters, bosses from scratch via structured data (JSON). The compiler validates, assembles, and exports a pasteable textmod. The CLI is a first-class interface to the same library.
+The textmod compiler is the **backend foundation for a web/mobile mod-building app**. Users create heroes, replica items, monsters, bosses from scratch via structured data (JSON). The compiler extracts (structural validity), runs cross-IR semantic checks (`xref`), assembles, and exports a pasteable textmod. The CLI is a first-class interface to the same library.
 
 **Every feature must be a library function first, CLI as thin wrapper.**
 
@@ -603,7 +603,7 @@ The textmod compiler is the **backend foundation for a web/mobile mod-building a
 | `compiler/src/ir/mod.rs` | IR type definitions — the mod schema | All compiler tasks |
 | `compiler/src/builder/` | Emitters — field-based modifier construction | Build/emission tasks |
 | `compiler/src/extractor/` | Parsers — textmod → IR conversion | Extraction/parsing tasks |
-| `compiler/src/validator.rs` | Validation rules (structural + semantic) | Validation tasks |
+| `compiler/src/xref.rs` | Cross-IR semantic checks (Pokemon uniqueness, hero pool refs, face-template compat) — there is no separate validator pass | Semantic-check tasks |
 | `compiler/src/lib.rs` | Public API surface | API design tasks |
 | `compiler/src/util.rs` | Shared parsing utilities | Any parsing work |
 | `reference/textmod_guide.md` | Format spec, Face IDs, property codes, template structure | Design validation, parser/emitter work |
@@ -630,27 +630,27 @@ The compiler has four layers:
 ```
 1. Extractor (textmod string → IR)
    - Splitter: comma-at-depth-0 splitting
-   - Classifier: modifier type detection (Hero, Capture, Monster, Boss, Structural)
-   - Type-specific parsers: hero_parser, capture_parser, monster_parser, boss_parser, structural_parser
+   - Classifier: ModifierType detection (Hero, HeroPoolBase, Monster, Boss, ItemPool, Selector, BossModifier, …; full list in extractor/classifier.rs)
+   - Type-specific parsers: hero_parser, replica_item_parser, monster_parser, boss_parser, structural_parser, plus phase/fight/chain/reward/richtext sub-parsers
+   - Structural validity = "extract succeeded" (no separate structural validator pass)
    - Output: ModIR with fully populated fields (NO raw passthrough)
 
 2. Builder (IR → textmod string)
-   - Type-specific emitters: hero_emitter, capture_emitter, monster_emitter, boss_emitter, structural_emitter
-   - Derived structural generator: auto-generates char selection, hero pools from IR content
-   - Assembly: orders modifiers by type (structural → heroes → items → captures → monsters → bosses)
+   - Type-specific emitters: hero_emitter, replica_item_emitter, monster_emitter, boss_emitter, structural_emitter, plus phase/fight/chain/reward sub-emitters
+   - Derived structural generator (builder/derived.rs): auto-generates char selection, hero pool base, hero-bound item pools from IR content
+   - Assembly order (per builder/mod.rs::build docstring): party → events → dialogs → selectors → heropool base → heroes → level-up → item pools → replica items → monsters → bosses → boss modifiers → gen select → difficulty → end screen → art credits
    - Output: pasteable textmod string
 
-3. Validator (IR or textmod string → findings)
-   - Structural validation: paren balance, face format, property order
-   - Semantic validation: face IDs per template, color uniqueness, Pokemon uniqueness across categories
-   - Context-aware validation: cross-references between types (hero pool refs, party configs)
-   - Output: structured findings with field paths, suggestions
+3. xref (cross-IR semantic checks; out-of-band, not a pipeline stage)
+   - Operates on a fully extracted ModIR; called via `check_references(&ir)` or per-entity helpers (`check_hero_in_context`, `check_boss_in_context`)
+   - Pokemon uniqueness across categories, hero pool reference resolution, face-ID/template compat, color uniqueness, hero/boss in-context checks
+   - Output: `ValidationReport { errors, warnings, info }` of `Finding`s with rule_id, modifier name/index, message, suggestion
 
 4. Operations (CRUD on IR)
-   - add/remove/update per type (hero, capture, monster, boss)
+   - add/remove/update per type (hero, replica_item, monster, boss)
    - Cross-category duplicate prevention
-   - Provenance tracking (base vs custom)
-   - Single-item build and validate
+   - Provenance tracking (Source: Base / Custom / Overlay)
+   - Single-item build and per-entity xref check
 ```
 
 ### IR-First Development Workflow
