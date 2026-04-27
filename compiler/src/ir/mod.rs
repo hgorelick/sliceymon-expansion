@@ -28,7 +28,7 @@ impl Source {
 
 // -- Shared Types --
 
-/// Dice faces — the .sd. field on heroes, captures, monsters, spells, etc.
+/// Dice faces — the .sd. field on heroes, replica items, monsters, spells, etc.
 /// Format: colon-separated entries, each is "0" (blank) or "FaceID-Pips"
 /// Example: "34-1:30-1:0:0:30-1:0" → [Active(34,1), Active(30,1), Blank, Blank, Active(30,1), Blank]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default, JsonSchema)]

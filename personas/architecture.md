@@ -31,7 +31,7 @@ You are a principal architect with deep expertise in compiler design, data trans
 
 The textmod compiler is not just a CLI tool. It's the backend for a mod-building application where users:
 
-1. **Create** heroes, captures, monsters, bosses from scratch via structured JSON
+1. **Create** heroes, replica items, monsters, bosses from scratch via structured JSON
 2. **Edit** individual items with real-time validation feedback
 3. **Preview** a single modifier without rebuilding the whole mod
 4. **Validate** with semantic rules (Face ID validity per template, color conflicts, Pokemon uniqueness)
@@ -50,14 +50,14 @@ Every architectural decision must support this workflow.
   mod.txt ──────────┤  Extractor                                           │
                     │  ┌─────────┐   ┌─────────────┐                      │
                     │  │Classifier│──>│ Type Parsers │──> ModIR            │
-                    │  └─────────┘   │ (hero, cap,  │    (fields only,    │
+                    │  └─────────┘   │ (hero, repl, │    (fields only,    │
                     │                │  mon, boss,  │     self-contained)  │
                     │                │  structural) │                      │
                     │                └─────────────┘                      │
                     │                                                      │
                     │  Operations (CRUD)                                   │
                     │  ┌──────────────────────────────────────┐           │
-                    │  │ add/remove/update hero, capture, etc. │           │
+                    │  │ add/remove/update hero, replica_item, etc. │      │
                     │  │ cross-category duplicate prevention   │           │
                     │  │ provenance tracking (base/custom)     │           │
                     │  └──────────────────────────────────────┘           │
@@ -74,7 +74,7 @@ Every architectural decision must support this workflow.
                     │  Builder                                             │
                     │  ┌─────────────┐   ┌───────────┐   ┌──────────┐   │
                     │  │ Type Emitters│──>│  Derived   │──>│ Assembler│──>│ textmod
-                    │  │ (hero, cap,  │   │ Structurals│   └──────────┘   │
+                    │  │ (hero, repl, │   │ Structurals│   └──────────┘   │
                     │  │  mon, boss,  │   │ (char sel, │                   │
                     │  │  structural) │   │  hero pool)│                   │
                     │  └─────────────┘   └───────────┘                   │
@@ -88,7 +88,8 @@ Every architectural decision must support this workflow.
 | `ir/` | IR types, CRUD ops, merge logic | Parsing, emission, files, CLI |
 | `extractor/` | Raw text → IR types | How to emit, sprites, file layout |
 | `builder/` | IR types → raw text, derived structurals | How to parse, file discovery |
-| `validator/` | IR types, validation rules | Parsing, emission |
+| `xref.rs` | IR types, cross-reference / semantic validation rules | Parsing, emission |
+| `authoring/` | Type-state builders for ReplicaItem (SideUseBuilder, CastBuilder) | Parsing, emission |
 | `main.rs` | CLI args, file I/O, orchestration | Parsing/emission internals |
 | `lib.rs` | Public API (all operations) | File I/O, CLI (WASM-safe) |
 
@@ -100,7 +101,7 @@ The IR is the central architectural artifact. It must be:
 2. **Authorable**: Users (and LLMs) write hero JSON matching the schema → builder produces valid textmod
 3. **Self-contained**: Extracted IR includes `img_data` on every type — no external sprite map needed for round-trip
 4. **Schema-published**: JSON Schema generated via schemars — editors validate authored JSON
-5. **Lossless for all types**: Heroes, captures, monsters, bosses, AND structural modifiers round-trip through fields
+5. **Lossless for all types**: Heroes, replica items, monsters, bosses, AND structural modifiers round-trip through fields
 6. **No raw passthrough**: No `raw: String` fields that bypass field-based emission. Every field is extracted and emitted.
 7. **Provenance-tracked**: Each item knows whether it's Base (from extraction), Custom (user-added), or Overlay (from merge)
 
@@ -174,8 +175,8 @@ Look for:
 | `.part.1` appending | IR marks content as "append" vs "replace"; builder emits accordingly |
 | Face ID validity | Validator checks Face IDs against per-template approved lists |
 | Derived structurals | Builder auto-generates from IR content, not stored in IR |
-| Cross-category uniqueness | CRUD operations prevent same Pokemon in hero + capture pools |
-| Builder ordering | Type-based assembly must match game expectations (structural → heroes → items → captures → monsters → bosses) |
+| Cross-category uniqueness | CRUD operations prevent same Pokemon in hero + replica-item pools |
+| Builder ordering | Type-based assembly must match game expectations (structural → heroes → items → replica items → monsters → bosses) |
 
 ## CLI Design
 

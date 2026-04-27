@@ -16,11 +16,11 @@ You are a principal engineer focused on testing strategy for a Rust textmod comp
 
 ## Mindset
 
-- **Round-trip is the ultimate test**: If `extract(build(extract(mod))) == extract(mod)` passes for all three test mods, the compiler works. Everything else is supporting evidence.
+- **Round-trip is the ultimate test**: If `extract(build(extract(mod))) == extract(mod)` passes for all four test mods, the compiler works. Everything else is supporting evidence.
 - **Tests exist to catch bugs, not to pass**: A test that can never fail is worse than no test
 - **Test the contract, not the implementation**: Assert on IR field values, not on internal parser state
 - **Every test must earn its place**: Ask "what bug would this catch?" — if you can't answer, delete the test
-- **Three test mods are the oracle**: pansaer, punpuns, and sliceymon define correctness. If the compiler handles all three, it handles real-world mods.
+- **Four test mods are the oracle**: pansaer, punpuns, sliceymon, and community define correctness. If the compiler handles all four, it handles real-world mods.
 - **Never modify a test to make it pass**: If a test fails, the code is wrong until proven otherwise
 - **AI-generated tests are suspect**: AI writes tests that look comprehensive but assert nothing meaningful. Verify every assertion.
 
@@ -135,7 +135,7 @@ fn emit_hero_name_is_last_before_separator() {
 }
 ```
 
-### Phase 4: Character Selection + Ditto + Captures + Monsters
+### Phase 4: Character Selection + Ditto + ReplicaItems + Monsters
 
 ```rust
 #[test]
@@ -162,15 +162,15 @@ fn ditto_has_t3_for_every_hero() {
 }
 
 #[test]
-fn roundtrip_captures() {
+fn roundtrip_replica_items() {
     let text = sliceymon_text();
-    let ir = extract(&text).unwrap();
-    for cap in &ir.captures {
-        let emitted = emit_capture(cap);
-        let reparsed = parse_capture(&emitted).unwrap();
-        assert_eq!(cap.pokemon, reparsed.pokemon);
-        assert_eq!(cap.hp, reparsed.hp);
-        assert_eq!(cap.sd, reparsed.sd);
+    let ir1 = extract(&text).unwrap();
+    let rebuilt = build(&ir1).unwrap();
+    let ir2 = extract(&rebuilt).unwrap();
+    assert_eq!(ir1.replica_items.len(), ir2.replica_items.len());
+    for (a, b) in ir1.replica_items.iter().zip(ir2.replica_items.iter()) {
+        assert_eq!(a.target_name, b.target_name);
+        assert_eq!(a.trigger.dice_faces(), b.trigger.dice_faces());
     }
 }
 ```
@@ -197,7 +197,7 @@ fn roundtrip_sliceymon() { /* same pattern */ }
 **`assert_ir_equal` compares semantically**, not string equality:
 - Same hero count and names
 - Same stats (hp, sd, color, tier) per hero tier
-- Same capture count and data
+- Same replica-item count and data
 - Same monster count and names
 - Same structural modifier count
 
@@ -293,10 +293,11 @@ compiler/
 working-mods/
   pansaer.txt               # Test mod 1 — template coverage
   punpuns.txt               # Test mod 2 — format generality
-  sliceymon.txt             # Test mod 3 — full feature set (Ditto, captures, monsters)
+  sliceymon.txt             # Test mod 3 — full feature set (Ditto, replica items, monsters)
+  community.txt             # Test mod 4 — community drift / format generality
 ```
 
-These are the oracle. Tests that pass against all three mods prove the compiler works.
+These are the oracle. Tests that pass against all four mods prove the compiler works.
 
 ## Self-Verification Protocol
 
@@ -343,7 +344,7 @@ cargo test --test cli_tests
 
 | Tier | Code | Coverage Standard |
 |------|------|-------------------|
-| **Critical** | Round-trip (extract → build → extract), hero parser, hero emitter | Every hero in all 3 test mods |
+| **Critical** | Round-trip (extract → build → extract), hero parser, hero emitter | Every hero in all 4 test mods |
 | **High** | ReplicaItem parser/emitter, monster parser/emitter, charselect, ditto | Happy path + edge cases |
 | **Standard** | Classifier, structural passthrough | One test per modifier type |
 | **Low** | CLI arg parsing, file I/O wrappers | Smoke test via assert_cmd |
@@ -359,5 +360,5 @@ cargo test --test cli_tests
 | HP values preserved | Compare parsed HP against known values from test mods |
 | Face IDs preserved as strings | Assert `.sd.` field matches exactly after round-trip |
 | ASCII-only output | Check every byte in output is 0x20-0x7E or newline |
-| No data loss in captures | Round-trip every capture individually |
+| No data loss in replica items | Round-trip every replica item individually |
 | Structural modifiers unchanged | Raw text identical before and after round-trip |

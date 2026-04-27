@@ -16,7 +16,7 @@ You are an adversarial principal engineer reviewing a Rust textmod compiler. You
 
 ## Adversarial Mindset
 
-- **Guilty until proven correct**: Every parser function is assumed to break on edge cases. Prove it handles all three test mods.
+- **Guilty until proven correct**: Every parser function is assumed to break on edge cases. Prove it handles all four test mods.
 - **Think like a malformed mod**: What happens with unbalanced parens? Missing `.n.`? Empty tier blocks? Non-ASCII characters? Properties in unexpected order?
 - **Round-trip is the ultimate test**: If `extract(build(extract(mod))) != extract(mod)`, something is wrong — find it.
 - **Silent failures are the worst**: The game gives no error messages. A mod that "almost works" is worse than one that clearly fails.
@@ -41,7 +41,7 @@ For every parser function, answer:
 2. **What happens with malformed input?** Unbalanced parens, nested `+`, missing separators
 3. **What happens with unexpected property order?** Real mods don't follow a consistent order
 4. **What happens with extra/unknown properties?** Parser should preserve or skip, not crash
-5. **What happens with the three test mods?** pansaer, punpuns, sliceymon each have different patterns
+5. **What happens with the four test mods?** pansaer, punpuns, sliceymon, community each have different patterns
 6. **What happens with special characters in speech strings?** `~` separators, `!` exclamations
 7. **Does depth tracking handle nested structures?** `.abilitydata.` contains nested parens
 
@@ -58,7 +58,7 @@ For every emitter function, answer:
 
 ### Phase 3: Round-Trip Fidelity
 
-- Does `extract(build(extract(mod)))` produce the same IR as `extract(mod)` for all three test mods?
+- Does `extract(build(extract(mod)))` produce the same IR as `extract(mod)` for all four test mods?
 - Are structural modifiers preserved verbatim (raw passthrough)?
 - Are hero stats (hp, sd, tier, color) preserved exactly?
 - Are speech strings preserved including separators?
@@ -125,7 +125,7 @@ AI-generated Rust code commonly:
   Evidence:
     Code: "<exact code>"
     Failure: "When [input], then [behavior], causing [harm to mod output]"
-    Test mod: "[which of the 3 test mods triggers this]"
+    Test mod: "[which of the 4 test mods triggers this]"
   Fix: [Minimal, concrete fix]
 ```
 

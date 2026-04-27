@@ -88,7 +88,7 @@ fn emit_block(block: &HeroBlock) -> String {
 impl ModIR {
     pub fn add_hero(&mut self, hero: Hero) -> Result<(), CompilerError> {
         // Cross-category duplicate check
-        if self.captures.iter().any(|c| c.pokemon == hero.mn_name) {
+        if self.replica_items.iter().any(|ri| ri.target_name == hero.mn_name) {
             return Err(CompilerError::DuplicatePokemon { ... });
         }
         // Color uniqueness check
@@ -196,45 +196,60 @@ Consider:
 compiler/
   Cargo.toml
   src/
-    main.rs              # CLI (clap): extract / build / validate / overlay / schema
-    lib.rs               # Public API: extract, build, validate, CRUD, single-item ops
-    error.rs             # CompilerError + structured Finding
+    main.rs              # CLI (clap): extract / build / check / overlay / schema
+    lib.rs               # Public API: extract, build, CRUD, single-item ops, merge
+    error.rs             # CompilerError + ErrorKind (returned from extract/build/CRUD)
+    finding.rs           # Severity + Finding (xref report rows; re-exported from lib.rs)
+    constants.rs         # Project-wide constants (Face IDs, templates, etc.)
+    util.rs              # Shared parsing utilities
+    xref.rs              # Cross-reference / semantic validation (X003 dup, X016 templates, ...)
     ir/
       mod.rs             # ModIR, Hero, HeroBlock, ReplicaItem (trigger: SummonTrigger), Monster, Boss, StructuralModifier
-      ops.rs             # CRUD operations: add/remove/update per type
+      ops.rs             # CRUD operations: add/remove per type (replica_item CRUD takes a ReplicaTriggerKey)
       merge.rs           # Merge base IR + overlay IR
     extractor/
       mod.rs             # Top-level: textmod string → ModIR
       classifier.rs      # Classify modifier by type
       splitter.rs        # Split textmod at depth-0 commas
       hero_parser.rs     # Parse hero modifier → Hero
-      replica_item_parser.rs  # Parse replica-item modifiers → ReplicaItem (with SummonTrigger::SideUse | Cast)
+      replica_item_parser.rs  # Parse replica-item modifiers (8A stub: NonSummon sentinel per pool)
       monster_parser.rs  # Parse monster → Monster
       boss_parser.rs     # Parse boss → Boss
+      fight_parser.rs    # Parse fight units inside boss bodies
+      phase_parser.rs    # Parse phase-modifier structurals
+      level_scope_parser.rs # Parse floor-range / level-scope wrappers
+      reward_parser.rs   # Parse reward-pool structurals
+      chain_parser.rs    # Parse modifier chains (.i. / .k. sequences)
+      richtext_parser.rs # Parse rich-text speech/dialog content
       structural_parser.rs # Parse structural → StructuralModifier with typed content
     builder/
       mod.rs             # Top-level: ModIR → textmod string (type-based assembly)
+      options.rs         # BuildOptions
       hero_emitter.rs    # Hero → modifier string (Sliceymon + Grouped formats)
       replica_item_emitter.rs # ReplicaItem → modifier string (dispatches on SummonTrigger variant)
       monster_emitter.rs # Monster → modifier string
       boss_emitter.rs    # Boss → modifier string with fight units
+      fight_emitter.rs   # Fight units inside boss bodies
+      phase_emitter.rs   # Phase-modifier structurals
+      reward_emitter.rs  # Reward-pool structurals
+      chain_emitter.rs   # Modifier chains (.i. / .k. sequences)
       structural_emitter.rs # StructuralModifier → modifier string (field-based)
-      derived.rs         # Auto-generate char selection, hero pools from IR content
-    util.rs              # Shared parsing utilities
-    validator.rs         # Structural + semantic validation rules
+      derived.rs         # Auto-generate char selection, hero pools, hero item pools from IR content
+    authoring/
+      mod.rs             # Re-exports (FaceId, SpriteId, ReplicaItem builders)
+      face_id.rs         # FaceId / FaceIdValue / Pips + KNOWN_FACE_IDS table
+      sprite.rs          # SpriteId newtype + build-time sprite registry
+      replica_item.rs    # SideUseBuilder + CastBuilder with PhantomData<NoDice|HasDice>
   tests/
-    img_extraction_tests.rs  # img_data extraction
-    emitter_tests.rs         # Field-based emission per type
-    hero_tests.rs            # Hero parsing
+    audit_lib_panic_free.rs  # SPEC §F8 — no unwrap/expect in lib code
+    build_options_tests.rs   # BuildOptions branches
+    correctness_tests.rs     # Format-correctness invariants
+    integration_tests.rs     # End-to-end CLI / extract / build
     path_c_merge_tests.rs    # ReplicaItem merge contract (SideUse + Cast per target_name)
-    boss_tests.rs            # Boss parsing
-    builder_tests.rs         # Builder assembly + ordering
-    roundtrip_tests.rs       # Round-trip on all 4 test mods
-    expansion_tests.rs       # Sliceymon+ specific tests
-    ir_tests.rs              # IR serialization + CRUD
-    classifier_tests.rs      # Modifier classification
-    splitter_tests.rs        # Textmod splitting
-    validator_tests.rs       # Validation rules
+    retirements.rs           # Grep guards: retired identifiers must stay 0-hits
+    roundtrip_baseline.rs    # Round-trip on all 4 test mods (sliceymon, pansaer, punpuns, community)
+    spec_amendments.rs       # Pins SPEC §3.6 / §6.3 prose claims that the code must honor
+    baselines/               # Golden-file baselines for roundtrip comparison
 ```
 
 ### Key Source of Truth Files

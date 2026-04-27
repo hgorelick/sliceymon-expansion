@@ -44,7 +44,7 @@ Use the architecture and testing personas to help me design the round-trip test 
 ```
 Use the Rust engineer persona.
 
-Task: Implement capture_parser.rs
+Task: Implement replica_item_parser.rs
 
 Files to Read First:
 - working-mods/sliceymon.txt (replica-item modifier lines)

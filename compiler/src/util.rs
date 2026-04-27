@@ -506,7 +506,7 @@ mod tests {
     fn slice_before_chain_and_cast_no_markers_returns_full_body() {
         // No §F10-MARKER at depth 0 → the full body is returned verbatim.
         // Pins the no-op path so a future change can't silently truncate
-        // legendary bodies that have no chain or ability block.
+        // modifier bodies that have no chain or ability block.
         let body = "Alpha.hp.5.sd.0:0:0:0:0:0.n.Mew";
         assert_eq!(slice_before_chain_and_cast(body), body);
     }
