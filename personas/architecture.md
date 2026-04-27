@@ -62,13 +62,14 @@ Every architectural decision must support this workflow.
                     │  │ provenance tracking (base/custom)     │           │
                     │  └──────────────────────────────────────┘           │
                     │                                                      │
-                    │  Validator                                           │
+                    │  xref (cross-IR semantic checks; out-of-band)        │
                     │  ┌──────────────────────────────────────┐           │
-                    │  │ Structural: parens, faces, properties │           │
+                    │  │ Structural validity = "extract OK"    │           │
                     │  │ Semantic: Face IDs per template,      │           │
                     │  │   color uniqueness, Pokemon uniqueness│           │
                     │  │ Context: cross-references, hero pools │           │
-                    │  │ Single-item OR full-mod validation    │           │
+                    │  │ Operates on a fully extracted ModIR;  │           │
+                    │  │ no separate "validator pass" exists   │           │
                     │  └──────────────────────────────────────┘           │
                     │                                                      │
                     │  Builder                                             │
@@ -139,7 +140,7 @@ The architecture must support operations on individual items, not just full-mod 
 
 ```rust
 // Library API surface
-pub fn build_hero(hero: &Hero, sprites: &HashMap<String, String>) -> Result<String, CompilerError>
+pub fn build_hero(hero: &Hero) -> Result<String, CompilerError>
 pub fn validate_hero(hero: &Hero) -> ValidationReport
 pub fn validate_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport
 pub fn add_hero(ir: &mut ModIR, hero: Hero) -> Result<(), CompilerError>
@@ -173,7 +174,7 @@ Look for:
 | `.n.NAME` position (must be last) | Builder places `.n.` last in emission order — not an IR concern |
 | `.img.` data | Extracted into `img_data` field during parsing, emitted directly by builder. Self-contained. |
 | `.part.1` appending | IR marks content as "append" vs "replace"; builder emits accordingly |
-| Face ID validity | Validator checks Face IDs against per-template approved lists |
+| Face ID validity | `build_hero` (structural) + `xref::check_hero_in_context` (semantic) check Face IDs against per-template approved lists |
 | Derived structurals | Builder auto-generates from IR content, not stored in IR |
 | Cross-category uniqueness | CRUD operations prevent same Pokemon in hero + replica-item pools |
 | Builder ordering | Type-based assembly must match game expectations (structural → heroes → items → replica items → monsters → bosses) |
@@ -190,9 +191,9 @@ textmod-compiler build ir/sliceymon/ --output sliceymon_rebuilt.txt
 # Overlay: base textmod + expansion IR → combined textmod
 textmod-compiler overlay sliceymon.txt --with expansion_ir/ --output expanded.txt
 
-# Validate: structural + semantic + cross-reference validation
-textmod-compiler validate sliceymon.txt
-textmod-compiler validate sliceymon.txt --round-trip
+# Check: structural + semantic + cross-reference validation
+textmod-compiler check sliceymon.txt
+textmod-compiler check sliceymon.txt --round-trip
 
 # Schema: export JSON Schema for IR types
 textmod-compiler schema --output schema.json
