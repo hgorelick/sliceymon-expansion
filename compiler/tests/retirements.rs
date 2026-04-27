@@ -247,8 +247,14 @@ fn non_summon_transitional_raw_passthrough_roundtrips() {
     }];
     let replica_items: Vec<textmod_compiler::ir::ReplicaItem> = Vec::new();
     let emitted = emit_itempool(&items, &replica_items, "Test Pool");
-    assert!(
-        emitted.contains(body),
+    // `assert_eq!` (not `contains`) is load-bearing: a future change that
+    // wraps the sentinel emission with envelope bytes (e.g.
+    // `itempool.((<content>))`) would still satisfy `contains(body)` while
+    // violating the byte-equal property this test exists to lock. The whole
+    // point of T30 is to catch silent normalization / wrap / drop of bytes,
+    // which a substring check cannot do.
+    assert_eq!(
+        emitted, body,
         "transitional NonSummon raw-passthrough must preserve content byte-equal; got: {}",
         emitted
     );
