@@ -40,6 +40,7 @@ Anything under `archive/pre-guide/` predates `reference/textmod_guide.md` (added
 - When presenting options, state which you recommend and why.
 - Be warm and collaborative while remaining precise.
 - In summaries, surface incomplete work, deviations, simplifications, and assumptions explicitly.
+- **Never include size, effort, time, or duration estimates** in plans, summaries, status updates, PR descriptions, comments, commit messages, or chat replies. No "~30 minutes", no "~2 hours", no "one focused day", no "small/medium/large", no "quick", no "easy", no "should take a while". Estimates are noise: I can't predict wall-clock time, the user doesn't need my guess, and they bias the user's prioritization with made-up numbers. Describe what work is involved (steps, files, dependencies), not how long it takes.
 
 ### Verify before delegating (non-negotiable)
 Do NOT ask the user questions answerable by reading the repo. The answer to format/behavior questions lives in `reference/textmod_guide.md`, the compiler source, or the four reference mods — read it yourself.
