@@ -1,6 +1,7 @@
 //! Build-time options — source filter over `build_with`.
 //!
-//! Per PLATFORM_FOUNDATIONS_PLAN §F5: `build(ir)` is a thin wrapper over
+//! Per the 2026-04-22 "BuildOptions + provenance-aware findings" ruling:
+//! `build(ir)` is a thin wrapper over
 //! `build_with(ir, &BuildOptions::default())`. Callers that want to emit only
 //! a subset of entities (e.g. only overlay additions on top of a base mod)
 //! construct a non-default `BuildOptions` with a non-`All` `SourceFilter`.
