@@ -123,8 +123,8 @@ pub fn emit_itempool(
 // Private helpers — one shared-payload builder used by every trigger arm.
 // -----------------------------------------------------------------------
 
-/// Emit the `hat.egg.<enemy_template>.n.<target_pokemon>` + matching
-/// `vase.(add.((replica.<team_template>.n.<target_pokemon>…))).mn.<target>`
+/// Emit the `hat.egg.<enemy_template>.n.<target_name>` + matching
+/// `vase.(add.((replica.<team_template>.n.<target_name>…))).mn.<target>`
 /// portion common to all three trigger shapes, plus the item-level
 /// properties (`hp`, `color`, `sprite`, `sticker_stack`, `speech`, `doc`,
 /// `toggle_flags`, `item_modifiers`, `tier`).
@@ -137,12 +137,12 @@ fn emit_shared_payload(item: &ReplicaItem) -> String {
     out.push_str("hat.egg.");
     out.push_str(&item.enemy_template);
     out.push_str(".n.");
-    out.push_str(&item.target_pokemon);
+    out.push_str(&item.target_name);
 
     out.push_str(".vase.(add.((replica.");
     out.push_str(&item.team_template);
     out.push_str(".n.");
-    out.push_str(&item.target_pokemon);
+    out.push_str(&item.target_name);
     if let Some(hp) = item.hp {
         out.push_str(".hp.");
         out.push_str(&hp.to_string());
@@ -173,7 +173,7 @@ fn emit_shared_payload(item: &ReplicaItem) -> String {
         out.push_str(flags);
     }
     out.push_str(")).mn.");
-    out.push_str(&item.target_pokemon);
+    out.push_str(&item.target_name);
     out.push(')');
 
     // Container name + tier — vase.(add.(())).mn.<target>) is already closed
@@ -198,7 +198,7 @@ fn emit_shared_payload(item: &ReplicaItem) -> String {
 fn emit_sideuse_outer(item: &ReplicaItem, dice: &crate::ir::DiceFaces) -> String {
     let mut out = String::new();
     out.push_str("hat.replica.Thief.n.");
-    out.push_str(&item.target_pokemon);
+    out.push_str(&item.target_name);
     out.push_str(".sd.");
     out.push_str(&dice.emit());
     out.push_str(".hat.(replica.Thief.i.(all.(left.");

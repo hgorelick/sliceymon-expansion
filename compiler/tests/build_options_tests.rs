@@ -188,7 +188,7 @@ fn v020_cross_category_source_is_global() {
     ir.heroes.push(minimal_hero("Pikachu", 'a', Source::Base));
     ir.replica_items.push(ReplicaItem {
         container_name: "Test Ball".to_string(),
-        target_pokemon: "Pikachu".to_string(),
+        target_name: "Pikachu".to_string(),
         trigger: SummonTrigger::SideUse {
             dice: DiceFaces { faces: vec![DiceFace::Blank] },
             dice_location: DiceLocation::OuterPreface,

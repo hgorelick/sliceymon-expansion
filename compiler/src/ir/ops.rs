@@ -16,7 +16,7 @@ impl ModIR {
         if self.heroes.iter().any(|h| h.mn_name.to_lowercase() == lower) {
             return Some("hero");
         }
-        if self.replica_items.iter().any(|r| r.target_pokemon.to_lowercase() == lower) {
+        if self.replica_items.iter().any(|r| r.target_name.to_lowercase() == lower) {
             return Some("replica item");
         }
         if self.monsters.iter().any(|m| m.name.to_lowercase() == lower) {
@@ -89,9 +89,9 @@ impl ModIR {
 
     /// Add a replica item. Checks cross-category name uniqueness.
     pub fn add_replica_item(&mut self, item: ReplicaItem) -> Result<(), CompilerError> {
-        if let Some(category) = self.find_name_category(&item.target_pokemon) {
+        if let Some(category) = self.find_name_category(&item.target_name) {
             return Err(CompilerError::duplicate_name(
-                item.target_pokemon.clone(),
+                item.target_name.clone(),
                 category.to_string(),
                 "replica item",
             ));
@@ -102,7 +102,7 @@ impl ModIR {
         Ok(())
     }
 
-    /// Remove a replica item by target_pokemon (case-insensitive).
+    /// Remove a replica item by target_name (case-insensitive).
     ///
     /// Re-indexes every `ItempoolItem::Summon(i)` in every `ItemPool`
     /// structural so no pool entry points past the end of `replica_items`
@@ -115,7 +115,7 @@ impl ModIR {
         let j = match self
             .replica_items
             .iter()
-            .position(|r| r.target_pokemon.to_lowercase() == lower)
+            .position(|r| r.target_name.to_lowercase() == lower)
         {
             Some(j) => j,
             None => return Err(CompilerError::not_found("replica item", name.to_string())),
@@ -290,7 +290,7 @@ mod tests {
         // colon-separated face list (verified at ir/mod.rs `impl DiceFaces`).
         ReplicaItem {
             container_name: "Test Ball".into(),
-            target_pokemon: name.into(),
+            target_name: name.into(),
             trigger: SummonTrigger::SideUse {
                 dice: DiceFaces::parse("1-1:2-1:3-1:4-1:5-1:6-1"),
                 dice_location: DiceLocation::OuterPreface,
@@ -438,13 +438,13 @@ mod tests {
             source: Source::Base,
         });
 
-        // Remove the middle replica (target_pokemon = "Beta", index 1).
+        // Remove the middle replica (target_name = "Beta", index 1).
         ir.remove_replica_item("Beta").unwrap();
 
         // replica_items: Beta dropped, Alpha + Gamma survive.
         assert_eq!(ir.replica_items.len(), 2);
-        assert_eq!(ir.replica_items[0].target_pokemon, "Alpha");
-        assert_eq!(ir.replica_items[1].target_pokemon, "Gamma");
+        assert_eq!(ir.replica_items[0].target_name, "Alpha");
+        assert_eq!(ir.replica_items[1].target_name, "Gamma");
 
         // ItemPool: Summon(1) dropped, Summon(0) unchanged, Summon(2) → Summon(1).
         match &ir.structural[0].content {

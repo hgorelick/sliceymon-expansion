@@ -27,7 +27,7 @@ pub struct HasDice;
 
 pub struct SideUseBuilder<D> {
     container_name: String,
-    target_pokemon: String,
+    target_name: String,
     enemy_template: Option<String>,
     team_template: Option<String>,
     sprite: Option<SpriteId>,
@@ -46,10 +46,10 @@ pub struct SideUseBuilder<D> {
 }
 
 impl SideUseBuilder<NoDice> {
-    pub fn new(container_name: impl Into<String>, target_pokemon: impl Into<String>) -> Self {
+    pub fn new(container_name: impl Into<String>, target_name: impl Into<String>) -> Self {
         Self {
             container_name: container_name.into(),
-            target_pokemon: target_pokemon.into(),
+            target_name: target_name.into(),
             enemy_template: None,
             team_template: None,
             sprite: None,
@@ -73,7 +73,7 @@ impl SideUseBuilder<NoDice> {
     pub fn dice(self, faces: DiceFaces) -> SideUseBuilder<HasDice> {
         SideUseBuilder {
             container_name: self.container_name,
-            target_pokemon: self.target_pokemon,
+            target_name: self.target_name,
             enemy_template: self.enemy_template,
             team_template: self.team_template,
             sprite: self.sprite,
@@ -153,7 +153,7 @@ impl SideUseBuilder<HasDice> {
     pub fn build(self) -> ReplicaItem {
         ReplicaItem {
             container_name: self.container_name,
-            target_pokemon: self.target_pokemon,
+            target_name: self.target_name,
             trigger: SummonTrigger::SideUse {
                 dice: self.dice,
                 dice_location: self.dice_location,
@@ -180,7 +180,7 @@ impl SideUseBuilder<HasDice> {
 
 pub struct CastBuilder<D> {
     container_name: String,
-    target_pokemon: String,
+    target_name: String,
     enemy_template: Option<String>,
     team_template: Option<String>,
     sprite: Option<SpriteId>,
@@ -198,10 +198,10 @@ pub struct CastBuilder<D> {
 }
 
 impl CastBuilder<NoDice> {
-    pub fn new(container_name: impl Into<String>, target_pokemon: impl Into<String>) -> Self {
+    pub fn new(container_name: impl Into<String>, target_name: impl Into<String>) -> Self {
         Self {
             container_name: container_name.into(),
-            target_pokemon: target_pokemon.into(),
+            target_name: target_name.into(),
             enemy_template: None,
             team_template: None,
             sprite: None,
@@ -226,7 +226,7 @@ impl CastBuilder<NoDice> {
     pub fn dice(self, faces: DiceFaces) -> CastBuilder<HasDice> {
         CastBuilder {
             container_name: self.container_name,
-            target_pokemon: self.target_pokemon,
+            target_name: self.target_name,
             enemy_template: self.enemy_template,
             team_template: self.team_template,
             sprite: self.sprite,
@@ -300,7 +300,7 @@ impl CastBuilder<HasDice> {
     pub fn build(self) -> ReplicaItem {
         ReplicaItem {
             container_name: self.container_name,
-            target_pokemon: self.target_pokemon,
+            target_name: self.target_name,
             trigger: SummonTrigger::Cast {
                 dice: self.dice,
             },
@@ -340,7 +340,7 @@ mod tests {
             .build();
 
         assert_eq!(item.container_name, "Great Ball");
-        assert_eq!(item.target_pokemon, "Ivysaur");
+        assert_eq!(item.target_name, "Ivysaur");
         assert!(matches!(
             item.trigger,
             SummonTrigger::SideUse {

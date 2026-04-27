@@ -629,7 +629,7 @@ pub struct HeroBlock {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct ReplicaItem {
     pub container_name: String,
-    pub target_pokemon: String,
+    pub target_name: String,
     pub trigger: SummonTrigger,
     pub enemy_template: String,
     pub team_template: String,

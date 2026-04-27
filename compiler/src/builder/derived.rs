@@ -37,7 +37,7 @@ pub fn generate_char_selection(heroes: &[Hero]) -> StructuralModifier {
 ///
 /// Walks `replica_items`; each `SummonTrigger::SideUse` (both `OuterPreface`
 /// and `InnerWrapper` — `dice_location` is a source-shape sub-axis, not a
-/// game-mechanic axis) whose `target_pokemon` matches a hero's `mn_name`
+/// game-mechanic axis) whose `target_name` matches a hero's `mn_name`
 /// routes into a hero-bound pool keyed on that hero's `internal_name`.
 /// `Cast` entries are skipped — Cast summons have their own top-level
 /// emission path per the emitter's trigger dispatch and are not
@@ -65,7 +65,7 @@ pub fn generate_hero_item_pool(
             if !matches!(replica.trigger, SummonTrigger::SideUse { .. }) {
                 continue;
             }
-            if replica.target_pokemon.to_lowercase() != hero_lower {
+            if replica.target_name.to_lowercase() != hero_lower {
                 continue;
             }
             items.push(ItempoolItem::Summon(i));
@@ -246,7 +246,7 @@ mod tests {
         use crate::ir::{DiceLocation, SummonTrigger};
         ReplicaItem {
             container_name: format!("{} Ball", target),
-            target_pokemon: target.to_string(),
+            target_name: target.to_string(),
             trigger: SummonTrigger::SideUse {
                 dice: DiceFaces::parse("1-1:2-1:3-1:4-1:5-1:6-1"),
                 dice_location: DiceLocation::OuterPreface,
@@ -270,7 +270,7 @@ mod tests {
         use crate::ir::SummonTrigger;
         ReplicaItem {
             container_name: format!("{} Orb", target),
-            target_pokemon: target.to_string(),
+            target_name: target.to_string(),
             trigger: SummonTrigger::Cast {
                 dice: DiceFaces::parse("36-10:36-10:0:0:36-10:0"),
             },
@@ -290,11 +290,11 @@ mod tests {
     }
 
     /// `generate_hero_item_pool` routes each SideUse replica whose
-    /// `target_pokemon` matches a hero's `mn_name` into a hero-bound
+    /// `target_name` matches a hero's `mn_name` into a hero-bound
     /// `StructuralType::ItemPool` keyed as `<Hero>Item`. Cast entries are
     /// skipped (they emit through the top-level replica loop, not the pool).
     #[test]
-    fn generate_hero_item_pool_routes_sideuse_by_target_pokemon() {
+    fn generate_hero_item_pool_routes_sideuse_by_target_name() {
         let heroes = vec![make_hero("Alpha", 'a'), make_hero("Beta", 'b')];
         let replica_items = vec![
             make_sideuse_replica("Alpha"), // index 0 — Alpha's pool

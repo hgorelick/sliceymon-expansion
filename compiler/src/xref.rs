@@ -209,9 +209,9 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
         // `message.contains("legendary")`) and a SPEC prose surface in one
         // atomic commit that 8A does not own.
         owners
-            .entry(item.target_pokemon.to_lowercase())
+            .entry(item.target_name.to_lowercase())
             .or_default()
-            .push((item.target_pokemon.clone(), "legendary"));
+            .push((item.target_name.clone(), "legendary"));
     }
     for monster in &ir.monsters {
         owners
@@ -320,7 +320,7 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str, So
         // asymmetry between this lookup key and the emitter's `"Thief"` literal.
         // Dice access routes through the shared accessor — no variant branching.
         out.push((
-            format!("replica_items[{}].sd", item.target_pokemon),
+            format!("replica_items[{}].sd", item.target_name),
             item.trigger.dice_faces(),
             "thief",
             item.source,
@@ -511,11 +511,11 @@ fn check_cross_category_names(ir: &ModIR, report: &mut ValidationReport) {
     }
 
     for item in &ir.replica_items {
-        let key = item.target_pokemon.to_lowercase();
+        let key = item.target_name.to_lowercase();
         name_owners
             .entry(key)
             .or_default()
-            .push((item.target_pokemon.clone(), "replica_item"));
+            .push((item.target_name.clone(), "replica_item"));
     }
 
     for monster in &ir.monsters {
@@ -634,7 +634,7 @@ pub fn check_hero_in_context(hero: &Hero, ir: &ModIR) -> ValidationReport {
     // Cross-category name conflict
     let lower = hero.mn_name.to_lowercase();
 
-    if ir.replica_items.iter().any(|r| r.target_pokemon.to_lowercase() == lower) {
+    if ir.replica_items.iter().any(|r| r.target_name.to_lowercase() == lower) {
         push_finding(&mut report, Finding {
             rule_id: V020.to_string(),
             severity: promote_severity(Severity::Error, Some(hero.source)),
@@ -721,7 +721,7 @@ pub fn check_boss_in_context(boss: &Boss, ir: &ModIR) -> ValidationReport {
         });
     }
 
-    if ir.replica_items.iter().any(|r| r.target_pokemon.to_lowercase() == lower) {
+    if ir.replica_items.iter().any(|r| r.target_name.to_lowercase() == lower) {
         push_finding(&mut report, Finding {
             rule_id: V020.to_string(),
             severity: promote_severity(Severity::Error, Some(boss.source)),
@@ -798,7 +798,7 @@ mod tests {
     fn make_replica_item(name: &str) -> ReplicaItem {
         ReplicaItem {
             container_name: "Test Ball".to_string(),
-            target_pokemon: name.to_string(),
+            target_name: name.to_string(),
             trigger: SummonTrigger::SideUse {
                 dice: DiceFaces { faces: vec![DiceFace::Blank] },
                 dice_location: DiceLocation::OuterPreface,
@@ -1285,7 +1285,7 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.replica_items.push(ReplicaItem {
             container_name: "Test Ball".to_string(),
-            target_pokemon: "UnknownFaceItem".to_string(),
+            target_name: "UnknownFaceItem".to_string(),
             trigger: SummonTrigger::SideUse {
                 dice: DiceFaces {
                     faces: vec![DiceFace::Active {
@@ -1449,7 +1449,7 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.replica_items.push(ReplicaItem {
             container_name: "Test Ball".to_string(),
-            target_pokemon: "KnownFaceItem".to_string(),
+            target_name: "KnownFaceItem".to_string(),
             trigger: SummonTrigger::SideUse {
                 dice: DiceFaces {
                     faces: vec![DiceFace::Active {
