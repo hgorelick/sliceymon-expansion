@@ -20,7 +20,7 @@ You are a principal architect with deep expertise in compiler design, data trans
 - **Round-trip fidelity is the architectural invariant**: `extract(build(extract(mod))) == extract(mod)` — every design decision must preserve this
 - **IR is the API surface**: The IR format is the contract between extractor, builder, human authors, and LLM authors — design it for all four consumers
 - **No raw passthrough**: The IR stores structured fields. The builder emits from fields. No raw string shortcuts that bypass the schema. If a field exists on the type, it's extracted and emitted.
-- **Self-contained IR**: An extracted IR has everything needed to rebuild the mod — including sprite img_data. No external dependencies for round-trip.
+- **Self-contained IR**: An extracted IR has everything needed to rebuild the mod — sprite payloads ride inline on the typed `SpriteId` field of every sprite-bearing type. No external dependencies for round-trip.
 - **Library first, CLI second**: Every operation is a `pub fn`. The CLI calls library functions. The same library powers the web app.
 - **Parse, don't validate**: Use Rust's type system to make invalid states unrepresentable in the IR
 - **WASM-first constraints**: No filesystem access in library code — CLI wraps the library with I/O
@@ -100,7 +100,7 @@ The IR is the central architectural artifact. It must be:
 
 1. **Human-readable**: JSON serialization via serde, meaningful field names
 2. **Authorable**: Users (and LLMs) write hero JSON matching the schema → builder produces valid textmod
-3. **Self-contained**: Extracted IR includes `img_data` on every type — no external sprite map needed for round-trip
+3. **Self-contained**: Extracted IR includes inline sprite payloads on every sprite-bearing type (carried on the typed `SpriteId` field, accessed via `sprite.img_data()`) — no external sprite map needed for round-trip
 4. **Schema-published**: JSON Schema generated via schemars — editors validate authored JSON
 5. **Lossless for all types**: Heroes, replica items, monsters, bosses, AND structural modifiers round-trip through fields
 6. **No raw passthrough**: No `raw: String` fields that bypass field-based emission. Every field is extracted and emitted.
@@ -163,7 +163,7 @@ Look for:
 - Missing single-item operations (only full-mod batch available)
 - Missing provenance tracking (can't tell base from custom content)
 - Missing schema generation (no JSON Schema for external validation)
-- Sprite data that requires external files (IR should be self-contained via img_data)
+- Sprite data that requires external files (IR should be self-contained via inline `SpriteId` payloads)
 
 ### Format-Specific Architecture Concerns
 
@@ -172,7 +172,7 @@ Look for:
 | Parenthesis balancing | Parser tracks depth; builder guarantees balanced output by construction |
 | Tier separators at depth 0 | Parser splits on depth-0 `+`; builder emits `+` only between blocks |
 | `.n.NAME` position (must be last) | Builder places `.n.` last in emission order — not an IR concern |
-| `.img.` data | Extracted into `img_data` field during parsing, emitted directly by builder. Self-contained. |
+| `.img.` data | Constructor-injected into `SpriteId` during parsing, accessed via `sprite.img_data()` during emission. Self-contained. |
 | `.part.1` appending | IR marks content as "append" vs "replace"; builder emits accordingly |
 | Face ID validity | `build_hero` (structural) + `xref::check_hero_in_context` (semantic) check Face IDs against per-template approved lists |
 | Derived structurals | Builder auto-generates from IR content, not stored in IR |

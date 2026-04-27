@@ -62,16 +62,18 @@ fn emit_block(block: &HeroBlock) -> String {
     // Open paren — guaranteed to close at end
     let mut out = String::from("(replica.");
     out.push_str(&block.template);
-    out.push_str(".col.");
-    out.push(block.color.unwrap_or('?'));
-    out.push_str(".hp.");
-    out.push_str(&block.hp.to_string());
-    out.push_str(".sd.");
-    out.push_str(&block.sd);
-    if let Some(ref img) = block.img_data {
-        out.push_str(".img.");
-        out.push_str(img);
+    if let Some(c) = block.color {
+        out.push_str(".col.");
+        out.push(c);
     }
+    if let Some(hp) = block.hp {
+        out.push_str(".hp.");
+        out.push_str(&hp.to_string());
+    }
+    out.push_str(".sd.");
+    out.push_str(&block.sd.emit());        // DiceFaces::emit(), not raw String
+    out.push_str(".img.");
+    out.push_str(block.sprite.img_data()); // Inline payload on the typed SpriteId
     out.push(')'); // Balanced by construction
     // Properties OUTSIDE parens
     out.push_str(".speech.");
@@ -118,16 +120,18 @@ pub struct Finding {
 ### IR Serialization Pattern
 
 ```rust
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct HeroBlock {
     pub template: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub tier: Option<u8>,
-    pub hp: u16,
-    pub sd: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub img_data: Option<String>, // Self-contained: extracted from .img., used by emitter
-    pub sprite_name: String,      // For display/lookup (e.g., "Charmander")
+    pub hp: Option<u16>,
+    pub sd: DiceFaces,                  // Typed face-validity invariant, not a String
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub bare: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<char>,
+    pub sprite: SpriteId,               // Carries name + inline .img. payload (per SPEC §F4)
     pub speech: String,
     pub name: String,
     // ... optional fields with skip_serializing_if
@@ -156,7 +160,7 @@ Look for:
 | Property extraction | Does the parser handle properties in any order? (real mods vary) |
 | Tier splitting | Does depth tracking handle nested parens inside `.abilitydata.`? |
 | `.n.NAME` position | Does the emitter always place `.n.` last before `+` or line end? |
-| `.img.` data | Is img_data extracted during parsing and used during emission? No external sprite map required? |
+| `.img.` data | Is the `.img.` payload constructor-injected into `SpriteId` during parsing and accessed via `sprite.img_data()` during emission? No external sprite map required? |
 | `.speech.` escaping | Do speech strings with `~` separators round-trip correctly? |
 | Face ID format | Are Face IDs preserved as-is (string), not parsed as numbers? |
 | CRUD operations | Does adding a hero check for color conflicts and cross-category Pokemon duplicates? |
@@ -185,7 +189,7 @@ Consider:
 | Tight coupling extractor/builder | Both depend on `ir/` types only — never on each other |
 | Raw passthrough | NEVER store raw and use it to bypass field-based emission |
 | Platform-specific line endings | Handle both `\n` and `\r\n` in input |
-| External sprite dependency | IR must be self-contained via img_data. Sprite map is optional override only. |
+| External sprite dependency | IR must be self-contained — sprite payloads ride inline on `HeroBlock.sprite: SpriteId`. No separate sprite map required at build time. |
 | Builder-only logic in CLI | Library functions in lib.rs, CLI is thin wrapper |
 
 ## Project-Specific Context

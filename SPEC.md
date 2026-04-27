@@ -48,7 +48,7 @@ Every IR field that the extractor populates must be consumed by the emitter, and
 
 ### 3.3 Self-contained IR
 
-An extracted IR has everything required to rebuild the mod, including `.img.` sprite payloads stored as `img_data` on the relevant types. The builder requires no external sprite map, no companion files, no network. Path B (author IR from scratch and build) is the proof.
+An extracted IR has everything required to rebuild the mod, including `.img.` sprite payloads carried inline on the typed `SpriteId` field of every sprite-bearing type (accessed via `sprite.img_data()`). The builder requires no external sprite map, no companion files, no network. Path B (author IR from scratch and build) is the proof.
 
 ### 3.4 Library first, CLI second, WASM-ready
 
@@ -171,7 +171,7 @@ The IR is the contract between extractor, builder, CLI, app frontend, and LLM au
 
 1. **JSON-serializable** via serde, with `schemars` deriving a JSON Schema for editor validation.
 2. **Human-readable**: meaningful field names, no positional encoding leaks.
-3. **Self-contained**: `img_data` lives on the type that needs it; nothing depends on an external file at build time.
+3. **Self-contained**: the inline `.img.` payload lives on the typed `SpriteId` field of the type that needs it (accessed via `sprite.img_data()`); nothing depends on an external file at build time.
 4. **Provenance-tracked and consumed**: every item carries `Source::{Base, Custom, Overlay}`. Provenance is not decorative — `build` accepts a `BuildOptions { include: SourceFilter }` that can restrict emission to (e.g.) `Custom | Overlay` for diff-style exports; `xref` uses provenance to scope rules (e.g., a `Base` item that violates a rule is a warning about the source mod, a `Custom` violation is an author error); and `merge` stamps provenance on the result. An item with no consumer for its provenance is a schema bug.
 5. **Lossless across all types**: heroes, replica items, monsters, bosses, structurals, chains, fights, phases, rewards, level scopes — all roundtrip through fields.
 6. **Authorable**: a user (or an LLM) can write valid IR JSON without ever opening a textmod.
