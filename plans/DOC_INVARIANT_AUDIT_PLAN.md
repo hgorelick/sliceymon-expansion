@@ -25,7 +25,7 @@ Rewrite or retire every live-doc reference (`*.md`, prose comments in source) th
 | `§F<N>` source citations referencing plan-only sections (both phantom-SPEC and PLATFORM_FOUNDATIONS_PLAN refs) | Per CLAUDE.md "plans go stale once executed" — source code MUST NOT cite plan-section IDs as durable references. The protecting invariant is structural (citations must be stable handles, not coupled to a plan that will rot). Real discriminators are datestamped ruling-names per §3.3. | Round-1 audit of this plan (added 2026-04-27) |
 
 **Also in scope** (added during planning per user decision §6):
-- Replacing **every `§F<N>` source citation** in `compiler/src/` with datestamped-ruling-name prose (full callsite catalog + ruling-name table at §3.3). Per CLAUDE.md, plans/ are "roadmaps for in-flight work, not durable sources of truth" — therefore source code MUST NOT depend on plan-section IDs. This applies whether the cited §F-N is a phantom SPEC section (e.g. `SPEC §F4`, `SPEC §F8`) or a real PLATFORM_FOUNDATIONS_PLAN section (e.g. `PLATFORM_FOUNDATIONS_PLAN §F5`); both are equally fragile under the CLAUDE.md rule.
+- Replacing **every `§F<N>` source citation** in `compiler/` (i.e. `compiler/src/` for sub-commits 1a–1e plus `compiler/tests/` for sub-commit 1f, per the partition documented at §3.3 line 116 and §4.2 chunk 1's per-sub-commit scope at line 291) with datestamped-ruling-name prose (full callsite catalog + ruling-name table at §3.3). Per CLAUDE.md, plans/ are "roadmaps for in-flight work, not durable sources of truth" — therefore source code MUST NOT depend on plan-section IDs. This applies whether the cited §F-N is a phantom SPEC section (e.g. `SPEC §F4`, `SPEC §F8`) or a real PLATFORM_FOUNDATIONS_PLAN section (e.g. `PLATFORM_FOUNDATIONS_PLAN §F5`); both are equally fragile under the CLAUDE.md rule.
 - Rewriting `personas/testing.md`'s TDD-progression chapter as workflow prose (red-green-refactor as a process), deleting Rust snippets that pin **any** API signature — applies to all five Phases (1-5), not just the `parse_hero` examples (full line catalog at §3.4). The lesson is the workflow, not the API call.
 
 **Out of scope** (enumerated, not "future work"):
@@ -235,7 +235,7 @@ If a hit can't be paired with a stable rationale, it must be fixed.
 
 ### 4.0 Checkpoint configuration
 
-- **Total chunks**: 10 top-level (chunk 1 has 6 sub-commits 1a–1f; 1f added during PR #15's round-1 tribunal extended chunk 1's scope from `compiler/src/` only to `compiler/src/ + compiler/tests/`)
+- **Total chunks**: 10 main chunks (1, 2, 3, 4, 5, 6, 7a–7g aggregated as chunk 7, 8, 9, 10) plus chunk 1.5 (added between chunks 1 and 2 by PR #15's round-2 tribunal per §6 row 6 — runs in parallel with chunk 2 per §4.1's parallel-execution map). Chunk 1 itself has 6 sub-commits 1a–1f; sub-commit 1f added during PR #15's round-1 tribunal extended chunk 1's scope from `compiler/src/` only to `compiler/src/ + compiler/tests/` per §3.3 line 116's partition.
 - **Checkpoint frequency**: after every chunk (after every sub-commit for chunk 1)
 - **Critical checkpoints** (require explicit user approval before proceeding):
   - **After 1f** — all `§F<N>` source citations gone across `compiler/`; verify with `grep -rn '§F[0-9]\+' compiler/` returning zero hits (excluding `compiler/target/`)
