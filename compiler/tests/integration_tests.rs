@@ -370,8 +370,9 @@ fn test_source_survives_json_roundtrip() {
 
 // ---------------------------------------------------------------------------
 // Extract must preserve source `.img.` even when the display name collides
-// with the corpus-derived sprite registry. Round-1 tribunal finding (§F4
-// follow-up): the earlier `SpriteId::lookup(...)` fast-path in every parser
+// with the corpus-derived sprite registry. Round-1 tribunal finding
+// (2026-04-20 sprite-shape ruling follow-up): the earlier
+// `SpriteId::lookup(...)` fast-path in every parser
 // silently replaced the source's `.img.` payload with the registry entry's
 // whenever the name was known (sliceymon-seeded, so pansaer/punpuns/community
 // names colliding with sliceymon — e.g. `Pikachu` — lost their own `.img.`).

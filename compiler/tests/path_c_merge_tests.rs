@@ -1,4 +1,4 @@
-//! Chunk 5 / SPEC §4 / plan §F6 — derived-structural provenance gate + new
+//! Chunk 5 / SPEC §4 — derived-structural provenance gate + new
 //! `merge(&mut base, overlay)` signature + warnings sidecar.
 //!
 //! These tests pin the behavior that:
@@ -460,7 +460,8 @@ fn path_c_merge_adds_hero_regenerates_selector() {
 
 // -- filter × derived-regen interaction (Round 7) --
 //
-// Plan §F5 / options.rs contract: "Derived structurals are regenerated from
+// The 2026-04-22 "BuildOptions + provenance-aware findings" ruling /
+// options.rs contract: "Derived structurals are regenerated from
 // the post-filter content set; they do not carry their own Source filter."
 // Before round 7, `regenerate_derived_kinds` derived from the full hero set
 // and tagged output `Source::Base`, so a non-default filter that excluded

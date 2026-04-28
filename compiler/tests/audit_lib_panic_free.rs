@@ -1,14 +1,14 @@
-//! SPEC §F8 / §8 audit: lib code must not contain `.unwrap()`, `.expect(...)`,
-//! `panic!(...)`, `unimplemented!(...)`, or `todo!(...)` outside of
-//! `#[cfg(test)]` / `#[test]` blocks.
+//! The 2026-04-22 "library code panic-free" ruling / SPEC §8 audit: lib code
+//! must not contain `.unwrap()`, `.expect(...)`, `panic!(...)`,
+//! `unimplemented!(...)`, or `todo!(...)` outside of `#[cfg(test)]` /
+//! `#[test]` blocks.
 //!
 //! This is an integration test (not a unit test) so it can walk the source
 //! tree rooted at `CARGO_MANIFEST_DIR` — unit tests inside `compiler/src/**`
 //! cannot reliably grep the workspace at runtime.
 //!
 //! If this test fails, the fix is to replace the offending site with `?`
-//! propagation returning `CompilerError`. See `plans/PLATFORM_FOUNDATIONS_PLAN.md`
-//! §F8 for the full policy.
+//! propagation returning `CompilerError`. The ruling is the full policy.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -40,7 +40,8 @@ fn walk_rs(dir: &Path, out: &mut Vec<PathBuf>) {
 ///   - Single-line items between the attribute and the next `{` (e.g. an
 ///     intervening `use foo;` or `const N: u32 = 1;`). These would cause the
 ///     brace-match to latch onto the NEXT item's `{` (which belongs to non-
-///     test code) and silently strip production code — defeating SPEC §F8.
+///     test code) and silently strip production code — defeating the
+///     2026-04-22 "library code panic-free" ruling.
 ///   - `#[cfg(not(test))]` — the `contains("test")` heuristic would misfire;
 ///     today no such attribute exists in `src/`, but if one is introduced the
 ///     audit panics instead of falsely test-gating production code.
@@ -94,7 +95,7 @@ fn lines_outside_test_gates<'a>(src: &'a str, path: &str) -> Vec<(usize, &'a str
                         "{}:{}: audit stripper cannot handle single-line `#[cfg(test)]` / \
                          `#[test]` items (line ends with `;` before any `{{` is found). \
                          The stripper would latch onto the following item's `{{` and \
-                         silently strip production code — defeating SPEC §F8. Wrap the \
+                         silently strip production code — defeating the 2026-04-22 \"library code panic-free\" ruling. Wrap the \
                          test-gated item in a `#[cfg(test)] mod ... {{ ... }}` block, or \
                          extend the stripper to recognize the new shape.",
                         path,
@@ -131,7 +132,7 @@ fn lines_outside_test_gates<'a>(src: &'a str, path: &str) -> Vec<(usize, &'a str
 }
 
 fn contains_forbidden(line: &str) -> bool {
-    // Mirror the rg pattern from plan §F8:
+    // Mirror the rg pattern from the 2026-04-22 "library code panic-free" ruling:
     //   \.unwrap\(\)|\.expect\(|panic!\(|unimplemented!|todo!\(
     line.contains(".unwrap()")
         || line.contains(".expect(")
@@ -216,7 +217,7 @@ fn audit_no_lib_panic_or_unwrap() {
 
     assert!(
         violations.is_empty(),
-        "SPEC §F8 violation: lib code must not contain .unwrap()/.expect()/panic!()/unimplemented!()/todo!() outside #[cfg(test)] blocks.\n\
+        "2026-04-22 \"library code panic-free\" ruling violation: lib code must not contain .unwrap()/.expect()/panic!()/unimplemented!()/todo!() outside #[cfg(test)] blocks.\n\
          Replace each with ? propagation returning CompilerError.\n\n\
          Offending sites ({}):\n{}",
         violations.len(),

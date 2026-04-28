@@ -1,5 +1,5 @@
 //! Chunk 4 verification tests for `BuildOptions` + `build_with` + `Finding.source`.
-//! Spec: PLATFORM_FOUNDATIONS_PLAN §F5.
+//! Per the 2026-04-22 "BuildOptions + provenance-aware findings" ruling.
 
 use textmod_compiler::authoring::SpriteId;
 use textmod_compiler::ir::{
@@ -174,7 +174,8 @@ fn v019_finding_source_populated() {
         v019[0].source.is_some(),
         "V019 finding must carry Finding.source"
     );
-    // The second hero is the reporter (Custom). Severity: Error per §F5.
+    // The second hero is the reporter (Custom). Severity: Error per the
+    // 2026-04-22 "provenance-aware findings" ruling.
     assert_eq!(v019[0].source, Some(Source::Custom));
     assert_eq!(v019[0].severity, Severity::Error);
 }
