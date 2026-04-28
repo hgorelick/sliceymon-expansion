@@ -113,18 +113,21 @@ Run **all** greps in one pass against the **full repo** (not just files modified
 
 **Project-internal token `§F10-MARKER`.** The `util.rs:228, :247, :507` references define and use a *named token* for the canonical marker set `{.i., .sticker., .abilitydata.}` — not a SPEC reference. Rewrite as a renamed token: `INNER_BODY_MARKERS` (the set names the body region the markers terminate). All three callsites flip together; the token has no consumers outside `util.rs`.
 
-**Concrete callsites** (verified in this session via two greps over `compiler/src/`: `grep -nE '§F[0-9]+'` and `grep -rn '§F4'` — both runs are quoted in the round-1 audit transcript above; per the chunk-implementation discipline "name the set once, never re-list its members", subsequent references to the §F-N callsite list — e.g. in §4.1 — point to this section by name instead of re-enumerating).
+**Concrete callsites** (verified across `compiler/src/` for sub-commits 1a–1e via `grep -nE '§F[0-9]+'` and `grep -rn '§F4'` — both runs are quoted in the round-1 audit transcript above — and across `compiler/tests/` for sub-commit 1f via PR #15's round-1 tribunal extension generalized class-search; commit `5a5f86d` enumerates the 4-file / 10-callsite test-side scope. Per the chunk-implementation discipline "name the set once, never re-list its members", subsequent references to the §F-N callsite list — e.g. in §4.1 — point to this section by name instead of re-enumerating).
 
-§F4 — sprite shape (5 callsites in 3 files):
+§F4 — sprite shape (6 callsites in 4 files: 5 src callsites in 3 files for sub-commit 1a + 1 test callsite in 1 file for sub-commit 1f):
 
 **Rewrite rule.** Substitute every `§F4` token with `the 2026-04-20 "no legacy back-compat" ruling on sprite shape`. At first occurrence per file, expand to the full canonical name; subsequent occurrences in the same file may use the short form `the 2026-04-20 "no legacy back-compat" ruling`. Drop preceding `SPEC ` / `Per SPEC ` / `post-` qualifiers — the ruling name is self-identifying. Two callsites have idiosyncratic surrounding context that the rewrite preserves (`(2026-04-20 ruling + round-1 tribunal fix)` at monster_parser.rs:15 keeps the date-only short-short form because the surrounding parenthetical is already two phrases joined by `+`); per-site notes on these two:
 
 Sites (file:line):
-- `compiler/src/ir/mod.rs:1858, :1888, :1919` (line 1858 first-occurrence-in-file → long form; :1919 is the assertion message inside `serde_breaking_change_on_sprite_shape`, rewrite preserves the `must NOT deserialize into the post-...HeroBlock` shape with the date substituted for `§F4`. **Line :1919 was originally missed by the §F4-only enumeration — surfaced by round-1 audit's repo-wide grep.**)
-- `compiler/src/builder/hero_emitter.rs:309` (first-occurrence-in-file → long form; **keep `SPEC §3.3`** — that section exists in SPEC.md and is the live cross-reference, drop only `§F4`.)
-- `compiler/src/extractor/monster_parser.rs:15` (date-only short-short form per the per-site note above: `(2026-04-20 ruling + round-1 tribunal fix)`.)
+- Sub-commit 1a (`compiler/src/`):
+  - `compiler/src/ir/mod.rs:1858, :1888, :1919` (line 1858 first-occurrence-in-file → long form; :1919 is the assertion message inside `serde_breaking_change_on_sprite_shape`, rewrite preserves the `must NOT deserialize into the post-...HeroBlock` shape with the date substituted for `§F4`. **Line :1919 was originally missed by the §F4-only enumeration — surfaced by round-1 audit's repo-wide grep.**)
+  - `compiler/src/builder/hero_emitter.rs:309` (first-occurrence-in-file → long form; **keep `SPEC §3.3`** — that section exists in SPEC.md and is the live cross-reference, drop only `§F4`.)
+  - `compiler/src/extractor/monster_parser.rs:15` (date-only short-short form per the per-site note above: `(2026-04-20 ruling + round-1 tribunal fix)`.)
+- Sub-commit 1f (`compiler/tests/`; commit `5a5f86d`):
+  - `compiler/tests/integration_tests.rs:373` (date-only short-short form per the `monster_parser.rs:15` precedent above — surrounding parenthetical `(§F4 follow-up)` is rewritten to `(2026-04-20 sprite-shape ruling follow-up)`.)
 
-§F5 — BuildOptions / provenance-aware findings (15 callsites; count and sites verified by `grep -nE '§F[0-9]+' compiler/src/` quoted in this session):
+§F5 — BuildOptions / provenance-aware findings (19 callsites: 15 src callsites in 3 files for sub-commit 1b + 4 test callsites in 2 files for sub-commit 1f; src count and sites verified by `grep -nE '§F[0-9]+' compiler/src/` quoted in this session; test sites verified by commit `5a5f86d`'s body):
 
 **Rewrite rule** (one line, applied at every site below — defined once per the chunk-implementation discipline "extract a helper or write the single correct line, never paste an incantation N times"):
 - Substitute every `§F5` token with: `the 2026-04-22 "provenance-aware findings" ruling`.
@@ -133,20 +136,29 @@ Sites (file:line):
 - Preserve all surrounding prose (parens, trailing punctuation, accompanying clauses) verbatim.
 
 Sites (file:line, drawn from the §F-N census above; no per-site replacement strings — the rule above is the single source of truth):
-- `compiler/src/ir/merge.rs:276`
-- `compiler/src/builder/mod.rs:39, :60, :95` (line 39 is first-occurrence-in-file → use long form)
-- `compiler/src/builder/options.rs:3` (first-occurrence-in-file → long form)
-- `compiler/src/xref.rs:49, :243, :776, :851, :1016, :1098, :1156, :1183, :1259, :1314` (line 49 is first-occurrence-in-file → long form)
+- Sub-commit 1b (`compiler/src/`):
+  - `compiler/src/ir/merge.rs:276`
+  - `compiler/src/builder/mod.rs:39, :60, :95` (line 39 is first-occurrence-in-file → use long form)
+  - `compiler/src/builder/options.rs:3` (first-occurrence-in-file → long form)
+  - `compiler/src/xref.rs:49, :243, :776, :851, :1016, :1098, :1156, :1183, :1259, :1314` (line 49 is first-occurrence-in-file → long form)
+- Sub-commit 1f (`compiler/tests/`; commit `5a5f86d`):
+  - `compiler/tests/build_options_tests.rs:2, :177` (line 2 first-occurrence-in-file → long form; line 177 short form)
+  - `compiler/tests/path_c_merge_tests.rs:1, :463` (line 1 also dropped a `plan §F6` qualifier — §F6 has zero entries in this ruling-name table per line 112's "zero hits in compiler/src/" census, so the qualifier is dropped without coining a new ruling name; line 463 first-occurrence-in-file uses long form per the rewrite rule)
 
 §F3 — permissive face IDs (1 callsite):
 
 **Rewrite rule.** Substitute `§F3` with `the 2026-04-20 "permissive face IDs" ruling`. Drop preceding `(PLATFORM_FOUNDATIONS_PLAN.md ` qualifier; preserve trailing `.` and surrounding parens.
 - `compiler/src/xref.rs:35`
 
-§F8 — library panic-free (1 callsite):
+§F8 — library panic-free (6 callsites: 1 src callsite in 1 file for sub-commit 1d + 5 test callsites in 1 file for sub-commit 1f):
 
-**Rewrite rule.** Substitute `§F8` with `the 2026-04-22 "library code panic-free" ruling`. Drop preceding `SPEC ` qualifier.
-- `compiler/src/extractor/fight_parser.rs:563`
+**Rewrite rule.** Substitute `§F8` with `the 2026-04-22 "library code panic-free" ruling`. Drop preceding `SPEC ` / `plan ` qualifier — the ruling name is self-identifying. At first-occurrence-in-file expand to the long form; subsequent occurrences in the same file may use the short form. Includes a user-visible assertion-message rewrite at `audit_lib_panic_free.rs:219` (formerly `"SPEC §F8 violation:"` — phantom SPEC ref since SPEC.md has zero §F-series sections).
+
+Sites (file:line):
+- Sub-commit 1d (`compiler/src/`):
+  - `compiler/src/extractor/fight_parser.rs:563` (first-occurrence-in-file → long form per the rule above)
+- Sub-commit 1f (`compiler/tests/`; commit `5a5f86d`):
+  - `compiler/tests/audit_lib_panic_free.rs:1, :43, :97, :134, :219` (line 1 first-occurrence-in-file → long form; lines :43, :97, :134, :219 use the short form per the rewrite rule; the `:11` site that the round-1 audit briefly listed was dropped per the rewrite when the surrounding date-only short-short context was removed.)
 
 §F10-MARKER — internal token rename (3 callsites in `util.rs`):
 
@@ -223,10 +235,10 @@ If a hit can't be paired with a stable rationale, it must be fixed.
 
 ### 4.0 Checkpoint configuration
 
-- **Total chunks**: 10 top-level (chunk 1 has 5 sub-commits 1a–1e)
+- **Total chunks**: 10 top-level (chunk 1 has 6 sub-commits 1a–1f; 1f added during PR #15's round-1 tribunal extended chunk 1's scope from `compiler/src/` only to `compiler/src/ + compiler/tests/`)
 - **Checkpoint frequency**: after every chunk (after every sub-commit for chunk 1)
 - **Critical checkpoints** (require explicit user approval before proceeding):
-  - **After 1e** — all `§F<N>` source citations gone; verify with `grep -rn '§F[0-9]\+' compiler/src/` returning zero hits
+  - **After 1f** — all `§F<N>` source citations gone across `compiler/`; verify with `grep -rn '§F[0-9]\+' compiler/` returning zero hits (excluding `compiler/target/`)
   - **After 6** — `personas/testing.md` TDD-chapter rewrite is the largest single divergence; review on its own
   - **After 8** — guard tests landed; `cargo test --test doc_invariants` must run green with the registry populated by 3–7
   - **After 9** — `.claude/settings.json` hook change verifiable only in next session
@@ -264,7 +276,7 @@ Integration (sequential, after Group B):
         └── Chunk 10 (inline /// doc comments — class-only)
 ```
 
-Critical-path depth: 6 rounds (1 → 2 → 3 → 4 → {5,6,7a-g in parallel} → 8 → 9 → 10) versus 17 sequential commits. Group B chunks share zero state — each persona file is independent — so a multi-agent runner can ship them concurrently.
+Critical-path depth: 8 rounds (1 → 2 → 3 → 4 → {5, 6, 7a–7g in parallel} → 8 → 9 → 10; chunk 1.5 runs in parallel with chunk 2 on the same off-critical branch — both depend only on chunk 1) versus 22 sequential commits (6 sub-commits 1a–1f + 1.5 + 2 + 3 + 4 + 5 + 6 + 7a–7g + 8 + 9 + 10 = 22). Group B chunks share zero state — each persona file is independent — so a multi-agent runner can ship them concurrently.
 
 ### 4.2 Chunks
 
@@ -272,30 +284,31 @@ Each chunk uses the persona-required template: Scope / Files / Dependencies / Co
 
 ---
 
-#### Chunk 1: `compiler/src/` §F-series prose conversion
+#### Chunk 1: `compiler/` §F-series prose conversion
 
-Sub-commits 1a–1e share scope, dependencies, consumer, and verification — only the site list and rewrite rule differ (per §3.3). Listed once here; per-sub-commit site lists live at §3.3.
+Sub-commits 1a–1f share scope, dependencies, consumer, and verification — only the site list and rewrite rule differ (per §3.3). Listed once here; per-sub-commit site lists live at §3.3.
 
-**Scope**: Replace every `§F<N>` source citation in `compiler/src/` with the canonical datestamped ruling-name prose from §3.3's table. Doc-comment-only changes; zero behavior delta.
+**Scope**: Replace every `§F<N>` source citation in `compiler/src/` (sub-commits 1a–1e) and `compiler/tests/` (sub-commit 1f) with the canonical datestamped ruling-name prose from §3.3's table. Doc-comment-only changes; zero behavior delta. Sub-commit 1f was added during PR #15's round-1 tribunal (commit `5a5f86d`) after a generalized class-search surfaced 10 test-file callsites the original `compiler/src/`-scoped grep missed; 1f shares the §3.3 rewrite pattern with 1a–1e (long-form/short-form/date-only-short-short discipline).
 **Dependencies**: None (foundation).
 **Consumer**: All subsequent chunks reference the resulting citation pattern; chunk 8's ruling-name uniqueness guard tests assert each canonical name appears only at sanctioned sites.
 
-**1a — §F4** (sprite-shape ruling). Sites + rewrite rule at §3.3 §F4. 3 files.
-**1b — §F5** (provenance-aware findings ruling). Sites + rewrite rule at §3.3 §F5. 3 files / 15 callsites.
-**1c — §F3** (permissive face IDs ruling). Site + rewrite rule at §3.3 §F3. 1 callsite.
-**1d — §F8** (library panic-free ruling). Site + rewrite rule at §3.3 §F8. 1 callsite.
+**1a — §F4** (sprite-shape ruling). Sites + rewrite rule at §3.3 §F4. 3 files in `compiler/src/`.
+**1b — §F5** (provenance-aware findings ruling). Sites + rewrite rule at §3.3 §F5. 3 files in `compiler/src/` / 15 callsites.
+**1c — §F3** (permissive face IDs ruling). Site + rewrite rule at §3.3 §F3. 1 callsite in `compiler/src/`.
+**1d — §F8** (library panic-free ruling). Site + rewrite rule at §3.3 §F8. 1 callsite in `compiler/src/`.
 **1e — §F10-MARKER → `INNER_BODY_MARKERS` token rename**. Sites + rewrite rule at §3.3 §F10-MARKER. 3 callsites in `util.rs`.
+**1f — `compiler/tests/` §F<N> source-citation siblings** (added during PR #15's round-1 tribunal extension; commit `5a5f86d`). Sites + rewrite rule at §3.3 "Sub-commit 1f sites" subsection. 4 files / 10 callsites: `audit_lib_panic_free.rs:1, :43, :97, :134, :219` (§F8); `build_options_tests.rs:2, :177` (§F5); `path_c_merge_tests.rs:1, :463` (§F5; `plan §F6` qualifier dropped — §F6 is not in §3.3's ruling-name table per line 112's "zero hits in compiler/src/" census, so the qualifier is dropped without coining a new ruling name); `integration_tests.rs:373` (§F4 date-only short-short form per the per-site carve-out at §3.3 §F4 line 125's `monster_parser.rs:15` precedent).
 
 **Dogfood (per sub-commit)**:
 - `~/.cargo/bin/cargo build` succeeds (the rewrite touches doc-comments only — compilation proves no token was rewritten inside a code identifier).
 - `~/.cargo/bin/cargo test` passes (no behavior delta).
 
 **Verification (per sub-commit)**:
-- [ ] `grep -rn '§F<N>' compiler/src/` for the sub-commit's §F-N returns zero hits.
+- [ ] `grep -rn '§F<N>' compiler/` (excluding `compiler/target/`) for the sub-commit's §F-N returns zero hits.
 - [ ] Long form of the ruling name appears at least once per touched file (asserts the §3.3 first-occurrence-per-file rule).
 - [ ] `~/.cargo/bin/cargo run --example roundtrip_diag` reports 4× ROUNDTRIP OK.
 
-**Critical checkpoint after 1e**: `grep -rn '§F[0-9]\+' compiler/src/` returns zero hits.
+**Critical checkpoint after 1f**: `grep -rn '§F[0-9]\+' compiler/` (excluding `compiler/target/`) returns zero hits across both `compiler/src/` (closed by 1a–1e) and `compiler/tests/` (closed by 1f).
 
 ---
 
@@ -525,7 +538,7 @@ in the same class addressed in the same commit>
 
 ### 4.4 Commit granularity
 
-One commit per chunk (and per sub-commit for chunk 1). Multiple class fixes in the same file ship together within that file's chunk. Total commits: 17 (1a–1e + 2 + 3 + 4 + 5 + 6 + 7a–7g + 8 + 9 + 10), each independently reviewable. Group B (5, 6, 7a–7g) is parallel-safe per §4.1.
+One commit per chunk (and per sub-commit for chunk 1). Multiple class fixes in the same file ship together within that file's chunk. Total commits: 22 (sub-commits 1a–1f + chunk 1.5 + 2 + 3 + 4 + 5 + 6 + 7a–7g + 8 + 9 + 10 = 6 + 1 + 5 + 7 + 3 = 22), each independently reviewable. Group B (5, 6, 7a–7g) is parallel-safe per §4.1; chunk 1.5 is parallel-safe with chunk 2 per §4.1.
 
 ## 5. CI guards (the structural change)
 
