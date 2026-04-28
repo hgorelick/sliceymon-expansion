@@ -127,7 +127,7 @@ Sites (file:line):
 - Sub-commit 1f (`compiler/tests/`; commit `5a5f86d`):
   - `compiler/tests/integration_tests.rs:373` (date-only short-short form per the `monster_parser.rs:15` precedent above — surrounding parenthetical `(§F4 follow-up)` is rewritten to `(2026-04-20 sprite-shape ruling follow-up)`.)
 
-§F5 — BuildOptions / provenance-aware findings (19 callsites: 15 src callsites in 3 files for sub-commit 1b + 4 test callsites in 2 files for sub-commit 1f; src count and sites verified by `grep -nE '§F[0-9]+' compiler/src/` quoted in this session; test sites verified by commit `5a5f86d`'s body):
+§F5 — BuildOptions / provenance-aware findings (19 callsites: 15 src callsites in 4 files for sub-commit 1b — `ir/merge.rs`, `builder/mod.rs`, `builder/options.rs`, `xref.rs` — plus 4 test callsites in 2 files for sub-commit 1f; src count and sites verified by `grep -nE '§F[0-9]+' compiler/src/` quoted in this session; test sites verified by commit `5a5f86d`'s body):
 
 **Rewrite rule** (one line, applied at every site below — defined once per the chunk-implementation discipline "extract a helper or write the single correct line, never paste an incantation N times"):
 - Substitute every `§F5` token with: `the 2026-04-22 "provenance-aware findings" ruling`.
@@ -293,7 +293,7 @@ Sub-commits 1a–1f share scope, dependencies, consumer, and verification — on
 **Consumer**: All subsequent chunks reference the resulting citation pattern; chunk 8's ruling-name uniqueness guard tests assert each canonical name appears only at sanctioned sites.
 
 **1a — §F4** (sprite-shape ruling). Sites + rewrite rule at §3.3 §F4. 3 files in `compiler/src/`.
-**1b — §F5** (provenance-aware findings ruling). Sites + rewrite rule at §3.3 §F5. 3 files in `compiler/src/` / 15 callsites.
+**1b — §F5** (provenance-aware findings ruling). Sites + rewrite rule at §3.3 §F5. 4 files in `compiler/src/` / 15 callsites.
 **1c — §F3** (permissive face IDs ruling). Site + rewrite rule at §3.3 §F3. 1 callsite in `compiler/src/`.
 **1d — §F8** (library panic-free ruling). Site + rewrite rule at §3.3 §F8. 1 callsite in `compiler/src/`.
 **1e — §F10-MARKER → `INNER_BODY_MARKERS` token rename**. Sites + rewrite rule at §3.3 §F10-MARKER. 3 callsites in `util.rs`.
@@ -538,7 +538,7 @@ in the same class addressed in the same commit>
 
 ### 4.4 Commit granularity
 
-One commit per chunk (and per sub-commit for chunk 1). Multiple class fixes in the same file ship together within that file's chunk. Total commits: 22 (sub-commits 1a–1f + chunk 1.5 + 2 + 3 + 4 + 5 + 6 + 7a–7g + 8 + 9 + 10 = 6 + 1 + 5 + 7 + 3 = 22), each independently reviewable. Group B (5, 6, 7a–7g) is parallel-safe per §4.1; chunk 1.5 is parallel-safe with chunk 2 per §4.1.
+One commit per chunk (and per sub-commit for chunk 1). Multiple class fixes in the same file ship together within that file's chunk. Total commits: 22 per the §4.1 parallel-execution map's chunk enumeration above (canonical chunk set named once at §4.1; this section references the count by name without re-listing members). Each commit is independently reviewable. Group B and chunk 1.5's parallel-safety claims live at §4.1 (referenced here by name).
 
 ## 5. CI guards (the structural change)
 
