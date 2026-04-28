@@ -235,8 +235,13 @@ If a hit can't be paired with a stable rationale, it must be fixed.
 
 ```
 Foundation (sequential):
-  Chunk 1 (sub-commits 1a → 1b → 1c → 1d → 1e — order within chunk 1
-           is independent; ship in §3.3 declaration order for diff coherence)
+  Chunk 1 (sub-commits 1a → 1b → 1c → 1d → 1e → 1f — `§F<N>` source
+           citations in `compiler/src/` + `compiler/tests/`; sub-commit
+           1f added during PR #15's round-1 tribunal extension to cover
+           test-file siblings)
+  Chunk 1.5 (`§Chunk Na` / `plan §N` / direct-plan-filename source
+             citations — added by PR #15's round-2 tribunal per §6 row 6;
+             7 sites in 6 files; replacement-strategy table at §4.2.5)
   Chunk 2 (carve-out registry scaffold)
 
 Parallel Group A (after Chunk 2; SPEC must land before personas can quote it):
@@ -564,6 +569,48 @@ Carve-out registry location is incidental; what matters is mechanical enforcemen
 
 The `/review-pr` skill is **not** updated. The skill is shared across projects; baking a project-specific carve-out path into it would break for projects that don't have one. The three layers above are project-local and self-contained.
 
+### 4.2.5 Chunk 1.5: `§Chunk Na` / `plan §N` / direct-plan-filename source citations
+
+**Context.** Round 2 of PR #15's tribunal (2026-04-28) ran a generalized class-search after chunk 1 closed `§F[0-9]+` in `compiler/`. Six files / seven sites surfaced where source code cites a *plan-section ID under a different spelling* than `§F<N>` — `§Chunk Na`, `plan §N`, `parent plan §N`, or a direct `PLATFORM_FOUNDATIONS_PLAN.md` / `AUTHORING_ERGONOMICS_PLAN.md` filename in prose. The protected invariant (CLAUDE.md *"plans go stale once executed"*) is identical to the one §F<N> defended; the spelling differs. Per user decision §6 row 6, these are addressed as their own chunk rather than mixed into chunk 1's `§F<N>` rewrite or deferred to chunk 10.
+
+**Scope (declared up front).** This chunk is **strictly narrower** than chunk 1: it covers only the seven enumerated sites below, all in `compiler/src/**/*.rs` and `compiler/tests/**/*.rs`. Out-of-scope (with stable carve-out rationales):
+- Bare `Chunk Na` references without a plan-name qualifier (e.g. `Chunk 2 populates...`, `Chunk 8A retirement greps`, `// Chunk 8A: trigger-IR shape`). These are *commit-anchored timeline references* — once a chunk lands, its identity is durable in git history, so the cite isn't fragile under plan rot. Carve-out rationale: *commit-anchored chunk IDs are not plan-section IDs*. (A future review running the same generalized grep lands on this rationale and accepts.)
+- Hits in `personas/*.md`, `SPEC.md`, `CLAUDE.md` — covered by chunks 3 / 4 / 7a-g.
+- Hits inside `plans/`, `archive/`, `compiler/target/` — out of plan §1 by construction.
+
+**Authoritative site list** (verified by Read of every line at branch tip `5a5f86d`, this session — 7 hits, no others under the chunk 1.5 pattern):
+
+| File | Line | Current cite | Replacement strategy |
+|------|------|--------------|----------------------|
+| `compiler/src/util.rs` | 245 | `retired per plan §3.1 (zero corpus instances of top-level item.<…>)` | **(b) verbatim rule, no plan ref** — the `(zero corpus instances...)` parenthetical *is* the rule. Drop `per plan §3.1`; the surrounding prose already states the authority. Final: `retired (zero corpus instances of top-level item.<…>) — see compiler/tests/retirements.rs T13`. |
+| `compiler/src/authoring/mod.rs` | 11 | `PLATFORM_FOUNDATIONS_PLAN.md / AUTHORING_ERGONOMICS_PLAN.md.` | **(c) deletion + replacement pointer** — the cited plans are roadmaps that go stale; the *real* authority for "what comes after Chunk 3a" is the next chunk that lands. Final: `Subsequent chunks add chainable builders per the live authoring layer in compiler/src/authoring/.` (Reader follows the code, not the plan.) |
+| `compiler/src/authoring/replica_item.rs` | 11 | `Cast carries no ability-payload field (corpus has zero depth-0 .n.<spell_name> inside the spell-cast envelope's inner body; parent plan §1.1).` | **(b) verbatim rule, no plan ref** — the `(corpus has zero depth-0 ...)` parenthetical *is* the rule. Drop `; parent plan §1.1`; final ends `inner body).`. |
+| `compiler/src/authoring/sprite.rs` | 144 | `Plan spec (PLATFORM_FOUNDATIONS_PLAN.md §Chunk 3a): img_data() must match working-mods/sliceymon.txt byte-for-byte.` | **(b) verbatim rule, no plan ref** — drop `Plan spec (PLATFORM_FOUNDATIONS_PLAN.md §Chunk 3a):` prefix; the byte-for-byte rule against `working-mods/sliceymon.txt` *is* the authority. Final starts `img_data() must match working-mods/sliceymon.txt byte-for-byte.` |
+| `compiler/tests/spec_amendments.rs` | 4 | `These tests exist to prevent silent rollback of SPEC wording that Chunk 2 of plans/PLATFORM_FOUNDATIONS_PLAN.md required — the permissive-whitelist ruling (SPEC §3.6) and the Pips: i16 annotation.` | **(a) real SPEC anchor** — the surviving authority is `SPEC §3.6` (already cited later in the same sentence). Rewrite: `These tests exist to prevent silent rollback of SPEC §3.6's permissive-whitelist ruling and the Pips: i16 annotation.` Drop `Chunk 2 of plans/...`. |
+| `compiler/tests/retirements.rs` | 2 | `Per parent plan §5, retirement greps live in an integration test file, not build.rs ...` | **(b) verbatim rule, no plan ref** — the `live in an integration test file, not build.rs (which is forbidden — coupling cargo build success to retirement absence drifts the WASM build surface)` IS the rule, self-justifying. Drop `Per parent plan §5,`; final starts `Retirement greps live in an integration test file, ...`. |
+| `compiler/tests/retirements.rs` | 172 | `cast.sthief.abilitydata bodies have zero depth-0 .n.<spell_name> (parent plan §1.1).` | **(b) verbatim rule, no plan ref** — same pattern as `authoring/replica_item.rs:11`. Drop `(parent plan §1.1)`; the corpus-bytes rule self-justifies. Final ends `<spell_name>.`. |
+
+**Replacement-strategy keys** (named once, referenced above):
+- **(a) real SPEC anchor** — replace the plan-section cite with the underlying SPEC § / `compiler/src/...:line` cite that was the actual authority. Used when the plan was repeating a SPEC rule.
+- **(b) verbatim rule, no plan ref** — drop the plan-section qualifier; the surrounding prose already states the rule the plan was citing. Used when the plan was just naming the rule the comment already explains. (Seven of the seven sites in this chunk; the plan-section was decoration, not authority.)
+- **(c) deletion + replacement pointer** — drop the plan-section cite and replace with a pointer to the *live* code surface. Used when the plan-section was a roadmap forward, not a rule.
+
+**Why no new ruling-name table entries.** Chunk 1's `§F<N>` rewrite needed canonical datestamped names because each `§F-N` pointed at a *user ruling with verbatim wording* (e.g. `2026-04-20 "no legacy back-compat"`). The seven sites in this chunk cite plan-section IDs that paraphrase rules already self-evident in the surrounding code/comments — so the replacement is "drop the cite" or "point to the real authority", not "invent a new ruling name." This keeps chunk 1.5 strictly narrower than chunk 1 (no new shared identifiers); the §3.3 ruling-name table is unchanged.
+
+**Dogfood (per chunk)**:
+- `~/.cargo/bin/cargo build` succeeds (doc-comment-only changes — compilation proves no token was rewritten inside a code identifier).
+- `~/.cargo/bin/cargo test` reports 364 passed / 0 failed (matches pre-chunk-1.5 baseline).
+- `~/.cargo/bin/cargo run --example roundtrip_diag` reports 4× ROUNDTRIP OK.
+
+**Verification (per chunk)**:
+- [ ] `grep -rnE '§Chunk [0-9]+|plan §[0-9]+\.[0-9]+|plan §[0-9]+\b|parent plan §[0-9]+|PLATFORM_FOUNDATIONS_PLAN\.md|AUTHORING_ERGONOMICS_PLAN\.md' compiler/src/ compiler/tests/` returns zero hits.
+- [ ] Bare-`Chunk Na` references (without plan-name qualifier) are NOT touched — `git diff main..HEAD -- compiler/src/ compiler/tests/ | grep -E '^[+-].*\bChunk [0-9]+[a-z]?\b' | grep -v -E 'PLATFORM_FOUNDATIONS_PLAN|AUTHORING_ERGONOMICS_PLAN|§Chunk|parent plan|plan §[0-9]'` returns zero hits (i.e. only the plan-qualified chunk cites moved).
+- [ ] Each touched file's prose still parses as English without the dropped cite (Read of each touched line, post-edit).
+
+**Critical checkpoint after 1.5**: chunk-1.5 grep returns zero; bare-`Chunk Na` carve-out is intact (the §6 row 6 rationale survives a re-grep).
+
+---
+
 ### 5.3 Retirement-discipline rule (CLAUDE.md amendment)
 
 Class-only audit scope today + full-tree CI guards forever closes the *current* class. The structural fix for *future* classes is a CLAUDE.md rule that makes "retire something" a multi-step commitment, not an aspiration. Add to CLAUDE.md under `## Working principles`:
@@ -584,6 +631,7 @@ All originally-open items resolved in planning conversations. Recorded here so t
 3. **Carve-out registry location and format** → **TOML at `compiler/tests/doc_invariants_carveouts.toml` (working path); enforcement layered, not located.** Rationale (per user): location only matters if the file is forgotten; if multiple layers always surface it, the path is incidental. Three project-local layers in §5.2 (CI guard tests, CLAUDE.md source-of-truth row, PreToolUse hook). The TOML format (resolved in round-1 audit, §3.5) lets the §5.1 guard tests deserialize the registry with `serde::Deserialize` rather than hand-parsing markdown, and supports a `pattern` field that detects line-number drift.
 4. **Inline `///` doc-comment scope** → **class-only at write-time, full-tree at CI-test-time.** Rationale (per user concern that class-only might not catch enough): the §5.1 guard tests grep both markdown AND `compiler/src/**/*.rs`, so future drift in `///` comments fails CI even though *this* audit only fixes markdown. Combined with the §5.3 retirement-discipline rule in CLAUDE.md, the long tail is structurally closed without exploding this PR's scope.
 5. **Source citing plan-section IDs (added round-1 audit, 2026-04-27)** → option **(b) — extend §3.3's rewrite pattern to ALL `§F<N>` source citations**, not just `§F4`. Rationale (per user, this conversation): per CLAUDE.md "plans go stale once executed", source code MUST NOT depend on plan-section IDs as durable references; `§F4` (a phantom SPEC ref) and `§F5`/`§F8`/`§F10` (real PLATFORM_FOUNDATIONS_PLAN refs) are structurally identical under that rule. The §3.3 ruling-name table covers both; the §5.1 cross-tree guard test asserts no new `§F<N>` source citation appears outside the carve-out registry.
+6. **`§Chunk Na` / `plan §N` / direct-plan-filename source citations (added round-2 audit of PR #15, 2026-04-28)** → option **(b) — defer to a separate chunk (chunk 1.5)**, not bolted onto chunk 1 mid-PR. Rationale (per user, this conversation): the seven hits surfaced by Round-2's generalized grep cite plan-section IDs under a different spelling than `§F<N>` (e.g. `§Chunk 3a`, `parent plan §1.1`, `plan §3.1`, direct `PLATFORM_FOUNDATIONS_PLAN.md` filenames). They violate the same protected invariant — but extending chunk 1's `§F<N>`-only ruling-name table to invent canonical names for these would require new user-blessed ruling names and was not the user decision in §6 row 5. Chunk 1.5 (§4.2.5) handles them with the **strategy-key** approach (real SPEC anchor / verbatim rule / deletion + live-code pointer), keeping the §3.3 ruling-name table unchanged. Bare `Chunk Na` references (without plan-name qualifier) remain carved out as commit-anchored timeline references — chunk identity is durable in git history once the chunk lands, so the cite isn't fragile under plan rot.
 
 The plan ships ready to execute — no remaining ambiguity blocks §3-§5.
 
@@ -594,6 +642,7 @@ The plan ships ready to execute — no remaining ambiguity blocks §3-§5.
 - `cargo test` (full suite) passes — no regressions versus the pre-PR baseline. (Pre-PR test count is established at implementation start by `~/.cargo/bin/cargo test 2>&1 | tail` on `main` and recorded in the PR description; the round-1 audit could not run `cargo test` from this session's bash because `cargo` is not on `PATH` here. The full path `~/.cargo/bin/cargo` is the project convention per `personas/ai-development.md:725` — `Use ~/.cargo/bin/cargo (not bare cargo) — PATH may not include it.`)
 - `cargo run --example roundtrip_diag` passes (4× ROUNDTRIP OK) — proves the audit didn't accidentally touch behavior.
 - `grep -rn '§F[0-9]\+' compiler/ SPEC.md CLAUDE.md personas/` returns **zero hits** (HANDOFF.md is out of scope per §1's ephemeral-file exclusion; the `§F10-MARKER` token is renamed and so leaves no `§F10` residue). The original draft's §F4-only criterion is broadened to all §F-N classes per §6 decision 5.
+- `grep -rnE '§Chunk [0-9]+|plan §[0-9]+\.[0-9]+|plan §[0-9]+\b|parent plan §[0-9]+|PLATFORM_FOUNDATIONS_PLAN\.md|AUTHORING_ERGONOMICS_PLAN\.md' compiler/src/ compiler/tests/` returns **zero hits** post chunk 1.5 (per §6 decision 6; bare `Chunk Na` references without plan-name qualifier are the documented carve-out, not a violation).
 - Every retired claim in personas has been replaced with the current shape, cited by `compiler/src/...:line` in the commit message.
 - The carve-out registry (`compiler/tests/doc_invariants_carveouts.toml` per §3.5 working path) exists, lists every carve-out with stable rationale + invariant cite + (file, line, pattern) triple, and is referenced by every guard test through one constant.
 - `CLAUDE.md` carries the §5.3 retirement-discipline rule under `## Working principles` and a row in the source-of-truth table for the carve-out registry.
