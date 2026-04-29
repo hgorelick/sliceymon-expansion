@@ -1,8 +1,7 @@
 //! Smoke tests for SPEC amendments that Chunk 2 made.
 //!
-//! These tests exist to prevent silent rollback of SPEC wording that
-//! Chunk 2 of `plans/PLATFORM_FOUNDATIONS_PLAN.md` required — the
-//! permissive-whitelist ruling (SPEC §3.6) and the `Pips: i16` annotation.
+//! These tests exist to prevent silent rollback of SPEC §3.6's
+//! permissive-whitelist ruling and the `Pips: i16` annotation.
 
 use std::fs;
 use std::path::PathBuf;

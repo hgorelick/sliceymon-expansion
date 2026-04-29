@@ -1,7 +1,7 @@
 //! Chunk 8A retirement greps + stub source-preservation + transitional NonSummon
-//! round-trip. Per parent plan §5, retirement greps live in an integration test
-//! file, not build.rs (which is forbidden — coupling `cargo build` success to
-//! retirement absence drifts the WASM build surface).
+//! round-trip. Retirement greps live in an integration test file, not build.rs
+//! (which is forbidden — coupling `cargo build` success to retirement absence
+//! drifts the WASM build surface).
 //!
 //! Tests shipped here:
 //! - T12  — `ReplicaItemContainer` enum fully retired.
@@ -169,8 +169,8 @@ fn grep_crate_for_item_pool_entry_type() {
 fn grep_authoring_replica_item_for_abilitydata() {
     // The builder deliberately exposes no `abilitydata()` method and no
     // `AbilityData` field — cast.sthief.abilitydata bodies have zero
-    // depth-0 `.n.<spell_name>` (parent plan §1.1). This test makes the
-    // absence load-bearing under `cargo test`, not just PR review.
+    // depth-0 `.n.<spell_name>`. This test makes the absence load-bearing
+    // under `cargo test`, not just PR review.
     let lower = recursive_grep(Path::new("src/authoring/replica_item.rs"), "abilitydata");
     let upper = recursive_grep(Path::new("src/authoring/replica_item.rs"), "AbilityData");
     assert_eq!(

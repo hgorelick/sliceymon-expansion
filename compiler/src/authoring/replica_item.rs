@@ -7,8 +7,8 @@
 //! a compile error, not a runtime surprise.
 //!
 //! Cast carries no ability-payload field (corpus has zero depth-0
-//! `.n.<spell_name>` inside the spell-cast envelope's inner body; parent
-//! plan §1.1). Widening is a separate PR with variant fields — see the
+//! `.n.<spell_name>` inside the spell-cast envelope's inner body).
+//! Widening is a separate PR with variant fields — see the
 //! `SummonTrigger::Cast` doc-comment in `ir/mod.rs` for the full rationale.
 
 use std::marker::PhantomData;
