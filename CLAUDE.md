@@ -72,7 +72,7 @@ If evidence is missing, stop and gather it before editing. If the change is genu
 - In plan mode, follow `personas/ai-development.md`.
 - Plans are instructions for future implementation, not changelogs. Rewrite in place; only keep historical context if it changes how the next reader will *act*.
 - Plans go in `plans/` in the project root, not `.claude/plans/`.
-- Plans are not sources of truth — once a plan is executed, the code becomes the truth. Don't cite plans in persona/spec tables.
+- Plans are not sources of truth — once a plan is executed, the code becomes the truth. Don't cite plans anywhere outside `plans/` itself: not in `compiler/src/`, `compiler/tests/`, `SPEC.md`, `CLAUDE.md`, or `personas/`. This covers every spelling — `§F<N>`, `§Chunk Na`, `plan §N`, `parent plan §N`, and direct plan filenames (e.g. `PLATFORM_FOUNDATIONS_PLAN.md`). The carve-out is bare `Chunk Na` references *without* a plan-name qualifier, which are commit-anchored timeline references and survive plan rot. When a comment needs to cite the rule a plan was citing, name the underlying authority (SPEC §, corpus bytes, a test ID) directly — the plan is a roadmap, not the rule.
 
 ### After changing the compiler
 - `cargo test` (lib + integration + proptest) must pass.
