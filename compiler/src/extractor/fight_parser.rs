@@ -560,8 +560,8 @@ mod tests {
         // post-template `.((`/`.(` exists somewhere and `find` cannot panic.
         // The refactor replaces that unwrap with direct arithmetic
         // (`content.len() - after_template.len() + 1`), eliminating the
-        // panic-adjacent call for SPEC §F8. This test pins the surviving
-        // shape:
+        // panic-adjacent call for the 2026-04-22 "library code panic-free" ruling.
+        // This test pins the surviving shape:
         //   1. Inputs that don't pass the `starts_with(template)` guard
         //      return (None, None) cleanly.
         //   2. The happy-path nested-children shape still parses.

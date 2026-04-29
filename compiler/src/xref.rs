@@ -32,7 +32,7 @@ pub const X017: &str = "X017";
 /// template-restriction claim, so this table is intentionally empty —
 /// populating it with corpus-derived guesses would violate the plan's
 /// "no hardcoded lists based on game-design persona claims" directive
-/// (PLATFORM_FOUNDATIONS_PLAN.md §F3). Add entries here only when the guide
+/// (the 2026-04-20 "permissive face IDs" ruling). Add entries here only when the guide
 /// documents a restriction.
 ///
 /// Each entry: `(face_id, &[allowed_template_prefix, ...])`. An entry with
@@ -46,8 +46,10 @@ pub const X016_TEMPLATE_RESTRICTIONS: &[(u16, &[&str])] = &[];
 
 /// Source-aware severity promotion — every xref rule that visits a sourced
 /// entity runs its literal `severity` through this helper so the promotion
-/// policy lives in one place (per PLATFORM_FOUNDATIONS_PLAN §F5 and the
-/// Chunk 3b lesson on not duplicating the same incantation across N sites).
+/// policy lives in one place
+/// (per the 2026-04-22 "BuildOptions + provenance-aware findings" ruling
+/// and the Chunk 3b lesson on not duplicating the same incantation across
+/// N sites).
 ///
 /// Policy:
 /// - `Some(Source::Base)` → `Severity::Warning` (base content is load-bearing;
@@ -240,7 +242,8 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
         let display_name = &entries[0].0;
         // X003 is a global cross-bucket finding: there is no single offending
         // entity whose `source` would be authoritative. Mirrors the Chunk 4
-        // precedent for V020's `check_cross_category_names` (plan §F5 —
+        // precedent for V020's `check_cross_category_names` (the
+        // 2026-04-22 "provenance-aware findings" ruling —
         // "global — source: None because there is no single offending entity;
         // severity stays Error"). `promote_severity(Error, None)` = Error.
         push_finding(report, Finding {
@@ -773,7 +776,8 @@ mod tests {
 
     /// Helper: create a minimal hero for testing.
     ///
-    /// Defaults to `Source::Base` so severity-promotion (per §F5) leaves the
+    /// Defaults to `Source::Base` so severity-promotion (per the
+    /// 2026-04-22 "provenance-aware findings" ruling) leaves the
     /// rule's native severity intact; tests that exercise the Custom/Overlay
     /// escalation set `source` explicitly.
     fn make_hero(name: &str, color: char) -> Hero {
@@ -848,7 +852,8 @@ mod tests {
     }
 
     /// Test helper: every finding in the report regardless of severity lane.
-    /// Used by tests that assert a rule fires without caring about the §F5
+    /// Used by tests that assert a rule fires without caring about the
+    /// 2026-04-22 "provenance-aware findings" ruling's
     /// severity-promotion policy (which routes findings to different lanes
     /// based on the offending entity's `source`).
     fn all_findings(report: &ValidationReport) -> Vec<&Finding> {
@@ -1013,7 +1018,8 @@ mod tests {
     fn x003_finding_is_global_source_none() {
         // X003 is a cross-bucket finding: no single offending entity, so
         // `source` stays None and severity stays Error — mirrors V020's
-        // cross-category behavior (Chunk 4 §F5). Pin this so a future
+        // cross-category behavior (Chunk 4's 2026-04-22
+        // "provenance-aware findings" ruling). Pin this so a future
         // "retrofit source on every X-rule" sweep doesn't silently attribute
         // the collision to one entity's bucket.
         let mut ir = ModIR::empty();
@@ -1095,7 +1101,8 @@ mod tests {
 
         let report = check_references(&ir);
 
-        // Base-sourced V016 promotes Error → Warning per §F5.
+        // Base-sourced V016 promotes Error → Warning per the 2026-04-22
+        // "provenance-aware findings" ruling.
         let v016: Vec<_> = all_findings(&report)
             .into_iter()
             .filter(|f| f.rule_id == "V016")
@@ -1153,7 +1160,8 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.replica_items.push(make_replica_item("Pikachu"));
 
-        // Author-added hero (Source::Custom) — §F5 keeps V020's Error severity.
+        // Author-added hero (Source::Custom) — the 2026-04-22
+        // "provenance-aware findings" ruling keeps V020's Error severity.
         let mut new_hero = make_hero("Pikachu", 'a');
         new_hero.source = Source::Custom;
         let report = check_hero_in_context(&new_hero, &ir);
@@ -1180,7 +1188,8 @@ mod tests {
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Pikachu", 'a'));
 
-        // Author-added boss (Source::Custom) — §F5 keeps V020's Error severity.
+        // Author-added boss (Source::Custom) — the 2026-04-22
+        // "provenance-aware findings" ruling keeps V020's Error severity.
         let mut boss = make_boss("Pikachu");
         boss.source = Source::Custom;
         let report = check_boss_in_context(&boss, &ir);
@@ -1256,7 +1265,8 @@ mod tests {
         let mut report = ValidationReport::default();
         check_face_template_compat_with_table(&ir, synthetic, &mut report);
 
-        // Base-sourced hero demotes X016 to Warning per §F5.
+        // Base-sourced hero demotes X016 to Warning per the 2026-04-22
+        // "provenance-aware findings" ruling.
         let x016: Vec<_> = all_findings(&report)
             .into_iter()
             .filter(|f| f.rule_id == "X016")
@@ -1311,7 +1321,8 @@ mod tests {
 
         let report = check_references(&ir);
 
-        // Base source: §F5 policy keeps X017's native Warning severity.
+        // Base source: the 2026-04-22 "provenance-aware findings" ruling's
+        // policy keeps X017's native Warning severity.
         assert_eq!(report.errors.len(), 0, "X017 on Base source must stay Warning");
         let x017: Vec<_> = report.warnings.iter().filter(|f| f.rule_id == "X017").collect();
         assert_eq!(x017.len(), 1);

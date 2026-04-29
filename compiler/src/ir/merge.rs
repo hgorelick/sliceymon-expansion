@@ -273,7 +273,8 @@ pub fn collect_stripped_kinds(structural: &[StructuralModifier]) -> Vec<Structur
 ///
 /// Used by both `merge` (post-strip, pre-return — passes the full merged
 /// hero set and full replica list) and `build_with` (passes the
-/// post-`BuildOptions` filter hero set + full replica list, so plan §F5's
+/// post-`BuildOptions` filter hero set + full replica list, so the
+/// 2026-04-22 "BuildOptions + provenance-aware findings" ruling's
 /// "regenerated from the post-filter content set" contract is observable
 /// for heroes; replica indices are preserved across the filter because
 /// `ItempoolItem::Summon(i)` indexes the flat `replica_items` list).

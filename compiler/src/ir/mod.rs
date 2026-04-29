@@ -1855,7 +1855,8 @@ mod chunk_1_tests {
         }
     }
 
-    /// §F4: `HeroBlock.sprite` is a required `SpriteId`. A struct literal
+    /// The 2026-04-20 "no legacy back-compat" ruling on sprite shape:
+    /// `HeroBlock.sprite` is a required `SpriteId`. A struct literal
     /// omitting `sprite` must fail to compile — this test is the positive
     /// side of that proof (construction with `SpriteId::owned` succeeds);
     /// the negative side is exercised by every callsite that still spells
@@ -1885,8 +1886,9 @@ mod chunk_1_tests {
         assert_eq!(block.sprite.img_data(), "ABC123");
     }
 
-    /// §F4 ruling (2026-04-20, "no legacy, always choose correctness over
-    /// back-compat"): the only accepted JSON shape for a sprite-bearing IR
+    /// The 2026-04-20 "no legacy back-compat" ruling (verbatim user wording:
+    /// "no legacy, always choose correctness over back-compat"): the only
+    /// accepted JSON shape for a sprite-bearing IR
     /// type is the new flat `sprite: { name, img_data }` object. Legacy JSON
     /// that ships `sprite_name` + `img_data` as split top-level keys must
     /// fail to deserialize; no compat shim exists.
@@ -1916,7 +1918,7 @@ mod chunk_1_tests {
         let parsed_legacy: Result<HeroBlock, _> = serde_json::from_str(json_legacy);
         assert!(
             parsed_legacy.is_err(),
-            "legacy sprite_name+img_data JSON must NOT deserialize into the post-§F4 HeroBlock"
+            "legacy sprite_name+img_data JSON must NOT deserialize into the post-2026-04-20 HeroBlock"
         );
     }
 }

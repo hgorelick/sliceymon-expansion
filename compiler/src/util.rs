@@ -225,7 +225,7 @@ pub fn has_color(modifier: &str, target: char) -> bool {
 }
 
 /// Return the prefix of `body` preceding the first depth-0 occurrence of any
-/// §F10-MARKER — the canonical set `{.i., .sticker., .abilitydata.}`. When
+/// INNER_BODY_MARKERS — the canonical set `{.i., .sticker., .abilitydata.}`. When
 /// none exist at depth 0, returns the full `body` slice.
 ///
 /// Scalar extractors for `hp` / `color` / `sd` / `img` feed the result
@@ -244,7 +244,7 @@ pub fn has_color(modifier: &str, target: char) -> bool {
 /// Post-8A this helper has no in-tree caller — the legacy top-level
 /// `item.TEMPLATE…` replica-item parser was retired per plan §3.1 (zero
 /// corpus instances of top-level `item.<…>`). It remains as a reusable
-/// depth-0 prefix slicer for future §F10-MARKER work.
+/// depth-0 prefix slicer for future INNER_BODY_MARKERS work.
 pub fn slice_before_chain_and_cast(body: &str) -> &str {
     let mut earliest: Option<usize> = None;
     for marker in [".i.", ".sticker.", ".abilitydata."] {
@@ -504,7 +504,7 @@ mod tests {
 
     #[test]
     fn slice_before_chain_and_cast_no_markers_returns_full_body() {
-        // No §F10-MARKER at depth 0 → the full body is returned verbatim.
+        // No INNER_BODY_MARKERS at depth 0 → the full body is returned verbatim.
         // Pins the no-op path so a future change can't silently truncate
         // modifier bodies that have no chain or ability block.
         let body = "Alpha.hp.5.sd.0:0:0:0:0:0.n.Mew";

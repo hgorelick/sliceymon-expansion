@@ -36,7 +36,8 @@ pub fn build(ir: &ModIR) -> Result<String, CompilerError> {
 
 /// Build a textmod string from a ModIR, honoring the supplied [`BuildOptions`].
 ///
-/// Per PLATFORM_FOUNDATIONS_PLAN §F5, every content-emission site consults
+/// Per the 2026-04-22 "BuildOptions + provenance-aware findings" ruling,
+/// every content-emission site consults
 /// `opts.include.admits(entity.source)` before emitting. Structural modifiers
 /// carry their own `source`; heroes / replica items / monsters / bosses use
 /// their top-level `source`.
@@ -57,7 +58,8 @@ pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerErr
     // carries a derived-flagged structural — otherwise this is a no-op cost
     // on every build() call against extracted Base-origin IR.
     //
-    // Plan §F5 / options.rs contract: "regenerated from the post-filter
+    // The 2026-04-22 "provenance-aware findings" ruling / options.rs
+    // contract: "regenerated from the post-filter
     // content set." We regenerate from heroes admitted by `filter` so the
     // char-selection / hero-pool reflects the same hero set the emission
     // loop will actually emit.
@@ -92,7 +94,8 @@ pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerErr
 
     // Derived structurals bypass the source filter: they're regenerated from
     // post-filter content and are tagged `Source::Base` by construction, so
-    // a filter that excludes `Base` would silently drop them. Plan §F5 /
+    // a filter that excludes `Base` would silently drop them. The
+    // 2026-04-22 "provenance-aware findings" ruling /
     // options.rs: "they do not carry their own Source filter." We use
     // `is_derived()` (flag + kind) rather than the raw `derived` flag so a
     // hand-authored structural with `derived:true` on a non-derived kind
