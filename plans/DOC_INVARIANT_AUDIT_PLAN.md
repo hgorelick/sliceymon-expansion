@@ -297,7 +297,7 @@ Sub-commits 1a–1f share scope, dependencies, consumer, and verification — on
 **1c — §F3** (permissive face IDs ruling). Site + rewrite rule at §3.3 §F3. 1 callsite in `compiler/src/`.
 **1d — §F8** (library panic-free ruling). Site + rewrite rule at §3.3 §F8. 1 callsite in `compiler/src/`.
 **1e — §F10-MARKER → `INNER_BODY_MARKERS` token rename**. Sites + rewrite rule at §3.3 §F10-MARKER. 3 callsites in `util.rs`.
-**1f — `compiler/tests/` §F<N> source-citation siblings** (added during PR #15's round-1 tribunal extension; commit `5a5f86d`). Sites + rewrite rule at §3.3 "Sub-commit 1f sites" subsection. 4 files / 10 callsites: `audit_lib_panic_free.rs:1, :43, :97, :134, :219` (§F8); `build_options_tests.rs:2, :177` (§F5); `path_c_merge_tests.rs:1, :463` (§F5; `plan §F6` qualifier dropped — §F6 is not in §3.3's ruling-name table per line 112's "zero hits in compiler/src/" census, so the qualifier is dropped without coining a new ruling name); `integration_tests.rs:373` (§F4 date-only short-short form per the per-site carve-out at §3.3 §F4 line 125's `monster_parser.rs:15` precedent).
+**1f — `compiler/tests/` §F<N> source-citation siblings** (added during PR #15's round-1 tribunal extension; commit `5a5f86d`). Sites + rewrite rule at §3.3's per-§F-N "Sub-commit 1f (`compiler/tests/`)" subsections (under §F4, §F5, §F8). 4 files / 10 callsites.
 
 **Dogfood (per sub-commit)**:
 - `~/.cargo/bin/cargo build` succeeds (the rewrite touches doc-comments only — compilation proves no token was rewritten inside a code identifier).
