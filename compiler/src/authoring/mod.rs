@@ -7,8 +7,6 @@
 //!
 //! Chunk 2 populates the `face_id` submodule (`FaceId`, `FaceIdValue`, `Pips`).
 //! Chunk 3a adds `sprite` — the `SpriteId` newtype + build-time registry.
-//! Subsequent chunks add chainable builders per the live authoring layer in
-//! `compiler/src/authoring/`.
 
 pub mod face_id;
 pub mod replica_item;
