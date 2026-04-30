@@ -8,10 +8,9 @@ use crate::ir::{ItempoolItem, ReplicaItem};
 /// verbatim inside `content`. This preserves byte-equal round-trip with zero
 /// `ReplicaItem` extraction.
 ///
-/// This is a KNOWN, TRACKED SPEC §3.2 raw-passthrough violation that
-/// `plans/CHUNK_8A5_NONSUMMON_TYPED_SCHEMA.md` closes by replacing
-/// `NonSummon { name, tier, content }` with a typed `NonSummonEntry` sum
-/// before 8b starts.
+/// This is a KNOWN, TRACKED SPEC §3.2 raw-passthrough violation. The
+/// transitional `NonSummon { name, tier, content }` is replaced with a
+/// typed `NonSummonEntry` sum before 8b starts.
 ///
 /// The empty `name` and `None` `tier` combined with a non-empty `content`
 /// act as the **stub sentinel** that the emitter's `emit_itempool` detects

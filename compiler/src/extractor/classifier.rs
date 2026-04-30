@@ -182,8 +182,7 @@ pub fn classify(modifier: &str, modifier_index: usize) -> Result<ModifierType, C
             modifier_index,
             preview,
             "Top-level `item.<…>` modifiers are not currently modeled. \
-             Summon items belong inside `itempool.((…))` envelopes. \
-             See plans/CHUNK_8_REPLICA_ITEM_TRIGGER_PLAN.md §1.2.",
+             Summon items belong inside `itempool.((…))` envelopes.",
         ));
     }
 

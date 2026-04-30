@@ -186,8 +186,8 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
 /// `{hero, legendary, monster}`. The label is preserved across the 8A rewrite
 /// for stability of the paired test (`x003_duplicate_pokemon_across_kinds`
 /// asserts `message.contains("legendary")`) and the SPEC §6.3 prose surface;
-/// 8B unifies it to `"replica_item"` per `plans/CHUNK_8B…` §9. The bucket set
-/// remains narrower than V020's `{hero, replica_item, monster, boss}` — not
+/// 8B unifies it to `"replica_item"`. The bucket set remains narrower than
+/// V020's `{hero, replica_item, monster, boss}` — not
 /// more granular: `legendary` and `replica_item` carry the same information
 /// one-to-one, and X003 deliberately excludes `boss` per SPEC §6.3.
 fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
@@ -205,8 +205,8 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
     }
     for item in &ir.replica_items {
         // Bucket label remains "legendary" in 8A — unifying both owner-map
-        // sites to "replica_item" is 8B's scope (see plans/CHUNK_8B §9).
-        // Unilaterally renaming here would break a paired test
+        // sites to "replica_item" is 8B's scope. Unilaterally renaming here
+        // would break a paired test
         // (x003_duplicate_pokemon_across_kinds asserts
         // `message.contains("legendary")`) and a SPEC prose surface in one
         // atomic commit that 8A does not own.
