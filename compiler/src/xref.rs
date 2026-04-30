@@ -47,9 +47,8 @@ pub const X016_TEMPLATE_RESTRICTIONS: &[(u16, &[&str])] = &[];
 /// Source-aware severity promotion — every xref rule that visits a sourced
 /// entity runs its literal `severity` through this helper so the promotion
 /// policy lives in one place
-/// (per the 2026-04-22 "BuildOptions + provenance-aware findings" ruling
-/// and the Chunk 3b lesson on not duplicating the same incantation across
-/// N sites).
+/// (per the 2026-04-22 "BuildOptions + provenance-aware findings" ruling;
+/// the helper exists so this incantation is not duplicated across N sites).
 ///
 /// Policy:
 /// - `Some(Source::Base)` → `Severity::Warning` (base content is load-bearing;
@@ -241,11 +240,11 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
         }
         let display_name = &entries[0].0;
         // X003 is a global cross-bucket finding: there is no single offending
-        // entity whose `source` would be authoritative. Mirrors the Chunk 4
-        // precedent for V020's `check_cross_category_names` (the
-        // 2026-04-22 "provenance-aware findings" ruling —
-        // "global — source: None because there is no single offending entity;
-        // severity stays Error"). `promote_severity(Error, None)` = Error.
+        // entity whose `source` would be authoritative. Mirrors V020's
+        // `check_cross_category_names` per the 2026-04-22 "provenance-aware
+        // findings" ruling — "global — source: None because there is no
+        // single offending entity; severity stays Error". `promote_severity(
+        // Error, None)` = Error.
         push_finding(report, Finding {
             rule_id: X003.to_string(),
             severity: promote_severity(Severity::Error, None),
@@ -794,11 +793,11 @@ mod tests {
 
     /// Helper: create a minimal replica item for testing.
     ///
-    /// Chunk 8A: trigger-IR shape. Dice are blank (one `DiceFace::Blank`)
-    /// because the legacy helper's `sd: DiceFaces { faces: vec![DiceFace::Blank] }`
-    /// shape is used by X017 `x017_silent_when_all_face_ids_known` negative
-    /// assertions — the shape must still produce an all-blank `DiceFaces`
-    /// so nothing in the face iteration flags a Known or Unknown face.
+    /// Trigger-IR shape. Dice are blank (one `DiceFace::Blank`) because
+    /// `sd: DiceFaces { faces: vec![DiceFace::Blank] }` is used by X017
+    /// `x017_silent_when_all_face_ids_known` negative assertions — the shape
+    /// must still produce an all-blank `DiceFaces` so nothing in the face
+    /// iteration flags a Known or Unknown face.
     fn make_replica_item(name: &str) -> ReplicaItem {
         ReplicaItem {
             container_name: "Test Ball".to_string(),
@@ -1018,10 +1017,10 @@ mod tests {
     fn x003_finding_is_global_source_none() {
         // X003 is a cross-bucket finding: no single offending entity, so
         // `source` stays None and severity stays Error — mirrors V020's
-        // cross-category behavior (Chunk 4's 2026-04-22
-        // "provenance-aware findings" ruling). Pin this so a future
-        // "retrofit source on every X-rule" sweep doesn't silently attribute
-        // the collision to one entity's bucket.
+        // cross-category behavior (the 2026-04-22 "provenance-aware
+        // findings" ruling). Pin this so a future "retrofit source on every
+        // X-rule" sweep doesn't silently attribute the collision to one
+        // entity's bucket.
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Pikachu", 'a'));
         ir.replica_items.push(make_replica_item("Pikachu"));

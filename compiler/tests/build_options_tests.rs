@@ -1,4 +1,4 @@
-//! Chunk 4 verification tests for `BuildOptions` + `build_with` + `Finding.source`.
+//! Verification tests for `BuildOptions` + `build_with` + `Finding.source`.
 //! Per the 2026-04-22 "BuildOptions + provenance-aware findings" ruling.
 
 use textmod_compiler::authoring::SpriteId;

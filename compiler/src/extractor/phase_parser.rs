@@ -421,7 +421,7 @@ fn parse_phase_from_reward_wrapper(s: &str, depth: usize) -> Result<Phase, Compi
 }
 
 /// Basic reward tag parse — creates a RewardTag from a tag string.
-/// Full structured reward parsing is in Chunk 7 (reward_parser.rs).
+/// Full structured reward parsing lives in `reward_parser.rs`.
 fn parse_reward_tag_basic(s: &str) -> RewardTag {
     let tag_type = match s.chars().next() {
         Some('m') => RewardTagType::Modifier,

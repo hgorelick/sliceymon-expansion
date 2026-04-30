@@ -43,7 +43,7 @@ pub fn parse_structural_content(stype: &StructuralType, raw: &str) -> Structural
         },
         StructuralType::HiddenModifier => StructuralContent::HiddenModifier {
             body: raw.to_string(),
-            modifier_type: crate::ir::HiddenModifierType::Skip, // placeholder until Chunk 7
+            modifier_type: crate::ir::HiddenModifierType::Skip, // placeholder until reward parsing lands
         },
         StructuralType::FightModifier => StructuralContent::FightModifier {
             body: raw.to_string(), level_scope: None, fight: None,

@@ -1119,7 +1119,7 @@ impl StructuralContent {
 }
 
 // =========================================================================
-// New types for Textmod API integration (Chunk 2)
+// Types for Textmod API integration
 // =========================================================================
 
 // -- Phase System --
@@ -1582,10 +1582,6 @@ pub enum HiddenModifierType {
     CursemodeLoopdiff,
 }
 
-// =========================================================================
-// Chunk 2 tests
-// =========================================================================
-
 #[cfg(test)]
 mod new_type_tests {
     use super::*;
@@ -1746,7 +1742,7 @@ mod new_type_tests {
 }
 
 // =========================================================================
-// Chunk 1 tests — Default + ::new(identity) constructors
+// Default + ::new(identity) constructor tests
 // =========================================================================
 
 #[cfg(test)]
@@ -1924,14 +1920,14 @@ mod chunk_1_tests {
 }
 
 // =========================================================================
-// Chunk 8A — new-enum compile-guards (T29a / T29b)
+// New-enum variant + serde-roundtrip pins
 // =========================================================================
 
 #[cfg(test)]
 mod new_enum_compile_guards {
     use super::*;
 
-    /// T29a: every SummonTrigger variant is constructible and equality-sensible.
+    /// Every SummonTrigger variant is constructible and equality-sensible.
     #[test]
     fn summon_trigger_variants_compile_and_eq() {
         let dice = DiceFaces::parse("1-1:2-1:3-1:4-1:5-1:6-1");
@@ -1952,7 +1948,7 @@ mod new_enum_compile_guards {
         assert_eq!(c.dice_faces(), &dice);
     }
 
-    /// T29b: ItempoolItem's two transitional variants (Summon index, and the
+    /// ItempoolItem's two transitional variants (Summon index, and the
     /// transitional raw-passthrough NonSummon { name, tier, content }) are
     /// constructible, equality-sensible, and serde-roundtrippable. 8A.5
     /// retypes NonSummon into a typed NonSummonEntry sum and extends this

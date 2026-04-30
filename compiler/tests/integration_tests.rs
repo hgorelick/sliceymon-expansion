@@ -409,7 +409,7 @@ fn extract_preserves_monster_img_data_on_registry_name_collision() {
 }
 
 // ---------------------------------------------------------------------------
-// Chunk 3c: `sprites: &HashMap` dropped from the public API
+// `sprites: &HashMap` dropped from the public API
 // ---------------------------------------------------------------------------
 
 fn minimal_path_b_hero() -> Hero {
@@ -478,20 +478,20 @@ fn build_hero_signature() {
 
 #[test]
 fn build_emits_block_img_data_not_registry_payload() {
-    // Source-vs-IR divergence pin (per Chunk 3b tribunal lesson): the emitter
-    // must read `HeroBlock.sprite.img_data()` and nothing else. If a future
-    // refactor re-introduces registry lookup on the build path, a block whose
-    // name collides with a registered sprite but carries novel img_data would
+    // Source-vs-IR divergence pin: the emitter must read
+    // `HeroBlock.sprite.img_data()` and nothing else. If a future refactor
+    // re-introduces registry lookup on the build path, a block whose name
+    // collides with a registered sprite but carries novel img_data would
     // silently emit the registered payload instead of the block's own bytes.
     //
-    // "Pikachu" is a registered name (see Chunk 3a), so using it as `name`
-    // while carrying `CHUNK_3C_NOVEL_IMG` as `img_data` exercises the
-    // collision surface.
+    // "Pikachu" is a registered name in the sprite registry, so using it as
+    // `name` while carrying `NOVEL_IMG` as `img_data` exercises the collision
+    // surface.
     let mut hero = minimal_path_b_hero();
-    hero.blocks[0].sprite = SpriteId::owned("Pikachu", "CHUNK_3C_NOVEL_IMG");
+    hero.blocks[0].sprite = SpriteId::owned("Pikachu", "NOVEL_IMG");
     let emitted = build_hero(&hero).expect("build_hero");
     assert!(
-        emitted.contains(".img.CHUNK_3C_NOVEL_IMG"),
+        emitted.contains(".img.NOVEL_IMG"),
         "emitter must use the block's own img_data, got: {}",
         emitted
     );

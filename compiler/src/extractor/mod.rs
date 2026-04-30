@@ -60,7 +60,7 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
                 structural.push(make_structural(StructuralType::HeroPoolBase, modifier.clone()));
             }
             ModifierType::ItemPool => {
-                // Chunk 8A: route ItemPool through the trigger-IR stub extractor.
+                // Route ItemPool through the trigger-IR stub extractor.
                 // The stub returns zero new `ReplicaItem`s plus a single
                 // `NonSummon { name: "", tier: None, content: <whole body> }`
                 // sentinel whose emitter-side sentinel path re-emits the body

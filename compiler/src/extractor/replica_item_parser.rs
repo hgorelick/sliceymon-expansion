@@ -1,7 +1,7 @@
 use crate::error::CompilerError;
 use crate::ir::{ItempoolItem, ReplicaItem};
 
-/// Chunk 8A stub (transitional) extractor for an `itempool.((…))` body.
+/// Stub (transitional) extractor for an `itempool.((…))` body.
 ///
 /// Returns one `ItempoolItem::NonSummon { name: String::new(), tier: None,
 /// content: body.to_string() }` per itempool, carrying the ENTIRE body

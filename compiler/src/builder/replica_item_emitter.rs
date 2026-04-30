@@ -1,4 +1,4 @@
-//! Chunk 8A — trigger-based ReplicaItem emitter + itempool emitter.
+//! Trigger-based ReplicaItem emitter + itempool emitter.
 //!
 //! The pre-8a module emitted the flat Legendary shape (`item.TEMPLATE...`);
 //! that entire surface is retired because the four working-mods contain zero
