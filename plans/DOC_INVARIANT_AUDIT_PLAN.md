@@ -143,7 +143,7 @@ Sites (file:line, drawn from the §F-N census above; no per-site replacement str
   - `compiler/src/xref.rs:49, :243, :776, :851, :1016, :1098, :1156, :1183, :1259, :1314` (line 49 is first-occurrence-in-file → long form)
 - Sub-commit 1f (`compiler/tests/`; commit `5a5f86d`):
   - `compiler/tests/build_options_tests.rs:2, :177` (line 2 first-occurrence-in-file → long form; line 177 short form)
-  - `compiler/tests/path_c_merge_tests.rs:1, :463` (line 1 also dropped a `plan §F6` qualifier — §F6 has zero entries in this ruling-name table per line 112's "zero hits in compiler/src/" census, so the qualifier is dropped without coining a new ruling name; line 463 first-occurrence-in-file uses long form per the rewrite rule)
+  - `compiler/tests/merge_tests.rs:1, :463` (file renamed from `path_c_merge_tests.rs` post-chunk-1.5; line 1 also dropped a `plan §F6` qualifier — §F6 has zero entries in this ruling-name table per line 112's "zero hits in compiler/src/" census, so the qualifier is dropped without coining a new ruling name; line 463 first-occurrence-in-file uses long form per the rewrite rule)
 
 §F3 — permissive face IDs (1 callsite):
 

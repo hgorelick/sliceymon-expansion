@@ -1,4 +1,4 @@
-//! Chunk 5 / SPEC §4 — derived-structural provenance gate + new
+//! SPEC §4 — derived-structural provenance gate + new
 //! `merge(&mut base, overlay)` signature + warnings sidecar.
 //!
 //! These tests pin the behavior that:

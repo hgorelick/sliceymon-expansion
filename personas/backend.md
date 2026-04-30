@@ -249,7 +249,7 @@ compiler/
     build_options_tests.rs   # BuildOptions branches
     correctness_tests.rs     # Format-correctness invariants
     integration_tests.rs     # End-to-end CLI / extract / build
-    path_c_merge_tests.rs    # ReplicaItem merge contract (SideUse + Cast per target_name)
+    merge_tests.rs           # SPEC §4 derived-structural provenance gate + warnings sidecar
     roundtrip_baseline.rs    # Round-trip on all 4 test mods (sliceymon, pansaer, punpuns, community)
     baselines/               # Golden-file baselines for roundtrip comparison
 ```

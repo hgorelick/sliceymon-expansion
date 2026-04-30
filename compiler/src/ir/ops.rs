@@ -101,7 +101,7 @@ impl ModIR {
     ///    `(target_name, std::mem::discriminant(&trigger))`. Matching by
     ///    `target_name` alone would block the corpus shape that 4 Pokemon
     ///    (Ho-Oh, Lugia, Kyogre, Groudon) carry — see
-    ///    `tests/path_c_merge_tests.rs::merge_replicas_distinguishes_sideuse_and_cast_for_same_pokemon`.
+    ///    `tests/merge_tests.rs::merge_replicas_distinguishes_sideuse_and_cast_for_same_pokemon`.
     pub fn add_replica_item(&mut self, item: ReplicaItem) -> Result<(), CompilerError> {
         let lower = item.target_name.to_lowercase();
 
@@ -349,10 +349,10 @@ mod tests {
     }
 
     fn make_replica_item(name: &str) -> ReplicaItem {
-        // Chunk 8A: constructs the trigger-based shape. Defaults are sane-
-        // not-corpus (no specific Pokemon). The DiceFaces literal is a
-        // well-formed synthetic dice string; DiceFaces::parse accepts any
-        // colon-separated face list (verified at ir/mod.rs `impl DiceFaces`).
+        // Constructs the trigger-based shape. Defaults are sane-not-corpus
+        // (no specific Pokemon). The DiceFaces literal is a well-formed
+        // synthetic dice string; DiceFaces::parse accepts any colon-separated
+        // face list (verified at ir/mod.rs `impl DiceFaces`).
         ReplicaItem {
             container_name: "Test Ball".into(),
             target_name: name.into(),
