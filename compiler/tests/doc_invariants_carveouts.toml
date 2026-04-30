@@ -27,7 +27,7 @@
 #
 #   [[carveout]]
 #   path                   = "compiler/src/ir/mod.rs"
-#   line                   = 622
+#   line                   = 623
 #   pattern                = "captures"
 #   rationale              = "English-verb usage, not the retired Capture type name"
 #   invariant_not_violated = "Capture / Legendary IR vocabulary as kind-discriminator (§1 row 1)"
