@@ -250,9 +250,7 @@ compiler/
     correctness_tests.rs     # Format-correctness invariants
     integration_tests.rs     # End-to-end CLI / extract / build
     path_c_merge_tests.rs    # ReplicaItem merge contract (SideUse + Cast per target_name)
-    retirements.rs           # Grep guards: retired identifiers must stay 0-hits
     roundtrip_baseline.rs    # Round-trip on all 4 test mods (sliceymon, pansaer, punpuns, community)
-    spec_amendments.rs       # Pins SPEC §3.6 / §6.3 prose claims that the code must honor
     baselines/               # Golden-file baselines for roundtrip comparison
 ```
 

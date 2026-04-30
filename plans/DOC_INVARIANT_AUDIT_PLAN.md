@@ -15,7 +15,7 @@ Rewrite or retire every live-doc reference (`*.md`, prose comments in source) th
 | Class | Protecting invariant (code side) | Round of discovery |
 |-------|----------------------------------|--------------------|
 | Capture / Legendary IR vocabulary as kind-discriminator | `compiler/src/ir/mod.rs` ReplicaItem shape; no `Capture`/`Legendary` enum variant exists; `ModifierType::Legendary` retired in chunk-8A | 18, 19 |
-| `parse_legendary` / `legendary_*` test fns / `parse_simple` | Deleted in chunk-8A; `compiler/tests/retirements.rs:13` T13 guard (`grep_crate_for_parse_legendary`) | 18, 19 |
+| `parse_legendary` / `legendary_*` test fns / `parse_simple` | Deleted in chunk-8A; Rust's compile-time enforcement prevents silent reintroduction (any caller of a non-existent fn fails to compile) | 18, 19 |
 | `compiler/src/{validator,sprite,capture_emitter,capture_parser}.rs` | Phantom files — `ls` confirms non-existence; real surface is `xref.rs` + `authoring/sprite.rs` + `replica_item_*` | 19, 22 |
 | `Validator` as pipeline stage / `textmod-compiler validate` CLI | `compiler/src/main.rs:15-51` Subcommand list (`Extract`, `Build`, `Check`, `Schema`, `Overlay` — no `Validate`); CLAUDE.md:12 (`Validation is **not a separate pass**`) + SPEC.md:59 negation; round-trip lives on `Check` | 20 |
 | External `sprites.json` / `SpriteMap` / `build(ir, sprites)` 2-arg signature | `compiler/src/lib.rs:26` `pub fn build(ir: &ModIR) -> Result<String, CompilerError>` (single arg); no `SpriteMap` type | 20, 21, 22 |
@@ -38,7 +38,7 @@ Rewrite or retire every live-doc reference (`*.md`, prose comments in source) th
 ## 2. Pre-conditions
 
 - PR #14 (chunk-8A) merged to `main`. The audit baselines off the merged code state, not off a moving branch.
-- `cargo test` clean on `main` post-merge (the negative-test guards at `compiler/src/ir/mod.rs:1908-1920` and the retirement-grep guards at `compiler/tests/retirements.rs` must pass — they are this plan's correctness anchor).
+- `cargo test` clean on `main` post-merge (the negative-test guards at `compiler/src/ir/mod.rs:1908-1920` must pass — that, plus Rust's compile-time enforcement of deleted symbols, is this plan's correctness anchor).
 
 ## 3. Method — invariant-driven, not finding-driven
 
@@ -271,7 +271,7 @@ Parallel Group A (after Chunk 2; SPEC must land before personas can quote it):
               Chunk 7g (personas/README.md)
 
 Integration (sequential, after Group B):
-  Chunk 8 (guard tests + Cargo.toml dev-dep + retirements.rs refactor)
+  Chunk 8 (guard tests + Cargo.toml dev-dep)
     └── Chunk 9 (.claude/settings.json PreToolUse hook)
         └── Chunk 10 (inline /// doc comments — class-only)
 ```
@@ -332,6 +332,8 @@ Sub-commits 1a–1f share scope, dependencies, consumer, and verification — on
 | `compiler/tests/spec_amendments.rs` | 4 | `These tests exist to prevent silent rollback of SPEC wording that Chunk 2 of plans/PLATFORM_FOUNDATIONS_PLAN.md required — the permissive-whitelist ruling (SPEC §3.6) and the Pips: i16 annotation.` | **(a) real SPEC anchor** — the surviving authority is `SPEC §3.6` (already cited later in the same sentence). Rewrite: `These tests exist to prevent silent rollback of SPEC §3.6's permissive-whitelist ruling and the Pips: i16 annotation.` Drop `Chunk 2 of plans/...`. |
 | `compiler/tests/retirements.rs` | 2 | `Per parent plan §5, retirement greps live in an integration test file, not build.rs ...` | **(b) verbatim rule, no plan ref** — the `live in an integration test file, not build.rs (which is forbidden — coupling cargo build success to retirement absence drifts the WASM build surface)` IS the rule, self-justifying. Drop `Per parent plan §5,`; final starts `Retirement greps live in an integration test file, ...`. |
 | `compiler/tests/retirements.rs` | 172 | `cast.sthief.abilitydata bodies have zero depth-0 .n.<spell_name> (parent plan §1.1).` | **(b) verbatim rule, no plan ref** — same pattern as `authoring/replica_item.rs:11`. Drop `(parent plan §1.1)`; the corpus-bytes rule self-justifies. Final ends `<spell_name>.`. |
+
+**Post-chunk-1.5 supersession note**: rows 5/6/7 (`spec_amendments.rs:4`, `retirements.rs:2`, `retirements.rs:172`) and the trailing `— see compiler/tests/retirements.rs T13` clause in row 1's util.rs:245 Final were superseded by a later cleanup that deleted both test files (paranoid SPEC-text pins + retirement greps that duplicated Rust's compile-time enforcement). The chunk-1.5 work landed correctly at the time; the surfaces it edited were subsequently removed.
 
 **Replacement-strategy keys** (named once in the table column 4 above; this list documents the keys without re-asserting their per-site assignment):
 - **(a) real SPEC anchor** — replace the plan-section cite with the underlying SPEC § / `compiler/src/...:line` cite that was the actual authority. Used when the plan was repeating a SPEC rule.
@@ -462,22 +464,20 @@ Sub-commits 1a–1f share scope, dependencies, consumer, and verification — on
 
 ---
 
-#### Chunk 8: Guard tests + dev-dep + retirements.rs refactor
+#### Chunk 8: Guard tests + dev-dep
 
-**Scope**: Land the §5.1 guard tests. Adds `compiler/tests/doc_invariants.rs` (per-invariant tests + ruling-name uniqueness tests) + `compiler/tests/common/mod.rs` (shared `recursive_grep` with extension-list and skip-list parameters, `has_word_boundary_match`, `filter_carveouts` per §5.1). Refactors `compiler/tests/retirements.rs` to call the shared helper. Adds `toml = "0.8"` to `[dev-dependencies]` in `compiler/Cargo.toml` (the only `Cargo.toml` change in this PR — justified at §3.5 / §5.1).
-**Files**: `compiler/tests/doc_invariants.rs` (new), `compiler/tests/common/mod.rs` (new), `compiler/tests/retirements.rs` (refactor), `compiler/Cargo.toml` (dev-dep).
+**Scope**: Land the §5.1 guard tests. Adds `compiler/tests/doc_invariants.rs` (per-invariant tests + ruling-name uniqueness tests) + `compiler/tests/common/mod.rs` (`recursive_grep` with extension-list and skip-list parameters, `has_word_boundary_match`, `filter_carveouts` per §5.1). Adds `toml = "0.8"` to `[dev-dependencies]` in `compiler/Cargo.toml` (the only `Cargo.toml` change in this PR — justified at §3.5 / §5.1).
+**Files**: `compiler/tests/doc_invariants.rs` (new), `compiler/tests/common/mod.rs` (new), `compiler/Cargo.toml` (dev-dep).
 **Dependencies**: Chunks 2 (registry exists) + 3, 4, 5, 6, 7a–7g (registry populated). Cannot land before all of Group B.
 **Consumer**: CI runs the new tests on every commit forever; chunk 9 hook references the registry the tests load.
 
 **Dogfood**:
 - `~/.cargo/bin/cargo test --test doc_invariants` passes — every per-invariant test green, every ruling-name uniqueness test green.
-- `~/.cargo/bin/cargo test --test retirements` passes (refactor preserves behavior).
 - `~/.cargo/bin/cargo test` full suite passes — no regressions vs. pre-PR baseline (recorded in PR description per §7).
 
 **Verification**:
 - [ ] One test per row in §3.1's invariant table.
 - [ ] One ruling-name uniqueness test per row of §3.3's ruling-name table.
-- [ ] `retirements.rs` calls shared `recursive_grep` (no duplicate copy).
 - [ ] Single `const CARVEOUT_REGISTRY: &str = "tests/doc_invariants_carveouts.toml";` declaration; all tests load the registry through it.
 - [ ] `compiler/Cargo.toml` `[dev-dependencies]` has `toml = "0.8"`; no other Cargo.toml changes.
 
@@ -548,12 +548,12 @@ The previous 23 rounds all surfaced **the same kind of defect** — a doc refere
 
 Add `compiler/tests/doc_invariants.rs` with a test per invariant class. Each test runs the §3.2 grep against the live-doc set **AND `compiler/src/**/*.rs`** (so a stale `///` comment in code triggers the same failure as a stale persona claim) and asserts zero hits (excluding entries in the carve-out registry from §3.5). The test name names the invariant and the protecting code-side guard.
 
-**Implementation discipline** (resolved during round-1 audit, anchored to `compiler/tests/retirements.rs` lines 1-95 read in this session):
+**Implementation discipline**:
 
-- **Search primitive.** Generalize the `recursive_grep` helper pattern from `retirements.rs:24-94` into a shared `compiler/tests/common/mod.rs`. The current helper is purpose-built and has three properties that need to change for cross-extension use:
-  - (i) **Path resolution.** Uses `crate_dir() = PathBuf::from(env!("CARGO_MANIFEST_DIR"))` (line 24-26) to anchor relative paths — so `Path::new("../personas")` resolves to `<repo_root>/personas` regardless of test-run CWD. **More robust than depending on Cargo's CWD behavior** — this is the form to keep.
-  - (ii) **Extension filter is hardcoded to `.rs`** (lines 48, 76 — `path.extension() != Some("rs")` skips). Grepping `.md` files through the current helper silently returns zero hits. The shared helper takes an extension list parameter: `recursive_grep(root, pattern, &["rs", "md"])` or `&["md"]` for doc-only sweeps.
-  - (iii) **Self-skip is hardcoded to `retirements.rs`** (lines 51-53, 80-82 — the file containing the retirement-pattern string literals must be skipped to avoid self-match). The shared helper takes a skip-list: `recursive_grep(root, pattern, &["rs", "md"], &["retirements.rs", "doc_invariants.rs"])`. Refactor `retirements.rs` to call the new shared helper in the same commit so it doesn't carry the duplicate.
+- **Search primitive.** A `recursive_grep` helper lives in `compiler/tests/common/mod.rs`. Three properties for cross-extension use:
+  - (i) **Path resolution.** Uses `crate_dir() = PathBuf::from(env!("CARGO_MANIFEST_DIR"))` to anchor relative paths — so `Path::new("../personas")` resolves to `<repo_root>/personas` regardless of test-run CWD. More robust than depending on Cargo's CWD behavior.
+  - (ii) **Extension filter is parameterized.** Takes an extension list: `recursive_grep(root, pattern, &["rs", "md"])` or `&["md"]` for doc-only sweeps. The helper must NOT hardcode `.rs` — grepping `.md` files is a first-class use case.
+  - (iii) **Self-skip parameterized.** Takes a skip-list of basenames so a test file containing the retirement-pattern string literals doesn't self-match: `recursive_grep(root, pattern, &["rs", "md"], &["doc_invariants.rs"])`.
 - **Word-boundary handling.** Substring search can't express `\b...\b` directly. For invariants where word boundaries matter (e.g., distinguishing `img_data` the retired field from `sprite.img_data()` the current accessor), implement a small `has_word_boundary_match(line: &str, needle: &str) -> bool` helper using `char::is_alphanumeric` (or `_`) checks on the byte before/after the substring match. The helper lives in the same shared `tests/common/` module.
 - **Carve-out registry.** `filter_carveouts(hits, registry_path)` deserializes the TOML registry (§3.5) into `Vec<CarveOut>` via `serde::Deserialize`, then drops any `Hit` where `(hit.path, hit.line)` matches a registry entry. The registry path is a single `const CARVEOUT_REGISTRY: &str = "tests/doc_invariants_carveouts.toml";` declared once at the top of `doc_invariants.rs`. Like the search helper, the path is resolved via `crate_dir().join(CARVEOUT_REGISTRY)` so it works regardless of CWD.
 - **Dependency.** Add `toml = "0.8"` to `[dev-dependencies]` (justified at §3.5 above; one-line addition, contained to the §5.1 commit).
@@ -661,7 +661,7 @@ The plan ships ready to execute — no remaining ambiguity blocks §3-§5.
 - `CLAUDE.md` carries the §5.3 retirement-discipline rule under `## Working principles` and a row in the source-of-truth table for the carve-out registry.
 - `.claude/settings.json` has a PreToolUse hook on `Edit`/`Write` for the doc surface (per §5.2 layer 3) that surfaces a **summary** of the carve-out registry (count + one-line index + pointer to the TOML file) into the conversation — not the full file contents per the §5.2 context-bound discipline.
 - `compiler/Cargo.toml` `[dev-dependencies]` includes `toml = "0.8"` (justified at §3.5 / §5.1 — needed by the carve-out-registry parser; the only Cargo.toml change in this PR).
-- `compiler/tests/common/mod.rs` exists and exposes the shared `recursive_grep` (with extension-list and skip-list parameters) + `has_word_boundary_match` + `filter_carveouts` per §5.1; `compiler/tests/retirements.rs` is refactored to call the shared helper rather than carrying its own copy.
+- `compiler/tests/common/mod.rs` exists and exposes `recursive_grep` (with extension-list and skip-list parameters) + `has_word_boundary_match` + `filter_carveouts` per §5.1.
 - `personas/testing.md` has zero fenced ```rust blocks in Phases 1-5 of the TDD-progression chapter — `awk '/^## TDD Progression/,/^## Test Design Principles/' personas/testing.md | grep -c '^```rust'` returns 0 (per §3.4 "delete API-call examples"). Code samples elsewhere (Test Design Principles + downstream sections) remain.
 
 ## 8. Anti-pattern explicitly forbidden

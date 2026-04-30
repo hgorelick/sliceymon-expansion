@@ -555,7 +555,7 @@ Read compiler/src/ir/mod.rs and compiler/src/builder/hero_emitter.rs.
 Chunk: Emit `sticker_stack` from `replica_item_emitter::emit_shared_payload`
 so a single SideUse ReplicaItem round-trips its sticker chain.
 
-Files: compiler/src/builder/replica_item_emitter.rs, compiler/tests/retirements.rs
+Files: compiler/src/builder/replica_item_emitter.rs, compiler/tests/integration_tests.rs
 
 Consumer: The roundtrip baseline pin (next chunk re-blesses it via
 UPDATE_BASELINES=1 cargo test --test roundtrip_baseline once the byte
