@@ -365,9 +365,9 @@ mod tests {
     }
 
     /// T26 — Emitter produces structurally valid output for builder-constructed
-    /// IR. String-containment (NOT byte-equality vs corpus — that ships in 8B
-    /// as T1). Scope: emitter structurally correct for authoring-constructed
-    /// input.
+    /// IR. String-containment (NOT byte-equality vs corpus — byte-equality
+    /// requires the future real parser). Scope: emitter structurally correct
+    /// for authoring-constructed input.
     #[test]
     fn replica_item_emits_inside_itempool() {
         let item = SideUseBuilder::new("Poke Ball", "Pikachu")

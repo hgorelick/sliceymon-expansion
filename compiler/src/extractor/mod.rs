@@ -64,8 +64,8 @@ pub fn extract(textmod: &str) -> Result<ModIR, CompilerError> {
                 // The stub returns zero new `ReplicaItem`s plus a single
                 // `NonSummon { name: "", tier: None, content: <whole body> }`
                 // sentinel whose emitter-side sentinel path re-emits the body
-                // verbatim for byte-equal round-trip. 8b replaces the stub
-                // body with the real per-entry classifier.
+                // verbatim for byte-equal round-trip. A future real
+                // per-entry classifier replaces the stub body.
                 let extraction = replica_item_parser::extract_from_itempool(
                     modifier,
                     i,

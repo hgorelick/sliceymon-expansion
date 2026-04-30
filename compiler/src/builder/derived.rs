@@ -45,10 +45,10 @@ pub fn generate_char_selection(heroes: &[Hero]) -> StructuralModifier {
 ///
 /// Post-8A stub: the `extract_from_itempool` stub produces zero
 /// `ReplicaItem` entries, so this function produces zero output from
-/// extracted corpus input. 8B's real parser surfaces SideUse entries that
-/// this function routes into hero-bound pools. A byte-match-vs-sliceymon
-/// round-trip test for this function ships in 8B (it requires the real
-/// parser to populate `ir.replica_items`).
+/// extracted corpus input. The future real parser surfaces SideUse entries
+/// that this function routes into hero-bound pools. A byte-match-vs-
+/// sliceymon round-trip test for this function lands with that real parser
+/// (it requires `ir.replica_items` populated).
 ///
 /// Returned `StructuralModifier` entries carry `derived: true` so the
 /// merge / build strip-regenerate cycle (SPEC §4) handles them uniformly

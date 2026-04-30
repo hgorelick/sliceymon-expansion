@@ -616,12 +616,14 @@ pub struct HeroBlock {
 /// covered by the field list below, the struct must be widened in the same
 /// commit (`extras: Vec<RawSubBlock>` is explicitly rejected).
 ///
-/// 8b widening obligation: the Red Orb (Groudon) entry on sliceymon line
-/// 117 contains a nested `hat.egg.(wolf.n.Geyser.sd.…)` inside the outer
+/// Widening obligation for the future real parser: the Red Orb (Groudon)
+/// entry on sliceymon line 117 contains a nested
+/// `hat.egg.(wolf.n.Geyser.sd.…)` inside the outer
 /// `hat.egg.dragon.n.Groudon`. The single `enemy_template: String` below
-/// captures only the outer template; 8b must widen the struct (e.g. an
-/// `Option<NestedEgg>` field) before producing any `Summon(i)` entry whose
-/// body contains a nested `hat.egg.`. 8a's stub never classifies this case.
+/// captures only the outer template; the struct must be widened (e.g. an
+/// `Option<NestedEgg>` field) before any `Summon(i)` entry whose body
+/// contains a nested `hat.egg.` is produced. 8a's stub never classifies
+/// this case.
 ///
 /// 8a stub note: the stub `extract_from_itempool` never produces a
 /// `ReplicaItem` — every entry is demoted to `ItempoolItem::NonSummon`.
@@ -741,9 +743,9 @@ pub enum ReplicaTriggerKey {
 ///     multipliers, ritemx refs, splices, inline definitions).
 ///
 /// TRANSITIONAL raw-passthrough form (8a only). The `NonSummon` variant
-/// carries a raw `content: String` — a known, tracked SPEC §3.2 violation
-/// that 8A.5 closes by replacing the variant with a typed `NonSummonEntry`
-/// sum before 8b starts.
+/// carries a raw `content: String` — a known, tracked SPEC §3.2 violation.
+/// A planned typed-sum rewrite replaces the variant with a typed
+/// `NonSummonEntry` sum before any real parser lands.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum ItempoolItem {
     /// Index into `ModIR.replica_items`. Index stability is enforced by
@@ -754,8 +756,9 @@ pub enum ItempoolItem {
     /// Non-summon itempool entry — transitional raw-passthrough. `name` is
     /// the entry's inline `.n.<name>` where one exists (empty for the 8a
     /// stub's whole-pool passthrough); `tier` is the entry's `.tier.<n>`
-    /// where one exists; `content` is the verbatim entry body bytes. 8A.5
-    /// replaces this variant with the typed `NonSummonEntry` sum.
+    /// where one exists; `content` is the verbatim entry body bytes. A
+    /// planned typed-sum rewrite replaces this variant with a typed
+    /// `NonSummonEntry` sum.
     NonSummon {
         name: String,
         tier: Option<i8>,
@@ -1950,10 +1953,10 @@ mod new_enum_compile_guards {
 
     /// ItempoolItem's two transitional variants (Summon index, and the
     /// transitional raw-passthrough NonSummon { name, tier, content }) are
-    /// constructible, equality-sensible, and serde-roundtrippable. 8A.5
-    /// retypes NonSummon into a typed NonSummonEntry sum and extends this
-    /// coverage to each typed variant; until then, this test pins the
-    /// transitional shape.
+    /// constructible, equality-sensible, and serde-roundtrippable. A
+    /// planned typed-sum rewrite retypes NonSummon into a typed
+    /// NonSummonEntry sum and extends this coverage to each typed variant;
+    /// until then, this test pins the transitional shape.
     #[test]
     fn itempool_item_variants_compile_and_eq() {
         let summon = ItempoolItem::Summon(0);

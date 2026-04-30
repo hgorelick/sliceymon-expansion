@@ -185,9 +185,9 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
 /// `{hero, legendary, monster}`. The label is preserved across the 8A rewrite
 /// for stability of the paired test (`x003_duplicate_pokemon_across_kinds`
 /// asserts `message.contains("legendary")`) and the SPEC §6.3 prose surface;
-/// 8B unifies it to `"replica_item"`. The bucket set remains narrower than
-/// V020's `{hero, replica_item, monster, boss}` — not
-/// more granular: `legendary` and `replica_item` carry the same information
+/// a future change unifies it to `"replica_item"`. The bucket set remains
+/// narrower than V020's `{hero, replica_item, monster, boss}` — not more
+/// granular: `legendary` and `replica_item` carry the same information
 /// one-to-one, and X003 deliberately excludes `boss` per SPEC §6.3.
 fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
     // (bucket_label, original_name) pairs keyed by lowercase name.
@@ -204,8 +204,8 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
     }
     for item in &ir.replica_items {
         // Bucket label remains "legendary" in 8A — unifying both owner-map
-        // sites to "replica_item" is 8B's scope. Unilaterally renaming here
-        // would break a paired test
+        // sites to "replica_item" is out of scope here. Unilaterally
+        // renaming would break a paired test
         // (x003_duplicate_pokemon_across_kinds asserts
         // `message.contains("legendary")`) and a SPEC prose surface in one
         // atomic commit that 8A does not own.
@@ -317,10 +317,11 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str, So
     for item in &ir.replica_items {
         // 8A stubs face-template-compat's `template` key to the lowercase
         // literal `"thief"` — the retired template field on ReplicaItem
-        // carried `"thief"` for every corpus summon. 8B's xref
-        // bucket-routing rewrite resolves the capital-Thief vs lowercase-thief
-        // asymmetry between this lookup key and the emitter's `"Thief"` literal.
-        // Dice access routes through the shared accessor — no variant branching.
+        // carried `"thief"` for every corpus summon. A future xref
+        // bucket-routing rewrite resolves the capital-Thief vs
+        // lowercase-thief asymmetry between this lookup key and the
+        // emitter's `"Thief"` literal. Dice access routes through the
+        // shared accessor — no variant branching.
         out.push((
             format!("replica_items[{}].sd", item.target_name),
             item.trigger.dice_faces(),

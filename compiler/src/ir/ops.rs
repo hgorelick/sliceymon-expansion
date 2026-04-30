@@ -167,8 +167,9 @@ impl ModIR {
     /// structural so no pool entry points past the end of `replica_items`
     /// and no entry points at the wrong index after the shift. This is NOT
     /// optional — without it, builds would emit the wrong summon or panic
-    /// on out-of-bounds. T28 (in 8b) pins this against the real parser's
-    /// output; 8a carries the invariant by the code alone.
+    /// on out-of-bounds. The corresponding test against real-parser output
+    /// lands with that parser; today the 8a stub carries the invariant by
+    /// the code alone.
     pub fn remove_replica_item(
         &mut self,
         name: &str,
@@ -548,8 +549,9 @@ mod tests {
     /// `remove_replica_item` (ops.rs:113-167). Round-3 tribunal: the function
     /// shipped with 35 lines of non-trivial logic and zero unit coverage —
     /// only `remove_replica_item_by_name` exercised it, with no ItemPool
-    /// structurals so the re-index path was unreached. T28 (8B) tests against
-    /// the real parser; this test pins the unit behavior today.
+    /// structurals so the re-index path was unreached. A future test
+    /// exercises the real parser end-to-end; this test pins the unit
+    /// behavior today.
     #[test]
     fn remove_replica_item_reindexes_summon_entries() {
         use crate::ir::{StructuralContent, StructuralModifier, StructuralType};

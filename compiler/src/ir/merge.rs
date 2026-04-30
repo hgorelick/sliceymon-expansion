@@ -151,8 +151,8 @@ pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
     // Replica items: replace by (target_name, trigger discriminant), add
     // new. The IR allows one ReplicaItem per trigger variant per
     // `target_name` (e.g. a single target with both a SideUse Pokeball and a
-    // Cast spell — corpus shape that 8B's parser will produce). Matching on
-    // target_name alone would silently collapse such pairs.
+    // Cast spell — corpus shape that the future real parser will produce).
+    // Matching on target_name alone would silently collapse such pairs.
     for mut item in overlay.replica_items {
         item.source = Source::Overlay;
         let item_disc = std::mem::discriminant(&item.trigger);

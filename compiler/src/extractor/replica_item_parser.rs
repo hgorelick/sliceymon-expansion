@@ -10,7 +10,7 @@ use crate::ir::{ItempoolItem, ReplicaItem};
 ///
 /// This is a KNOWN, TRACKED SPEC §3.2 raw-passthrough violation. The
 /// transitional `NonSummon { name, tier, content }` is replaced with a
-/// typed `NonSummonEntry` sum before 8b starts.
+/// typed `NonSummonEntry` sum before any real parser lands.
 ///
 /// The empty `name` and `None` `tier` combined with a non-empty `content`
 /// act as the **stub sentinel** that the emitter's `emit_itempool` detects
@@ -18,12 +18,12 @@ use crate::ir::{ItempoolItem, ReplicaItem};
 /// Without the sentinel, the stub would emit a stray `.n..tier.None` prefix
 /// and diff every working-mod's itempool on round-trip.
 ///
-/// 8b replaces this with the real per-entry classifier (after 8A.5 retypes
-/// the variant).
+/// A future real per-entry classifier replaces this stub body (after the
+/// planned typed-sum rewrite of the variant).
 ///
-/// The signature is the final 8b shape (not a narrower 8a-only signature)
-/// so `extractor/mod.rs` wires against the real surface now — 8b is a body
-/// replacement, not a signature change.
+/// The signature is the final shape (not a narrower 8a-only signature) so
+/// `extractor/mod.rs` wires against the real surface now — the swap is a
+/// body replacement, not a signature change.
 pub fn extract_from_itempool(
     body: &str,
     _modifier_index: usize,
