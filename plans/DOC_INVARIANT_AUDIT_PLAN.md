@@ -90,6 +90,7 @@ For each invariant in §3.1, write the grep that would find a doc claim contradi
 | `pub fn build(ir: &ModIR) -> Result<...>` (single-arg) | `rg -in 'build\(ir, sprites\|build_textmod\(.*sprites\|fn build.*sprites:' personas/ SPEC.md CLAUDE.md` |
 | Phantom files (`validator.rs`, `sprite.rs` at top-level, `capture_*.rs`) | `rg -in 'compiler/src/(validator\.rs\|sprite\.rs\|capture_)' personas/ SPEC.md CLAUDE.md` |
 | Real semantic-check fn = `xref::check_references` | `rg -in 'fn validate\(\|validate_textmod\b' personas/ SPEC.md CLAUDE.md` |
+| `xref` IS the validator — no separate pass to bolt on later (SPEC.md:59) | `rg -in '\bvalidator pass\b\|no separate validator' personas/ SPEC.md CLAUDE.md` (every hit is a registry-carve-out: SPEC.md:59, personas/architecture.md:72, personas/ai-development.md:628, :656) |
 
 Run **all** greps in one pass against the **full repo** (not just files modified by a prior round). Save the consolidated hit list to `plans/.doc_audit_violations.txt`. This is the punch list. Nothing gets fixed before the punch list is complete.
 
@@ -207,23 +208,14 @@ Every hit in `.doc_audit_violations.txt` is either a **fix** or a **carve-out**.
 - A one-line stable rationale that survives hostile re-prosecution (a future reviewer running the same grep lands on the same rationale).
 - An entry in the carve-out registry (path picked at implementation start per §6 decision 3) with the file:line, the rationale, and the invariant the carve-out doesn't violate.
 
-**Registry format** (resolved during round-1 audit). The registry is **TOML** (`compiler/tests/doc_invariants_carveouts.toml` is the working path; finalize at implementation start):
-
-```toml
-[[carveout]]
-path = "SPEC.md"
-line = 59
-pattern = "validator pass"
-rationale = "Deliberate negation — the word is the very thing being negated"
-invariant_not_violated = "per SPEC.md:59: 'There is no separate validator pass to bolt on later'"
-```
+**Registry format** (resolved during round-1 audit). The registry is **TOML** at `compiler/tests/doc_invariants_carveouts.toml`. The schema is documented by construction in the scaffold's header comment (the example `[[carveout]]` block at the top of the file IS the schema, with field meanings inline as one-line comments above each field, plus the append-discipline bullets at the bottom). The plan does not re-list the field set; the scaffold is the implementation form and the canonical authority.
 
 TOML is chosen because (a) the schema is rigid enough that the §5.1 guard tests can deserialize it with `serde::Deserialize` rather than hand-parsing markdown, (b) line-number drift is detectable (a `pattern` field that no longer matches at the recorded `line` triggers a guard-test failure that prompts the carve-out be re-verified or dropped). The `toml` crate is **not** currently in `[dev-dependencies]` per `compiler/Cargo.toml` (verified in this session by Read; current dev-deps are `assert_cmd = "2"` + `proptest = "1"` only); implementation must add `toml = "0.8"` to `[dev-dependencies]` as part of the §5.1 commit. Adding a dev-dep is **outside the doc-only PR boundary** (§0/§8) — it's the one exception, justified by the §5.1 guard tests being load-bearing for the audit's structural-enforcement story. The §8 anti-pattern "no source-code behavior changes" stands; a `[dev-dependencies]` addition does not change runtime behavior.
 
 Examples of stable rationales (each becomes a `[[carveout]]` entry):
-- "Negation, deliberate" — `SPEC.md:59` "There is no separate validator pass to bolt on later" — the word "validator" is the very thing being negated. Same pattern at `personas/architecture.md:72` (`"validator pass" exists` inside an ASCII-art negation), `personas/ai-development.md:628, :656` (both phrase "no separate validator pass"). Each gets a `[[carveout]]` entry; the rationale text is identical, the file:line differs.
+- "Negation, deliberate" — `SPEC.md:59` "There is no separate validator pass to bolt on later." — the word "validator" is the very thing being negated. Same pattern at `personas/architecture.md:72` (`"validator pass" exists` inside an ASCII-art negation), `personas/ai-development.md:628, :656` (both phrase "no separate validator pass"). Each gets a `[[carveout]]` entry; the rationale text is identical, the file:line differs.
 - "Game-design vocabulary, NOT IR identifier" — `personas/slice-and-dice-design.md:137-138` (literal `Capture:` / `Legendary:` headings naming textmod patterns) and `personas/slice-and-dice-design.md:232` ("pseudo-legendary" Pokemon classification term). Each line gets its own entry; the file-wide blanket carve-out the original draft proposed at §3.2 row 2 is **withdrawn** — too coarse, would silently absorb future genuine violations.
-- "Retired-vs-current contrast note, dated to commit" — `compiler/src/builder/mod.rs:23-27` "Post-8A: a single `replica_items` loop replaces the pre-rewrite capture / legendary stages" — historical contrast that documents the migration (verbatim text from Read above).
+- "Retired-vs-current contrast note, dated to commit" — `compiler/src/builder/mod.rs:25-27` "(Post-8A: a single `replica_items` loop replaces the pre-rewrite capture / legendary stages — `ReplicaItem` now models trigger-based summons via `SummonTrigger::SideUse` / `Cast` per `ir/mod.rs`.)" — historical contrast that documents the migration; the `\b(Legendary|Capture)\b -i` audit grep matches "capture / legendary" on line 26 specifically, with the parenthetical at 25-27 supplying the rationale context.
 - "Bucket label preserved per chunk-8B obligation" — `compiler/src/xref.rs:179-214` literal `"legendary"` retained until chunk-8B unifies the bucket name (`compiler/src/xref.rs:184-187, :205-210` show the wired-in carve-out comment).
 - "Error-payload field name, not IR field" — `compiler/src/error.rs:48` `ErrorKind::SpriteNotFound { sprite_name: String, ... }` — the name of the missing sprite, used for error display.
 - "Glossary explicit-NOT-IR carve-out" — `SPEC.md:353` "Capturable / Legendary — Game-design vocabulary for the player-facing roles a `ReplicaItem` can fill (one-shot ball-style capture vs persistent ally with spell). NOT IR identifiers — the IR discriminator is `SummonTrigger::{SideUse, Cast}`." The glossary line is the very thing protecting the invariant; carving it out preserves the protection.
