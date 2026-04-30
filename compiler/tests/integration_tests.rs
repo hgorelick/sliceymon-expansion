@@ -496,3 +496,79 @@ fn build_emits_block_img_data_not_registry_payload() {
         emitted
     );
 }
+
+// ---------------------------------------------------------------------------
+// 8a stub source-vs-IR divergence guard.
+//
+// The 8a stub is trivially idempotent (stub extractor emits NonSummon with
+// content=body; stub emitter re-emits that content verbatim), so every
+// roundtrip-equality test passes even if the stub silently normalizes /
+// drops / corrupts bytes. This test catches "the stub reached for a
+// derived / canonical / registry source instead of the input bytes."
+// ---------------------------------------------------------------------------
+
+#[test]
+fn stub_preserves_itempool_body_byte_equal() {
+    use textmod_compiler::extractor::replica_item_parser::extract_from_itempool;
+
+    for body in [
+        "(ritemx.1697d.part.0).n.A.tier.1",
+        "(ritemx.1697d.part.0).n.a.tier.1",   // case-diff: a canonicalizer would fold
+        "(ritemx.1697d.part.0).n.A.tier.1 ",  // trailing space: a normalizer would trim
+    ] {
+        let got = extract_from_itempool(body, 0, 0).expect("stub must never fail");
+        assert_eq!(
+            got.new_replica_items.len(),
+            0,
+            "8a stub never populates Summon entries"
+        );
+        assert_eq!(
+            got.items.len(),
+            1,
+            "8a stub always emits exactly one NonSummon per pool"
+        );
+        match &got.items[0] {
+            ItempoolItem::NonSummon { content, .. } => {
+                assert_eq!(
+                    content, body,
+                    "NonSummon.content must be BYTE-EQUAL to input. Divergence \
+                     means the stub reached for a derived / normalized source — \
+                     this is the exact failure mode the hook rule exists to catch."
+                );
+            }
+            ItempoolItem::Summon(_) => panic!("8a stub must never produce Summon"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Transitional NonSummon round-trip via raw `content`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn non_summon_transitional_raw_passthrough_roundtrips() {
+    use textmod_compiler::builder::replica_item_emitter::emit_itempool;
+
+    // Corpus-sourced fragment from sliceymon line 67 Upgrade Pool (abbreviated
+    // img for fixture readability; byte-equality is the property under test,
+    // not the specific bytes).
+    let body = "((ritemx.1697d.part.0)#(ocular amulet)#(Citrine Ring)).n.Upgrade.tier.3.img.SHORTSPRITE";
+    let items = vec![ItempoolItem::NonSummon {
+        name: String::new(),
+        tier: None,
+        content: body.to_string(),
+    }];
+    let replica_items: Vec<ReplicaItem> = Vec::new();
+    let emitted = emit_itempool(&items, &replica_items, "Test Pool");
+    // `assert_eq!` (not `contains`) is load-bearing: a future change that
+    // wraps the sentinel emission with envelope bytes (e.g.
+    // `itempool.((<content>))`) would still satisfy `contains(body)` while
+    // violating the byte-equal property this test exists to lock. The whole
+    // point is to catch silent normalization / wrap / drop of bytes,
+    // which a substring check cannot do.
+    assert_eq!(
+        emitted, body,
+        "transitional NonSummon raw-passthrough must preserve content byte-equal; got: {}",
+        emitted
+    );
+}
