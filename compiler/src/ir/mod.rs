@@ -1746,7 +1746,7 @@ mod new_type_tests {
 // =========================================================================
 
 #[cfg(test)]
-mod chunk_1_tests {
+mod default_and_new_tests {
     use super::*;
 
     #[test]
