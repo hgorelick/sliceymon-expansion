@@ -36,10 +36,12 @@
 # Append-discipline:
 #   - Each carve-out is its own [[carveout]] table; never share a single
 #     entry across multiple file:line sites by reusing one rationale.
-#   - The `pattern` field must be the literal text the grep matched, not
-#     a paraphrase. The guard test re-greps the file at `path` for
-#     `pattern` at `line` and fails if no match is found, so line-number
-#     drift surfaces as a test failure rather than silent rot.
+#   - The `pattern` field must be a literal, case-sensitive substring of
+#     the line at `path`:`line`. The guard test reads that line and
+#     asserts `pattern` is contained within it — no regex, no whole-word,
+#     no anchoring — so both the carve-out author and the guard test
+#     agree on what "matches" means. Line-number drift surfaces as a test
+#     failure rather than silent rot.
 #   - File-wide blanket carve-outs are forbidden: a blanket would silently
 #     absorb future genuine violations of the same protected invariant,
 #     so each matched line gets its own entry.
