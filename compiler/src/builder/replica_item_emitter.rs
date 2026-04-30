@@ -221,7 +221,7 @@ fn emit_sideuse_inner(item: &ReplicaItem, dice: &crate::ir::DiceFaces) -> String
 
 /// Cast trigger — outer `cast.sthief.abilitydata.(thief.sd.<UNIVERSAL>.i.<per-item>)`.
 /// Capital `Thief` on the outer wrapper; lowercase `thief` on the inner
-/// replica.thief per corpus (parent §1.1).
+/// replica.thief per corpus.
 fn emit_cast(item: &ReplicaItem, dice: &crate::ir::DiceFaces) -> String {
     let mut out = String::new();
     out.push_str("hat.(replica.Thief.i.(all.(cast.sthief.abilitydata.(");

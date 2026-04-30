@@ -30,10 +30,10 @@ pub const X017: &str = "X017";
 /// X016 — template-restricted FaceID table. The authoritative source is
 /// `reference/textmod_guide.md`. Today the guide does not make a per-FaceID
 /// template-restriction claim, so this table is intentionally empty —
-/// populating it with corpus-derived guesses would violate the plan's
-/// "no hardcoded lists based on game-design persona claims" directive
-/// (the 2026-04-20 "permissive face IDs" ruling). Add entries here only when the guide
-/// documents a restriction.
+/// populating it with corpus-derived guesses would violate the 2026-04-20
+/// "permissive face IDs" ruling: no hardcoded lists based on game-design
+/// persona claims. Add entries here only when the guide documents a
+/// restriction.
 ///
 /// Each entry: `(face_id, &[allowed_template_prefix, ...])`. An entry with
 /// an empty `allowed_template_prefix` slice means the FaceID is blocked on
@@ -317,7 +317,7 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str, So
     for item in &ir.replica_items {
         // 8A stubs face-template-compat's `template` key to the lowercase
         // literal `"thief"` — the retired template field on ReplicaItem
-        // carried `"thief"` for every corpus summon (chunk-impl §3.3). 8B's xref
+        // carried `"thief"` for every corpus summon. 8B's xref
         // bucket-routing rewrite resolves the capital-Thief vs lowercase-thief
         // asymmetry between this lookup key and the emitter's `"Thief"` literal.
         // Dice access routes through the shared accessor — no variant branching.
@@ -977,7 +977,7 @@ mod tests {
     //
     // `ReplicaItem` models trigger-based summons (SideUse / Cast) bucketed
     // under the "legendary" label. The former `capture` bucket was retired
-    // upstream per chunk-impl rule 3 — no corpus instance.
+    // upstream — no corpus instance.
 
     #[test]
     fn x003_duplicate_pokemon_across_kinds() {
@@ -1033,8 +1033,8 @@ mod tests {
     }
 
     /// X003's `suggestion` string must enumerate only buckets the rule can
-    /// report — never a hypothetical `capture` bucket (deleted upstream per
-    /// chunk-impl rule 3, no corpus instance) nor `boss` (V020's territory
+    /// report — never a hypothetical `capture` bucket (deleted upstream;
+    /// no corpus instance) nor `boss` (V020's territory
     /// per SPEC §6.3). Pins the fix for the Round-12 finding where the
     /// user-facing advice listed `capture` as a valid rename target;
     /// source-vs-IR divergent by construction because no ModIR this rule
