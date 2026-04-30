@@ -72,7 +72,7 @@ If evidence is missing, stop and gather it before editing. If the change is genu
 - In plan mode, follow `personas/ai-development.md`.
 - Plans are instructions for future implementation, not changelogs. Rewrite in place; only keep historical context if it changes how the next reader will *act*.
 - Plans go in `plans/` in the project root, not `.claude/plans/`.
-- Plans are not sources of truth — once a plan is executed, the code becomes the truth. Don't cite plans anywhere outside `plans/` itself; cite the underlying authority (SPEC §, corpus bytes, a test ID) directly. Bare `Chunk Na` references without a plan-filename qualifier are carved out — chunk identity is durable in git history once the chunk lands.
+- Plans are not sources of truth — once a plan is executed, the code becomes the truth. Don't cite plans anywhere outside `plans/` itself; cite the underlying authority (SPEC §, corpus bytes, a test ID) directly. Bare `Chunk Na` references for **landed** chunks are carved out — chunk identity is durable in git history once the chunk lands. References to **in-flight** chunks (where the only resolution path is the plan filename) are NOT carved out: describe the future work without naming the chunk identifier (e.g. "the future real parser surfaces…", "a planned typed-sum rewrite replaces…"), since naming an unlanded chunk couples the comment to a plan that will be deleted or renamed when the chunk lands.
 
 ### After changing the compiler
 - `cargo test` (lib + integration + proptest) must pass.
