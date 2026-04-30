@@ -13,24 +13,21 @@
 # paired with a stable rationale that survives hostile re-prosecution,
 # fix it.
 #
-# Schema (single-source: the example below is the schema by construction):
+# Schema (the example below is the schema by construction; field meanings
+# inline, usage constraints in the append-discipline block at the bottom):
 #
 #   [[carveout]]
+#   # repo-relative path to the file the grep hit
 #   path                   = "compiler/src/ir/mod.rs"
+#   # 1-indexed line number where the pattern appears
 #   line                   = 623
+#   # the literal text the grep matched (a substring of the line)
 #   pattern                = "captures"
+#   # one-line stable rationale a future reviewer accepts
 #   rationale              = "English-verb usage, not the retired Capture type name"
+#   # the protecting code-side invariant this carve-out does not contradict,
+#   # named with enough specificity to disambiguate from neighbors
 #   invariant_not_violated = "Capturable / Legendary are game-design vocabulary, not IR identifiers; the IR discriminator is SummonTrigger::{SideUse, Cast} (SPEC.md:353)"
-#
-#   - path:                   repo-relative path to the file the grep hit
-#   - line:                   1-indexed line number where the pattern appears
-#   - pattern:                the literal text the grep matched (not a paraphrase)
-#   - rationale:              one-line stable rationale a future reviewer accepts
-#   - invariant_not_violated: the protecting code-side invariant this carve-out
-#                             does not contradict, named with enough specificity
-#                             to disambiguate from neighbors. Cite the underlying
-#                             authority directly — SPEC.md section, file:line, or
-#                             test ID — never a plan-section reference.
 #
 # This file is an append-only fixture for a future doc-invariant guard test
 # that will deserialize it via serde::Deserialize and use it to filter the
@@ -46,3 +43,6 @@
 #   - File-wide blanket carve-outs are forbidden: a blanket would silently
 #     absorb future genuine violations of the same protected invariant,
 #     so each matched line gets its own entry.
+#   - The `invariant_not_violated` field cites the underlying authority
+#     directly — SPEC.md section, file:line, or test ID — never a
+#     plan-section reference.
