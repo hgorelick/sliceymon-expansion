@@ -215,7 +215,7 @@ path = "compiler/src/ir/mod.rs"
 line = 623
 pattern = "captures"
 rationale = "English-verb usage, not the retired Capture type name"
-invariant_not_violated = "Capture / Legendary IR vocabulary as kind-discriminator (§1 row 1)"
+invariant_not_violated = "Capturable / Legendary are game-design vocabulary, not IR identifiers; the IR discriminator is SummonTrigger::{SideUse, Cast} (SPEC.md:353)"
 ```
 
 TOML is chosen because (a) the schema is rigid enough that the §5.1 guard tests can deserialize it with `serde::Deserialize` rather than hand-parsing markdown, (b) line-number drift is detectable (a `pattern` field that no longer matches at the recorded `line` triggers a guard-test failure that prompts the carve-out be re-verified or dropped). The `toml` crate is **not** currently in `[dev-dependencies]` per `compiler/Cargo.toml` (verified in this session by Read; current dev-deps are `assert_cmd = "2"` + `proptest = "1"` only); implementation must add `toml = "0.8"` to `[dev-dependencies]` as part of the §5.1 commit. Adding a dev-dep is **outside the doc-only PR boundary** (§0/§8) — it's the one exception, justified by the §5.1 guard tests being load-bearing for the audit's structural-enforcement story. The §8 anti-pattern "no source-code behavior changes" stands; a `[dev-dependencies]` addition does not change runtime behavior.
