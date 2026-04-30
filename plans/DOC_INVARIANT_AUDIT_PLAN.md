@@ -211,23 +211,22 @@ Every hit in `.doc_audit_violations.txt` is either a **fix** or a **carve-out**.
 
 ```toml
 [[carveout]]
-path = "compiler/src/ir/mod.rs"
-line = 623
-pattern = "captures"
-rationale = "English-verb usage, not the retired Capture type name"
-invariant_not_violated = "Capturable / Legendary are game-design vocabulary, not IR identifiers; the IR discriminator is SummonTrigger::{SideUse, Cast} (SPEC.md:353)"
+path = "SPEC.md"
+line = 59
+pattern = "validator pass"
+rationale = "Deliberate negation — the word is the very thing being negated"
+invariant_not_violated = "per SPEC.md:59: 'There is no separate validator pass to bolt on later'"
 ```
 
 TOML is chosen because (a) the schema is rigid enough that the §5.1 guard tests can deserialize it with `serde::Deserialize` rather than hand-parsing markdown, (b) line-number drift is detectable (a `pattern` field that no longer matches at the recorded `line` triggers a guard-test failure that prompts the carve-out be re-verified or dropped). The `toml` crate is **not** currently in `[dev-dependencies]` per `compiler/Cargo.toml` (verified in this session by Read; current dev-deps are `assert_cmd = "2"` + `proptest = "1"` only); implementation must add `toml = "0.8"` to `[dev-dependencies]` as part of the §5.1 commit. Adding a dev-dep is **outside the doc-only PR boundary** (§0/§8) — it's the one exception, justified by the §5.1 guard tests being load-bearing for the audit's structural-enforcement story. The §8 anti-pattern "no source-code behavior changes" stands; a `[dev-dependencies]` addition does not change runtime behavior.
 
 Examples of stable rationales (each becomes a `[[carveout]]` entry):
-- "English-verb usage" — `compiler/src/ir/mod.rs:623` "captures" as a verb in a comment, not the retired type name.
 - "Negation, deliberate" — `SPEC.md:59` "There is no separate validator pass to bolt on later" — the word "validator" is the very thing being negated. Same pattern at `personas/architecture.md:72` (`"validator pass" exists` inside an ASCII-art negation), `personas/ai-development.md:628, :656` (both phrase "no separate validator pass"). Each gets a `[[carveout]]` entry; the rationale text is identical, the file:line differs.
 - "Game-design vocabulary, NOT IR identifier" — `personas/slice-and-dice-design.md:137-138` (literal `Capture:` / `Legendary:` headings naming textmod patterns) and `personas/slice-and-dice-design.md:232` ("pseudo-legendary" Pokemon classification term). Each line gets its own entry; the file-wide blanket carve-out the original draft proposed at §3.2 row 2 is **withdrawn** — too coarse, would silently absorb future genuine violations.
 - "Retired-vs-current contrast note, dated to commit" — `compiler/src/builder/mod.rs:23-27` "Post-8A: a single `replica_items` loop replaces the pre-rewrite capture / legendary stages" — historical contrast that documents the migration (verbatim text from Read above).
 - "Bucket label preserved per chunk-8B obligation" — `compiler/src/xref.rs:179-214` literal `"legendary"` retained until chunk-8B unifies the bucket name (`compiler/src/xref.rs:184-187, :205-210` show the wired-in carve-out comment).
 - "Error-payload field name, not IR field" — `compiler/src/error.rs:48` `ErrorKind::SpriteNotFound { sprite_name: String, ... }` — the name of the missing sprite, used for error display.
-- "Glossary explicit-NOT-IR carve-out" — `SPEC.md:353` "Capturable / Legendary — Game-design vocabulary ... NOT IR identifiers — the IR discriminator is `SummonTrigger::{SideUse, Cast}`." The glossary line is the very thing protecting the invariant; carving it out preserves the protection.
+- "Glossary explicit-NOT-IR carve-out" — `SPEC.md:353` "Capturable / Legendary — Game-design vocabulary for the player-facing roles a `ReplicaItem` can fill (one-shot ball-style capture vs persistent ally with spell). NOT IR identifiers — the IR discriminator is `SummonTrigger::{SideUse, Cast}`." The glossary line is the very thing protecting the invariant; carving it out preserves the protection.
 - "Proposed WASM wrapper, not phantom claim" — `personas/frontend.md:65` `pub fn build_textmod(ir_json: &str)` and `personas/frontend.md:71-77` `pub fn validate_textmod(input)` — both are *proposed* WASM bindings around real library functions (`build`, `extract` + `check_references`); the body comment at line 73 already self-corrects ("There is no single validate(textmod) entry point — the pipeline IS validation"). Carve-out preserves the design proposal.
 If a hit can't be paired with a stable rationale, it must be fixed.
 
