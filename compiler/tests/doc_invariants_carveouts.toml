@@ -1,0 +1,55 @@
+# Doc-invariant carve-out registry
+#
+# Every hit produced by the §3.2 doc-violation grep set in
+# plans/DOC_INVARIANT_AUDIT_PLAN.md is either a fix or a carve-out. A carve-out
+# is a deliberate, stable-rationale exception: the matched text looks like a
+# violation under the grep but does not actually contradict the protecting
+# code-side invariant. Examples: an English-verb usage of a retired type's
+# noun ("captures" as a verb, not the Capture type), a deliberate negation
+# (SPEC.md "There is no separate validator pass to bolt on later" — the very
+# word being negated), or a glossary entry that explicitly marks itself as
+# game-design vocabulary, not an IR identifier.
+#
+# Schema (per plans/DOC_INVARIANT_AUDIT_PLAN.md §3.5):
+#
+#   [[carveout]]
+#   path                   = "<repo-relative path to the file>"
+#   line                   = <1-indexed line number where the pattern matches>
+#   pattern                = "<the literal text the §3.2 grep hit on>"
+#   rationale              = "<one-line stable rationale that survives hostile
+#                             re-prosecution — a future reviewer running the
+#                             same grep lands on this line and accepts>"
+#   invariant_not_violated = "<the protecting invariant from §3.1's catalog
+#                             that this carve-out does NOT violate, named
+#                             with enough specificity to disambiguate>"
+#
+# Example (from §3.5):
+#
+#   [[carveout]]
+#   path                   = "compiler/src/ir/mod.rs"
+#   line                   = 622
+#   pattern                = "captures"
+#   rationale              = "English-verb usage, not the retired Capture type name"
+#   invariant_not_violated = "Capture / Legendary IR vocabulary as kind-discriminator (§1 row 1)"
+#
+# Consumers:
+#   - Chunks 3–7 of DOC_INVARIANT_AUDIT_PLAN.md append [[carveout]] entries
+#     during their fix passes.
+#   - Chunk 8's guard tests (compiler/tests/doc_invariants.rs) deserialize this
+#     file via serde::Deserialize and use it to filter the §3.2 grep set;
+#     after the filter, residual hits MUST be zero.
+#   - Chunk 9's PreToolUse hook surfaces a one-line index summary of these
+#     entries (count + path:line — pattern — rationale) when an editor opens
+#     a doc surface in scope of this audit.
+#
+# Append-discipline:
+#   - Each carve-out is its own [[carveout]] table; never share a rationale
+#     across an unrelated path/line by reusing one entry. (Multiple lines with
+#     the same rationale text but different file:line each get their own entry,
+#     per §3.5's "Negation, deliberate" example.)
+#   - The `pattern` field must be the literal text the grep matched, not a
+#     paraphrase — Chunk 8's guard test re-greps the file at `path` for
+#     `pattern` at `line` and fails if no match is found, so line-number drift
+#     surfaces as a test failure rather than silent rot.
+#   - File-wide blanket carve-outs are forbidden (per §3.5's withdrawn-blanket
+#     ruling on personas/slice-and-dice-design.md): each line gets its own entry.
