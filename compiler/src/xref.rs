@@ -179,7 +179,7 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
 /// SPEC §6.3 — "A Pokemon may exist in at most one of: heroes, replica items
 /// (captures / legendaries), monsters."
 ///
-/// Post-Chunk-8A, `ReplicaItem` models trigger-based summons
+/// `ReplicaItem` models trigger-based summons
 /// (`SummonTrigger::SideUse` and `SummonTrigger::Cast`) — both bucketed under
 /// the `"legendary"` label here so X003 collects buckets as
 /// `{hero, legendary, monster}`. The label is preserved across the 8A rewrite
@@ -975,9 +975,9 @@ mod tests {
 
     // -- X003: No duplicate Pokemon across hero/legendary/monster buckets --
     //
-    // Post-Chunk-8A, `ReplicaItem` models trigger-based summons (SideUse /
-    // Cast) bucketed under the "legendary" label. The former `capture`
-    // bucket was retired upstream per chunk-impl rule 3 — no corpus instance.
+    // `ReplicaItem` models trigger-based summons (SideUse / Cast) bucketed
+    // under the "legendary" label. The former `capture` bucket was retired
+    // upstream per chunk-impl rule 3 — no corpus instance.
 
     #[test]
     fn x003_duplicate_pokemon_across_kinds() {
