@@ -30,10 +30,10 @@ pub const X017: &str = "X017";
 /// X016 — template-restricted FaceID table. The authoritative source is
 /// `reference/textmod_guide.md`. Today the guide does not make a per-FaceID
 /// template-restriction claim, so this table is intentionally empty —
-/// populating it with corpus-derived guesses would violate the plan's
-/// "no hardcoded lists based on game-design persona claims" directive
-/// (the 2026-04-20 "permissive face IDs" ruling). Add entries here only when the guide
-/// documents a restriction.
+/// populating it with corpus-derived guesses would violate the 2026-04-20
+/// "permissive face IDs" ruling: no hardcoded lists based on game-design
+/// persona claims. Add entries here only when the guide documents a
+/// restriction.
 ///
 /// Each entry: `(face_id, &[allowed_template_prefix, ...])`. An entry with
 /// an empty `allowed_template_prefix` slice means the FaceID is blocked on
@@ -47,9 +47,8 @@ pub const X016_TEMPLATE_RESTRICTIONS: &[(u16, &[&str])] = &[];
 /// Source-aware severity promotion — every xref rule that visits a sourced
 /// entity runs its literal `severity` through this helper so the promotion
 /// policy lives in one place
-/// (per the 2026-04-22 "BuildOptions + provenance-aware findings" ruling
-/// and the Chunk 3b lesson on not duplicating the same incantation across
-/// N sites).
+/// (per the 2026-04-22 "BuildOptions + provenance-aware findings" ruling;
+/// the helper exists so this incantation is not duplicated across N sites).
 ///
 /// Policy:
 /// - `Some(Source::Base)` → `Severity::Warning` (base content is load-bearing;
@@ -180,15 +179,15 @@ pub fn check_references(ir: &ModIR) -> ValidationReport {
 /// SPEC §6.3 — "A Pokemon may exist in at most one of: heroes, replica items
 /// (captures / legendaries), monsters."
 ///
-/// Post-Chunk-8A, `ReplicaItem` models trigger-based summons
+/// `ReplicaItem` models trigger-based summons
 /// (`SummonTrigger::SideUse` and `SummonTrigger::Cast`) — both bucketed under
 /// the `"legendary"` label here so X003 collects buckets as
 /// `{hero, legendary, monster}`. The label is preserved across the 8A rewrite
 /// for stability of the paired test (`x003_duplicate_pokemon_across_kinds`
 /// asserts `message.contains("legendary")`) and the SPEC §6.3 prose surface;
-/// 8B unifies it to `"replica_item"` per `plans/CHUNK_8B…` §9. The bucket set
-/// remains narrower than V020's `{hero, replica_item, monster, boss}` — not
-/// more granular: `legendary` and `replica_item` carry the same information
+/// a future change unifies it to `"replica_item"`. The bucket set remains
+/// narrower than V020's `{hero, replica_item, monster, boss}` — not more
+/// granular: `legendary` and `replica_item` carry the same information
 /// one-to-one, and X003 deliberately excludes `boss` per SPEC §6.3.
 fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
     // (bucket_label, original_name) pairs keyed by lowercase name.
@@ -205,8 +204,8 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
     }
     for item in &ir.replica_items {
         // Bucket label remains "legendary" in 8A — unifying both owner-map
-        // sites to "replica_item" is 8B's scope (see plans/CHUNK_8B §9).
-        // Unilaterally renaming here would break a paired test
+        // sites to "replica_item" is out of scope here. Unilaterally
+        // renaming would break a paired test
         // (x003_duplicate_pokemon_across_kinds asserts
         // `message.contains("legendary")`) and a SPEC prose surface in one
         // atomic commit that 8A does not own.
@@ -241,11 +240,11 @@ fn check_duplicate_pokemon_buckets(ir: &ModIR, report: &mut ValidationReport) {
         }
         let display_name = &entries[0].0;
         // X003 is a global cross-bucket finding: there is no single offending
-        // entity whose `source` would be authoritative. Mirrors the Chunk 4
-        // precedent for V020's `check_cross_category_names` (the
-        // 2026-04-22 "provenance-aware findings" ruling —
-        // "global — source: None because there is no single offending entity;
-        // severity stays Error"). `promote_severity(Error, None)` = Error.
+        // entity whose `source` would be authoritative. Mirrors V020's
+        // `check_cross_category_names` per the 2026-04-22 "provenance-aware
+        // findings" ruling — "global — source: None because there is no
+        // single offending entity; severity stays Error". `promote_severity(
+        // Error, None)` = Error.
         push_finding(report, Finding {
             rule_id: X003.to_string(),
             severity: promote_severity(Severity::Error, None),
@@ -318,10 +317,11 @@ fn iter_dice_faces<'a>(ir: &'a ModIR) -> Vec<(String, &'a DiceFaces, &'a str, So
     for item in &ir.replica_items {
         // 8A stubs face-template-compat's `template` key to the lowercase
         // literal `"thief"` — the retired template field on ReplicaItem
-        // carried `"thief"` for every corpus summon (chunk-impl §3.3). 8B's xref
-        // bucket-routing rewrite resolves the capital-Thief vs lowercase-thief
-        // asymmetry between this lookup key and the emitter's `"Thief"` literal.
-        // Dice access routes through the shared accessor — no variant branching.
+        // carried `"thief"` for every corpus summon. A future xref
+        // bucket-routing rewrite resolves the capital-Thief vs
+        // lowercase-thief asymmetry between this lookup key and the
+        // emitter's `"Thief"` literal. Dice access routes through the
+        // shared accessor — no variant branching.
         out.push((
             format!("replica_items[{}].sd", item.target_name),
             item.trigger.dice_faces(),
@@ -794,11 +794,11 @@ mod tests {
 
     /// Helper: create a minimal replica item for testing.
     ///
-    /// Chunk 8A: trigger-IR shape. Dice are blank (one `DiceFace::Blank`)
-    /// because the legacy helper's `sd: DiceFaces { faces: vec![DiceFace::Blank] }`
-    /// shape is used by X017 `x017_silent_when_all_face_ids_known` negative
-    /// assertions — the shape must still produce an all-blank `DiceFaces`
-    /// so nothing in the face iteration flags a Known or Unknown face.
+    /// Trigger-IR shape. Dice are blank (one `DiceFace::Blank`) because
+    /// `sd: DiceFaces { faces: vec![DiceFace::Blank] }` is used by X017
+    /// `x017_silent_when_all_face_ids_known` negative assertions — the shape
+    /// must still produce an all-blank `DiceFaces` so nothing in the face
+    /// iteration flags a Known or Unknown face.
     fn make_replica_item(name: &str) -> ReplicaItem {
         ReplicaItem {
             container_name: "Test Ball".to_string(),
@@ -976,9 +976,9 @@ mod tests {
 
     // -- X003: No duplicate Pokemon across hero/legendary/monster buckets --
     //
-    // Post-Chunk-8A, `ReplicaItem` models trigger-based summons (SideUse /
-    // Cast) bucketed under the "legendary" label. The former `capture`
-    // bucket was retired upstream per chunk-impl rule 3 — no corpus instance.
+    // `ReplicaItem` models trigger-based summons (SideUse / Cast) bucketed
+    // under the "legendary" label. The former `capture` bucket was retired
+    // upstream — no corpus instance.
 
     #[test]
     fn x003_duplicate_pokemon_across_kinds() {
@@ -1018,10 +1018,10 @@ mod tests {
     fn x003_finding_is_global_source_none() {
         // X003 is a cross-bucket finding: no single offending entity, so
         // `source` stays None and severity stays Error — mirrors V020's
-        // cross-category behavior (Chunk 4's 2026-04-22
-        // "provenance-aware findings" ruling). Pin this so a future
-        // "retrofit source on every X-rule" sweep doesn't silently attribute
-        // the collision to one entity's bucket.
+        // cross-category behavior (the 2026-04-22 "provenance-aware
+        // findings" ruling). Pin this so a future "retrofit source on every
+        // X-rule" sweep doesn't silently attribute the collision to one
+        // entity's bucket.
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Pikachu", 'a'));
         ir.replica_items.push(make_replica_item("Pikachu"));
@@ -1034,9 +1034,9 @@ mod tests {
     }
 
     /// X003's `suggestion` string must enumerate only buckets the rule can
-    /// report — never a hypothetical `capture` bucket (deleted upstream per
-    /// chunk-impl rule 3, no corpus instance) nor `boss` (V020's territory
-    /// per SPEC §6.3). Pins the fix for the Round-12 finding where the
+    /// report — never a hypothetical `capture` bucket (deleted upstream;
+    /// no corpus instance) nor `boss` (V020's territory
+    /// per SPEC §6.3). Pins the fix for the PR #14 round-12 finding where the
     /// user-facing advice listed `capture` as a valid rename target;
     /// source-vs-IR divergent by construction because no ModIR this rule
     /// can see contains a `capture` bucket, so the suggestion must not

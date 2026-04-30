@@ -139,8 +139,8 @@ pub fn build_with(ir: &ModIR, opts: &BuildOptions) -> Result<String, CompilerErr
 
     // 9. Replica items (trigger-based summons — 8A stub produces zero here
     //    because itempool extraction demotes every entry to a sentinel
-    //    NonSummon. 8B's real parser surfaces SideUse / Cast entries that
-    //    this loop will emit alongside their itempool envelopes.)
+    //    NonSummon. The future real parser surfaces SideUse / Cast entries
+    //    that this loop will emit alongside their itempool envelopes.)
     for item in ir.replica_items.iter().filter(|i| filter.admits(i.source)) {
         modifiers.push(replica_item_emitter::emit_replica_item(item));
     }

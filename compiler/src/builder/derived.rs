@@ -45,10 +45,10 @@ pub fn generate_char_selection(heroes: &[Hero]) -> StructuralModifier {
 ///
 /// Post-8A stub: the `extract_from_itempool` stub produces zero
 /// `ReplicaItem` entries, so this function produces zero output from
-/// extracted corpus input. 8B's real parser surfaces SideUse entries that
-/// this function routes into hero-bound pools. A byte-match-vs-sliceymon
-/// round-trip test for this function ships in 8B (it requires the real
-/// parser to populate `ir.replica_items`).
+/// extracted corpus input. The future real parser surfaces SideUse entries
+/// that this function routes into hero-bound pools. A byte-match-vs-
+/// sliceymon round-trip test for this function lands with that real parser
+/// (it requires `ir.replica_items` populated).
 ///
 /// Returned `StructuralModifier` entries carry `derived: true` so the
 /// merge / build strip-regenerate cycle (SPEC §4) handles them uniformly
@@ -348,7 +348,7 @@ mod tests {
     /// for `ItemPool` dropped the kind silently — this test locks the wiring
     /// so a regression that re-introduces `_ => {}` for `ItemPool` fails
     /// loudly. Guards against the "dead `generate_hero_item_pool`" class of
-    /// defect caught in the round-1 tribunal.
+    /// defect caught in PR #14 round-1 tribunal.
     #[test]
     fn regenerate_derived_kinds_rebuilds_hero_item_pool() {
         use crate::ir::merge::regenerate_derived_kinds;

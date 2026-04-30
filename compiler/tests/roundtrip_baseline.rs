@@ -1,13 +1,12 @@
-//! Roundtrip baseline pins — regression signal while PIPELINE_FIDELITY_PLAN
-//! is in flight.
+//! Roundtrip baseline pins — regression signal while the full-mod roundtrip
+//! remains red.
 //!
 //! The full-mod `extract -> build -> extract` cycle is known-red today on all
-//! four reference mods. PIPELINE_FIDELITY_PLAN.md owns the fix. Until that
-//! lands we pin the *current* shape of the failure (per-entity-collection
-//! equality + counts) so any *change* — better or worse — trips a red test.
+//! four reference mods. We pin the *current* shape of the failure
+//! (per-entity-collection equality + counts) so any *change* — better or
+//! worse — trips a red test.
 //!
-//! When drift intentionally shifts (a chunk of PIPELINE_FIDELITY_PLAN lands),
-//! re-bless with:
+//! When drift intentionally shifts, re-bless with:
 //!
 //!   UPDATE_BASELINES=1 cargo test --test roundtrip_baseline
 //!

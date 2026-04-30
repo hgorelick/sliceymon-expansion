@@ -616,12 +616,14 @@ pub struct HeroBlock {
 /// covered by the field list below, the struct must be widened in the same
 /// commit (`extras: Vec<RawSubBlock>` is explicitly rejected).
 ///
-/// 8b widening obligation: the Red Orb (Groudon) entry on sliceymon line
-/// 117 contains a nested `hat.egg.(wolf.n.Geyser.sd.…)` inside the outer
+/// Widening obligation for the future real parser: the Red Orb (Groudon)
+/// entry on sliceymon line 117 contains a nested
+/// `hat.egg.(wolf.n.Geyser.sd.…)` inside the outer
 /// `hat.egg.dragon.n.Groudon`. The single `enemy_template: String` below
-/// captures only the outer template; 8b must widen the struct (e.g. an
-/// `Option<NestedEgg>` field) before producing any `Summon(i)` entry whose
-/// body contains a nested `hat.egg.`. 8a's stub never classifies this case.
+/// captures only the outer template; the struct must be widened (e.g. an
+/// `Option<NestedEgg>` field) before any `Summon(i)` entry whose body
+/// contains a nested `hat.egg.` is produced. 8a's stub never classifies
+/// this case.
 ///
 /// 8a stub note: the stub `extract_from_itempool` never produces a
 /// `ReplicaItem` — every entry is demoted to `ItempoolItem::NonSummon`.
@@ -709,7 +711,7 @@ impl SummonTrigger {
     }
 
     /// Lossy projection to `ReplicaTriggerKey` — the same discriminant the
-    /// round-9 merge predicate (`merge.rs:151-171`) and the round-12 add
+    /// PR #14 round-9 merge predicate (`merge.rs:151-171`) and round-12 add
     /// predicate (`ops.rs:104-152`) key on, with no payload. Use this when
     /// a CRUD caller needs to identify *which* trigger variant on a given
     /// `target_name` without supplying its dice/`dice_location` payload —
@@ -726,7 +728,7 @@ impl SummonTrigger {
 /// need to address a specific trigger variant on a `target_name` (e.g.
 /// `remove_replica_item`) take this enum as a parameter so callers do not
 /// have to fabricate dice/`dice_location` payload they do not care about.
-/// Pairs with `target_name` to form the round-9/12 uniqueness key
+/// Pairs with `target_name` to form the PR #14 round-9/12 uniqueness key
 /// `(target_name, trigger discriminant)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum ReplicaTriggerKey {
@@ -741,21 +743,22 @@ pub enum ReplicaTriggerKey {
 ///     multipliers, ritemx refs, splices, inline definitions).
 ///
 /// TRANSITIONAL raw-passthrough form (8a only). The `NonSummon` variant
-/// carries a raw `content: String` — a known, tracked SPEC §3.2 violation
-/// that 8A.5 closes by replacing the variant with a typed `NonSummonEntry`
-/// sum before 8b starts.
+/// carries a raw `content: String` — a known, tracked SPEC §3.2 violation.
+/// A planned typed-sum rewrite replaces the variant with a typed
+/// `NonSummonEntry` sum before any real parser lands.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum ItempoolItem {
     /// Index into `ModIR.replica_items`. Index stability is enforced by
     /// `ir::ops::remove_replica_item`, which removes the entry matching
-    /// `(target_name, ReplicaTriggerKey)` — the round-9/12 multi-trigger
+    /// `(target_name, ReplicaTriggerKey)` — the PR #14 round-9/12 multi-trigger
     /// uniqueness key — and re-indexes every `Summon(i)` accordingly.
     Summon(usize),
     /// Non-summon itempool entry — transitional raw-passthrough. `name` is
     /// the entry's inline `.n.<name>` where one exists (empty for the 8a
     /// stub's whole-pool passthrough); `tier` is the entry's `.tier.<n>`
-    /// where one exists; `content` is the verbatim entry body bytes. 8A.5
-    /// replaces this variant with the typed `NonSummonEntry` sum.
+    /// where one exists; `content` is the verbatim entry body bytes. A
+    /// planned typed-sum rewrite replaces this variant with a typed
+    /// `NonSummonEntry` sum.
     NonSummon {
         name: String,
         tier: Option<i8>,
@@ -1119,7 +1122,7 @@ impl StructuralContent {
 }
 
 // =========================================================================
-// New types for Textmod API integration (Chunk 2)
+// Types for Textmod API integration
 // =========================================================================
 
 // -- Phase System --
@@ -1582,10 +1585,6 @@ pub enum HiddenModifierType {
     CursemodeLoopdiff,
 }
 
-// =========================================================================
-// Chunk 2 tests
-// =========================================================================
-
 #[cfg(test)]
 mod new_type_tests {
     use super::*;
@@ -1746,11 +1745,11 @@ mod new_type_tests {
 }
 
 // =========================================================================
-// Chunk 1 tests — Default + ::new(identity) constructors
+// Default + ::new(identity) constructor tests
 // =========================================================================
 
 #[cfg(test)]
-mod chunk_1_tests {
+mod default_and_new_tests {
     use super::*;
 
     #[test]
@@ -1924,14 +1923,14 @@ mod chunk_1_tests {
 }
 
 // =========================================================================
-// Chunk 8A — new-enum compile-guards (T29a / T29b)
+// New-enum variant + serde-roundtrip pins
 // =========================================================================
 
 #[cfg(test)]
 mod new_enum_compile_guards {
     use super::*;
 
-    /// T29a: every SummonTrigger variant is constructible and equality-sensible.
+    /// Every SummonTrigger variant is constructible and equality-sensible.
     #[test]
     fn summon_trigger_variants_compile_and_eq() {
         let dice = DiceFaces::parse("1-1:2-1:3-1:4-1:5-1:6-1");
@@ -1952,12 +1951,12 @@ mod new_enum_compile_guards {
         assert_eq!(c.dice_faces(), &dice);
     }
 
-    /// T29b: ItempoolItem's two transitional variants (Summon index, and the
+    /// ItempoolItem's two transitional variants (Summon index, and the
     /// transitional raw-passthrough NonSummon { name, tier, content }) are
-    /// constructible, equality-sensible, and serde-roundtrippable. 8A.5
-    /// retypes NonSummon into a typed NonSummonEntry sum and extends this
-    /// coverage to each typed variant; until then, this test pins the
-    /// transitional shape.
+    /// constructible, equality-sensible, and serde-roundtrippable. A
+    /// planned typed-sum rewrite retypes NonSummon into a typed
+    /// NonSummonEntry sum and extends this coverage to each typed variant;
+    /// until then, this test pins the transitional shape.
     #[test]
     fn itempool_item_variants_compile_and_eq() {
         let summon = ItempoolItem::Summon(0);

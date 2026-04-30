@@ -7,8 +7,8 @@
 //! a compile error, not a runtime surprise.
 //!
 //! Cast carries no ability-payload field (corpus has zero depth-0
-//! `.n.<spell_name>` inside the spell-cast envelope's inner body; parent
-//! plan §1.1). Widening is a separate PR with variant fields — see the
+//! `.n.<spell_name>` inside the spell-cast envelope's inner body).
+//! Widening is a separate PR with variant fields — see the
 //! `SummonTrigger::Cast` doc-comment in `ir/mod.rs` for the full rationale.
 
 use std::marker::PhantomData;
@@ -321,7 +321,7 @@ impl CastBuilder<HasDice> {
 }
 
 // =========================================================================
-// Chunk 8A tests: T24 / T25 / T26 / T26a
+// Builder behavior tests
 // =========================================================================
 
 #[cfg(test)]
@@ -365,9 +365,9 @@ mod tests {
     }
 
     /// T26 — Emitter produces structurally valid output for builder-constructed
-    /// IR. String-containment (NOT byte-equality vs corpus — that ships in 8B
-    /// as T1). Scope: emitter structurally correct for authoring-constructed
-    /// input.
+    /// IR. String-containment (NOT byte-equality vs corpus — byte-equality
+    /// requires the future real parser). Scope: emitter structurally correct
+    /// for authoring-constructed input.
     #[test]
     fn replica_item_emits_inside_itempool() {
         let item = SideUseBuilder::new("Poke Ball", "Pikachu")

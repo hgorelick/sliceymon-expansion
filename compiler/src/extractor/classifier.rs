@@ -171,8 +171,8 @@ pub fn classify(modifier: &str, modifier_index: usize) -> Result<ModifierType, C
         return Ok(ModifierType::ItemPool);
     }
 
-    // Chunk 8A: top-level `item.<…>` modifiers are retired. The four working
-    // mods contain zero top-level `item.` modifiers (verified 2026-04-24:
+    // Top-level `item.<…>` modifiers are retired. The four working mods
+    // contain zero top-level `item.` modifiers (verified 2026-04-24:
     // `rg -o '^item\.|[,!+]item\.[a-z]' working-mods/*.txt` returns empty).
     // Any future mod that uses this shape is a new corpus that needs a
     // design decision, not a silent fallthrough.
@@ -182,8 +182,7 @@ pub fn classify(modifier: &str, modifier_index: usize) -> Result<ModifierType, C
             modifier_index,
             preview,
             "Top-level `item.<…>` modifiers are not currently modeled. \
-             Summon items belong inside `itempool.((…))` envelopes. \
-             See plans/CHUNK_8_REPLICA_ITEM_TRIGGER_PLAN.md §1.2.",
+             Summon items belong inside `itempool.((…))` envelopes.",
         ));
     }
 

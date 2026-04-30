@@ -147,7 +147,7 @@ pub fn add_hero(ir: &mut ModIR, hero: Hero) -> Result<(), CompilerError>
 pub fn remove_hero(ir: &mut ModIR, mn_name: &str) -> Result<(), CompilerError>
 // ... same for ReplicaItem, Monster, Boss (ReplicaItem CRUD takes an extra
 // ReplicaTriggerKey arg on remove/update — SideUse and Cast variants per
-// target_name are addressable independently per the round-9/12/14 contract)
+// target_name are addressable independently per the PR #14 round-9/12/14 contract)
 ```
 
 ## When Reviewing Architecture

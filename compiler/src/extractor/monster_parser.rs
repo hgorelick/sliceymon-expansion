@@ -12,7 +12,7 @@ pub fn parse_monster(modifier: &str, _modifier_index: usize) -> Monster {
     let modifier_chain = util::extract_modifier_chain(modifier)
         .map(|s| crate::ir::ModifierChain::parse(&s));
 
-    // Source-preserving sprite (2026-04-20 ruling + round-1 tribunal fix): extract never consults
+    // Source-preserving sprite (2026-04-20 ruling + PR #15 round-1 tribunal fix): extract never consults
     // the registry; that's the authoring-path semantics. A registry lookup here would
     // silently replace this mod's `.img.` payload with sliceymon's whenever the
     // display name collides, which corrupts source content during extract.

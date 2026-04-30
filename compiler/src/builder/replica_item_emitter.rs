@@ -1,4 +1,4 @@
-//! Chunk 8A — trigger-based ReplicaItem emitter + itempool emitter.
+//! Trigger-based ReplicaItem emitter + itempool emitter.
 //!
 //! The pre-8a module emitted the flat Legendary shape (`item.TEMPLATE...`);
 //! that entire surface is retired because the four working-mods contain zero
@@ -45,7 +45,8 @@ pub fn emit_replica_item(item: &ReplicaItem) -> String {
 ///     `content` verbatim. This is the 8a stub's whole-pool passthrough.
 ///   * **Populated path** (any `name` or `tier` present) — emit
 ///     `<content>.n.<name>` followed by optional `.tier.<t>`. Reserved for
-///     callers that supply a populated shape before 8A.5 retypes the variant.
+///     callers that supply a populated shape before a planned typed-sum
+///     rewrite of the variant lands.
 ///
 /// Delimiter `#` is corpus-sourced:
 /// `working-mods/sliceymon.txt` line 67 (Upgrade pool) shows
@@ -59,18 +60,19 @@ pub fn emit_replica_item(item: &ReplicaItem) -> String {
 /// verbatim and the pool round-trips byte-equal against source. The `#`
 /// delimiter is not exercised by 8A's stub — the single-element case
 /// short-circuits through the sentinel path — but it is the correct choice
-/// for the moment `generate_hero_item_pool` or 8B's real parser surfaces
-/// multi-entry pools.
+/// for the moment `generate_hero_item_pool` or the future real parser
+/// surfaces multi-entry pools.
 ///
-/// **Envelope scope (8B carve-out):** This function returns the pool BODY
-/// only. The outer `itempool.((…)).mn.<pool>` envelope (and the `!m` hidden
-/// prefix) is structural-level metadata that 8A does not own — the stub
-/// sentinel smuggles it through `content`. When `Summon(i)` entries ship in
-/// 8B, the envelope construction site (structural emitter vs this function)
-/// is chosen alongside the SideUse outer-preface / inner-wrapper
-/// decomposition question (corpus emits one Pokemon as TWO depth-0 entries
-/// inside one pool; current IR models it as ONE `ReplicaItem`). Leaving the
-/// envelope out of 8A keeps the stub sentinel the single source of truth.
+/// **Envelope scope (out of stub-author ownership):** This function returns
+/// the pool BODY only. The outer `itempool.((…)).mn.<pool>` envelope (and
+/// the `!m` hidden prefix) is structural-level metadata that 8A does not
+/// own — the stub sentinel smuggles it through `content`. When `Summon(i)`
+/// entries land alongside the real parser, the envelope construction site
+/// (structural emitter vs this function) is chosen alongside the SideUse
+/// outer-preface / inner-wrapper decomposition question (corpus emits one
+/// Pokemon as TWO depth-0 entries inside one pool; current IR models it as
+/// ONE `ReplicaItem`). Leaving the envelope out of 8A keeps the stub
+/// sentinel the single source of truth.
 pub fn emit_itempool(
     items: &[ItempoolItem],
     replica_items: &[ReplicaItem],
@@ -179,10 +181,10 @@ fn emit_shared_payload(item: &ReplicaItem) -> String {
     // Container name + tier — vase.(add.(())).mn.<target>) is already closed
     // above; the outer `.n.<container>.tier.<n>` sits on the itempool-entry
     // envelope in source (e.g. `(Great Ball).n.Great Ball.tier.1`). For the
-    // 8a authoring-builder round-trip test (T26, string-containment only),
-    // append container-name + tier after the shared payload so the output
-    // encodes every field the builder set. 8b wires these into the real
-    // envelope shape per corpus.
+    // 8a authoring-builder round-trip test (T26, string-containment only), append
+    // container-name + tier after the shared payload so the output encodes
+    // every field the builder set. The real envelope shape per corpus gets
+    // wired in alongside the real parser.
     out.push_str(".n.");
     out.push_str(&item.container_name);
     if let Some(t) = item.tier {
@@ -221,7 +223,7 @@ fn emit_sideuse_inner(item: &ReplicaItem, dice: &crate::ir::DiceFaces) -> String
 
 /// Cast trigger — outer `cast.sthief.abilitydata.(thief.sd.<UNIVERSAL>.i.<per-item>)`.
 /// Capital `Thief` on the outer wrapper; lowercase `thief` on the inner
-/// replica.thief per corpus (parent §1.1).
+/// replica.thief per corpus.
 fn emit_cast(item: &ReplicaItem, dice: &crate::ir::DiceFaces) -> String {
     let mut out = String::new();
     out.push_str("hat.(replica.Thief.i.(all.(cast.sthief.abilitydata.(");

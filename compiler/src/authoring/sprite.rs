@@ -141,13 +141,10 @@ mod tests {
 
     #[test]
     fn sprite_lookup_agumon() {
-        // Plan spec (PLATFORM_FOUNDATIONS_PLAN.md §Chunk 3a): `img_data()` must
-        // match `working-mods/sliceymon.txt` byte-for-byte. `Charmander` in the
-        // original plan was swapped to `Agumon` (real Sliceymon+ authoring
-        // change already present in sliceymon.txt at build time). Load the mod
-        // source via `include_str!` and extract Agumon's `.img.` payload at
-        // test time — that way a harvester regression in `scan_entity_sprites`
-        // would fail this test, not silently relax it.
+        // `img_data()` must match `working-mods/sliceymon.txt` byte-for-byte.
+        // Load the mod source via `include_str!` and extract Agumon's `.img.`
+        // payload at test time — that way a harvester regression in
+        // `scan_entity_sprites` would fail this test, not silently relax it.
         let source = include_str!("../../../working-mods/sliceymon.txt");
         let needle = ".n.Agumon";
         let n_pos = source.find(needle).expect("Agumon entity present in sliceymon.txt");

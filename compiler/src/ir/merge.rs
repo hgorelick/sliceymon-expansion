@@ -151,8 +151,8 @@ pub fn merge(base: &mut ModIR, overlay: ModIR) -> Result<(), CompilerError> {
     // Replica items: replace by (target_name, trigger discriminant), add
     // new. The IR allows one ReplicaItem per trigger variant per
     // `target_name` (e.g. a single target with both a SideUse Pokeball and a
-    // Cast spell — corpus shape that 8B's parser will produce). Matching on
-    // target_name alone would silently collapse such pairs.
+    // Cast spell — corpus shape that the future real parser will produce).
+    // Matching on target_name alone would silently collapse such pairs.
     for mut item in overlay.replica_items {
         item.source = Source::Overlay;
         let item_disc = std::mem::discriminant(&item.trigger);
@@ -283,10 +283,10 @@ pub fn collect_stripped_kinds(structural: &[StructuralModifier]) -> Vec<Structur
 /// no separate char-selection Selector, and nothing in this function adds
 /// one unless the input already had one marked derived).
 ///
-/// Hero-bound `ItemPool` regeneration is wired as of 8A: a stripped derived
+/// Hero-bound `ItemPool` regeneration is wired: a stripped derived
 /// `ItemPool` is re-authored by `derived::generate_hero_item_pool` against
 /// the trigger-based replica list. `PoolReplacement` remains a `_ => {}`
-/// sink — its regenerator is Chunk 5b's exact ticket, not 8A's.
+/// sink — its regenerator is deferred.
 ///
 /// Contract: callers must invoke `strip_derived_structurals` on `structural`
 /// before calling this — `collect_stripped_kinds` returns a deduped `kinds`
@@ -314,7 +314,7 @@ pub fn regenerate_derived_kinds(
                     crate::builder::derived::generate_hero_item_pool(heroes, replica_items),
                 );
             }
-            // PoolReplacement regenerator deferred to Chunk 5b.
+            // PoolReplacement regenerator deferred.
             _ => {}
         }
     }

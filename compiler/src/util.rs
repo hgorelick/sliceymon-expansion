@@ -242,9 +242,9 @@ pub fn has_color(modifier: &str, target: char) -> bool {
 /// marker.
 ///
 /// Post-8A this helper has no in-tree caller — the legacy top-level
-/// `item.TEMPLATE…` replica-item parser was retired per plan §3.1 (zero
-/// corpus instances of top-level `item.<…>`). It remains as a reusable
-/// depth-0 prefix slicer for future INNER_BODY_MARKERS work.
+/// `item.TEMPLATE…` replica-item parser was retired (zero corpus
+/// instances of top-level `item.<…>`). It remains as a reusable depth-0
+/// prefix slicer for future INNER_BODY_MARKERS work.
 pub fn slice_before_chain_and_cast(body: &str) -> &str {
     let mut earliest: Option<usize> = None;
     for marker in [".i.", ".sticker.", ".abilitydata."] {

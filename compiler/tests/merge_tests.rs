@@ -1,4 +1,4 @@
-//! Chunk 5 / SPEC §4 — derived-structural provenance gate + new
+//! SPEC §4 — derived-structural provenance gate + new
 //! `merge(&mut base, overlay)` signature + warnings sidecar.
 //!
 //! These tests pin the behavior that:
@@ -458,12 +458,12 @@ fn path_c_merge_adds_hero_regenerates_selector() {
     assert!(output.contains("@1Gamma"), "regenerated selector missing Gamma");
 }
 
-// -- filter × derived-regen interaction (Round 7) --
+// -- filter × derived-regen interaction (PR #12 round-7) --
 //
 // The 2026-04-22 "BuildOptions + provenance-aware findings" ruling /
 // options.rs contract: "Derived structurals are regenerated from
 // the post-filter content set; they do not carry their own Source filter."
-// Before round 7, `regenerate_derived_kinds` derived from the full hero set
+// Before PR #12 round-7, `regenerate_derived_kinds` derived from the full hero set
 // and tagged output `Source::Base`, so a non-default filter that excluded
 // `Base` silently dropped the regen output. This test pins both halves of
 // the contract: regen uses ONLY filter-admitted heroes, and emission emits
@@ -496,7 +496,7 @@ fn build_with_filter_regenerates_derived_from_post_filter_heroes() {
     );
 }
 
-// -- multi-replica-per-Pokemon merge (Round 8) --
+// -- multi-replica-per-Pokemon merge (PR #14 round-8) --
 //
 // `ReplicaItem.trigger: SummonTrigger` is singular, with variants `SideUse`
 // and `Cast` (`ir/mod.rs:664-684`). The IR allows one ReplicaItem per
@@ -506,7 +506,7 @@ fn build_with_filter_regenerates_derived_from_post_filter_heroes() {
 // X003 is cross-bucket only (`xref.rs:233-238`) and does not enforce
 // intra-replica-bucket uniqueness, so the merge key MUST distinguish
 // triggers; matching by `target_name` alone collapses SideUse + Cast
-// pairs into the first match. Pre-Round-8 merge had this exact bug
+// pairs into the first match. The pre-PR-#14-round-8 merge had this exact bug
 // (`merge.rs:147-158` matched on target_name alone). This test pins the
 // fix.
 #[test]
