@@ -620,7 +620,7 @@ pub struct HeroBlock {
 /// entry on sliceymon line 117 contains a nested
 /// `hat.egg.(wolf.n.Geyser.sd.…)` inside the outer
 /// `hat.egg.dragon.n.Groudon`. The single `enemy_template: String` below
-/// captures only the outer template; the struct must be widened (e.g. an
+/// models only the outer template; the struct must be widened (e.g. an
 /// `Option<NestedEgg>` field) before any `Summon(i)` entry whose body
 /// contains a nested `hat.egg.` is produced. 8a's stub never classifies
 /// this case.
@@ -657,11 +657,11 @@ pub struct ReplicaItem {
 }
 
 /// The player action that triggers the summon. Two variants — `SideUse`
-/// (use a thief side) and `Cast` (cast a thief spell) — capture the only
+/// (use a thief side) and `Cast` (cast a thief spell) — encode the only
 /// two distinct game mechanics observed in the corpus. Historical
 /// "OnWrapped" (Master Ball?) is NOT a third variant: engine reads
 /// `hat.Thief.sd.<faces>` identically whether dice live on the outer
-/// preface or inside the wrapper — captured by `dice_location` on SideUse.
+/// preface or inside the wrapper — encoded by `dice_location` on SideUse.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub enum SummonTrigger {
     /// Player uses a thief-side during a fight. Corpus:
