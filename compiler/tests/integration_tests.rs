@@ -370,7 +370,7 @@ fn test_source_survives_json_roundtrip() {
 
 // ---------------------------------------------------------------------------
 // Extract must preserve source `.img.` even when the display name collides
-// with the corpus-derived sprite registry. Round-1 tribunal finding
+// with the corpus-derived sprite registry. PR #15 round-1 tribunal finding
 // (2026-04-20 sprite-shape ruling follow-up): the earlier
 // `SpriteId::lookup(...)` fast-path in every parser
 // silently replaced the source's `.img.` payload with the registry entry's

@@ -1036,7 +1036,7 @@ mod tests {
     /// X003's `suggestion` string must enumerate only buckets the rule can
     /// report — never a hypothetical `capture` bucket (deleted upstream;
     /// no corpus instance) nor `boss` (V020's territory
-    /// per SPEC §6.3). Pins the fix for the Round-12 finding where the
+    /// per SPEC §6.3). Pins the fix for the PR #14 round-12 finding where the
     /// user-facing advice listed `capture` as a valid rename target;
     /// source-vs-IR divergent by construction because no ModIR this rule
     /// can see contains a `capture` bucket, so the suggestion must not

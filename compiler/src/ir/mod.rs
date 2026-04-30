@@ -711,7 +711,7 @@ impl SummonTrigger {
     }
 
     /// Lossy projection to `ReplicaTriggerKey` — the same discriminant the
-    /// round-9 merge predicate (`merge.rs:151-171`) and the round-12 add
+    /// PR #14 round-9 merge predicate (`merge.rs:151-171`) and round-12 add
     /// predicate (`ops.rs:104-152`) key on, with no payload. Use this when
     /// a CRUD caller needs to identify *which* trigger variant on a given
     /// `target_name` without supplying its dice/`dice_location` payload —
@@ -728,7 +728,7 @@ impl SummonTrigger {
 /// need to address a specific trigger variant on a `target_name` (e.g.
 /// `remove_replica_item`) take this enum as a parameter so callers do not
 /// have to fabricate dice/`dice_location` payload they do not care about.
-/// Pairs with `target_name` to form the round-9/12 uniqueness key
+/// Pairs with `target_name` to form the PR #14 round-9/12 uniqueness key
 /// `(target_name, trigger discriminant)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub enum ReplicaTriggerKey {
@@ -750,7 +750,7 @@ pub enum ReplicaTriggerKey {
 pub enum ItempoolItem {
     /// Index into `ModIR.replica_items`. Index stability is enforced by
     /// `ir::ops::remove_replica_item`, which removes the entry matching
-    /// `(target_name, ReplicaTriggerKey)` — the round-9/12 multi-trigger
+    /// `(target_name, ReplicaTriggerKey)` — the PR #14 round-9/12 multi-trigger
     /// uniqueness key — and re-indexes every `Summon(i)` accordingly.
     Summon(usize),
     /// Non-summon itempool entry — transitional raw-passthrough. `name` is

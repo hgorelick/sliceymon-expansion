@@ -348,7 +348,7 @@ mod tests {
     /// for `ItemPool` dropped the kind silently — this test locks the wiring
     /// so a regression that re-introduces `_ => {}` for `ItemPool` fails
     /// loudly. Guards against the "dead `generate_hero_item_pool`" class of
-    /// defect caught in the round-1 tribunal.
+    /// defect caught in PR #14 round-1 tribunal.
     #[test]
     fn regenerate_derived_kinds_rebuilds_hero_item_pool() {
         use crate::ir::merge::regenerate_derived_kinds;

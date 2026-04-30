@@ -93,7 +93,7 @@ impl ModIR {
     /// Two invariants gate insertion:
     /// 1. **Cross-bucket** (SPEC §6.3 / X003): `target_name` must not collide
     ///    with any hero / monster / boss name.
-    /// 2. **Intra-replica** (post-Round-8 merge contract per
+    /// 2. **Intra-replica** (PR #14 round-8 merge contract per
     ///    [`merge.rs:106-111`](super::merge)): a single `target_name` may
     ///    carry one `ReplicaItem` per trigger variant
     ///    (`SummonTrigger::SideUse` + `SummonTrigger::Cast`), so the
@@ -131,7 +131,7 @@ impl ModIR {
             ));
         }
 
-        // Intra-replica check (round-9 merge contract): block only if the
+        // Intra-replica check (PR #14 round-9 merge contract): block only if the
         // SAME `(target_name, trigger discriminant)` is already present.
         // SideUse + Cast for the same target is a valid corpus shape.
         let item_disc = std::mem::discriminant(&item.trigger);
@@ -156,7 +156,7 @@ impl ModIR {
     /// on `target_name`).
     ///
     /// The IR may carry one `ReplicaItem` per trigger variant per `target_name`
-    /// (round-9 merge contract at `merge.rs:106-111`, round-12 add contract at
+    /// (per PR #14: round-9 merge contract at `merge.rs:106-111`, round-12 add contract at
     /// `add_replica_item` above). Removing by `target_name` alone would silently
     /// pick a "first match" and leave the other variant behind, with no way for
     /// the caller to indicate which variant it intended. The `trigger_key`
@@ -424,7 +424,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    /// Round-12 sibling of round-9's merge fix. The merge contract
+    /// Per PR #14: round-12 sibling of round-9's merge fix. The merge contract
     /// (`ir/merge.rs:106-111`) explicitly permits one ReplicaItem per
     /// trigger variant per `target_name` — corpus shape carried by Ho-Oh,
     /// Lugia, Kyogre, Groudon. CRUD's `add_replica_item` must accept the
@@ -472,8 +472,8 @@ mod tests {
     }
 
     /// Intra-replica uniqueness is keyed on
-    /// `(target_name, std::mem::discriminant(&trigger))` per the round-9
-    /// merge predicate. Two SideUse replicas with the same target_name
+    /// `(target_name, std::mem::discriminant(&trigger))` per the PR #14
+    /// round-9 merge predicate. Two SideUse replicas with the same target_name
     /// (regardless of `dice_location`, which is a source-shape sub-axis with
     /// identical engine behavior — `ir/mod.rs:686-698`) collide on the
     /// merge key, so CRUD must reject the second.
@@ -546,7 +546,7 @@ mod tests {
     }
 
     /// Pin all three branches of the `Summon(i)` re-index logic in
-    /// `remove_replica_item` (ops.rs:113-167). Round-3 tribunal: the function
+    /// `remove_replica_item` (ops.rs:113-167). PR #14 round-3 tribunal: the function
     /// shipped with 35 lines of non-trivial logic and zero unit coverage —
     /// only `remove_replica_item_by_name` exercised it, with no ItemPool
     /// structurals so the re-index path was unreached. A future test
@@ -633,7 +633,7 @@ mod tests {
         );
     }
 
-    /// Round-14 sibling of round-12's add fix. After adding both a `SideUse`
+    /// Per PR #14: round-14 sibling of round-12's add fix. After adding both a `SideUse`
     /// and a `Cast` ReplicaItem for the same `target_name`, the remove API
     /// must let the caller pick which variant to delete via the
     /// `ReplicaTriggerKey` parameter. Two parallel scenarios pin both
@@ -693,7 +693,7 @@ mod tests {
     /// With only a `SideUse` variant present for a `target_name`, asking to
     /// remove the `Cast` variant must return `NotFound` rather than silently
     /// falling through to "first match" and deleting the `SideUse`. This is
-    /// the round-14 contract's most load-bearing assertion: the trigger key
+    /// the PR #14 round-14 contract's most load-bearing assertion: the trigger key
     /// is a real predicate, not a documentation-only hint.
     #[test]
     fn remove_replica_item_not_found_distinguishes_trigger_mismatch() {
@@ -717,7 +717,7 @@ mod tests {
         ));
     }
 
-    /// Extends the round-3 `remove_replica_item_reindexes_summon_entries`
+    /// Extends the PR #14 round-3 `remove_replica_item_reindexes_summon_entries`
     /// pin to the multi-trigger case. Three replicas at indices 0/1/2 with
     /// `[SideUse(Alpha), Cast(Alpha), SideUse(Beta)]`; an ItemPool refers to
     /// all three. Removing `("Alpha", Cast)` (index 1) must drop `Summon(1)`
