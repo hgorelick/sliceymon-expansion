@@ -351,18 +351,20 @@ Sub-commits 1a–1f share scope, dependencies, consumer, and verification — on
 
 #### Chunk 2: Carve-out registry scaffold
 
-**Scope**: Create `compiler/tests/doc_invariants_carveouts.toml` as an empty-but-parseable TOML file (zero `[[carveout]]` entries, header comment only).
-**Files**: `compiler/tests/doc_invariants_carveouts.toml` (new).
+**Scope**: Create `compiler/tests/doc_invariants_carveouts.toml` as an empty-but-parseable TOML file (zero `[[carveout]]` entries, header comment only), plus a sibling `compiler/tests/doc_invariants_carveouts_parses.rs` well-formedness gate that asserts (a) parses-as-TOML, (b) only-`carveout`-top-level, (c) every entry is a `[[carveout]]` table, and (d) per-entry pattern-uniqueness against `path` (the load-bearing addressing contract; see §3.5).
+**Files**: `compiler/tests/doc_invariants_carveouts.toml` (new), `compiler/tests/doc_invariants_carveouts_parses.rs` (new), `compiler/Cargo.toml` (`toml = "0.8"` in `[dev-dependencies]` per §3.5's well-formedness-gate justification).
 **Dependencies**: None.
-**Consumer**: Chunks 3–7 append entries during their fix decisions; chunk 8's guard tests deserialize the registry via `serde::Deserialize`.
+**Consumer**: Chunks 3–7 append entries during their fix decisions; chunk 8's cross-grep guard tests deserialize the registry via `serde::Deserialize` and rely on the well-formedness gate having already enforced uniqueness so `filter_carveouts` can treat the registry as known-sound (per §5.1).
 
 **Dogfood**:
 - `python3 -c 'import tomllib; tomllib.load(open("compiler/tests/doc_invariants_carveouts.toml","rb"))'` (or equivalent) succeeds — file parses as valid TOML.
 - File contains a top-level comment that documents the §3.5 schema by construction (the example `[[carveout]]` block plus the append-discipline bullets — the scaffold is the canonical authority for field names; per the chunk-implementation discipline "let the implementation be the authority and align prose to it", the plan does not re-enumerate the field list).
+- `~/.cargo/bin/cargo test --test doc_invariants_carveouts_parses` passes against the empty-but-parseable scaffold AND against any chunks 3–7 append (the gate's per-entry uniqueness assertion is empty-vacuously-true at chunk 2 and load-bearing once chunks 3–7 add entries).
 
 **Verification**:
 - [ ] File parses as valid TOML.
 - [ ] Comment header matches §3.5 schema.
+- [ ] `cargo test --test doc_invariants_carveouts_parses` is green; the gate fires on count != 1 and on missing required `path` / `pattern` fields.
 
 ---
 
@@ -548,7 +550,7 @@ Add `compiler/tests/doc_invariants.rs` with a test per invariant class. Each tes
   - (iii) **Self-skip parameterized.** Takes a skip-list of basenames so a test file containing the retirement-pattern string literals doesn't self-match: `recursive_grep(root, pattern, &["rs", "md"], &["doc_invariants.rs"])`.
 - **Word-boundary handling.** Substring search can't express `\b...\b` directly. For invariants where word boundaries matter (e.g., distinguishing `img_data` the retired field from `sprite.img_data()` the current accessor), implement a small `has_word_boundary_match(line: &str, needle: &str) -> bool` helper using `char::is_alphanumeric` (or `_`) checks on the byte before/after the substring match. The helper lives in the same shared `tests/common/` module.
 - **Pre-grep parenthetical exclusion.** Each §3.2 row's parenthetical exclusion clause (e.g. row 1's "(excluding the accessor pattern `sprite.img_data()`)") MUST be encoded as a pre-grep filter at the test's grep call site, NOT as a registry carve-out. Pre-exclusion is part of the grep specification — the row's grep was written to mean "the regex AND NOT the parenthetical". The registry carves out hits that ARE in the audit set but have a stable rationale; pre-exclusion removes hits the audit specification never considered violations. Implementation: drop the hit before pushing to `hits` (i.e. before `filter_carveouts` runs), so the parenthetical's authority lives at the grep site, not adjacent to the registry filter.
-- **Carve-out registry.** `filter_carveouts(hits, registry_path)` deserializes the TOML registry (§3.5) into `Vec<CarveOut>` via `serde::Deserialize`, validates each entry's pattern-uniqueness invariant (`path.read_to_string()?.matches(&entry.pattern).count() == 1`, asserted per entry — a count of 0 or >= 2 is a guard-test failure, never a silent skip), then drops any `Hit` where `hit.path == entry.path` and `hit.line.contains(&entry.pattern)` (where `Hit::line` is the matched line's *content* string, the same field used by `has_word_boundary_match` in the example test below). Note: the filter keys on line content containing the pattern, not on a stored line number — uniqueness within `path` is what makes the per-line carve-out unambiguous (the unique line is the carved-out site, by construction). The registry path is a single `const CARVEOUT_REGISTRY: &str = "tests/doc_invariants_carveouts.toml";` declared once at the top of `doc_invariants.rs`. Like the search helper, the path is resolved via `crate_dir().join(CARVEOUT_REGISTRY)` so it works regardless of CWD.
+- **Carve-out registry.** `filter_carveouts(hits, registry_path)` deserializes the TOML registry (§3.5) into `Vec<CarveOut>` via `serde::Deserialize`, then drops any `Hit` where `hit.path == entry.path` and `hit.line.contains(&entry.pattern)` (where `Hit::line` is the matched line's *content* string, the same field used by `has_word_boundary_match` in the example test below). The filter keys on line content containing the pattern, not on a stored line number — per-file `pattern` uniqueness is what makes the per-line carve-out unambiguous, and that invariant is asserted **at registry-load time by the well-formedness gate** (`compiler/tests/doc_invariants_carveouts_parses.rs`), so by the time `filter_carveouts` runs the registry is known to satisfy `path.read_to_string()?.matches(&entry.pattern).count() == 1` for every entry. The registry path is a single `const CARVEOUT_REGISTRY: &str = "tests/doc_invariants_carveouts.toml";` declared once at the top of `doc_invariants.rs`. Like the search helper, the path is resolved via `crate_dir().join(CARVEOUT_REGISTRY)` so it works regardless of CWD.
 - **Dependency.** Chunk 8's tests deserialize the registry through the existing `toml` dev-dep in `compiler/Cargo.toml` (justified at §3.5 above).
 
 Example test (rewritten against the discipline above):
