@@ -58,3 +58,25 @@
 #     that even multi-line form is unwieldy, narrow the carve-out's
 #     scope (cite a sub-clause that still resolves the rationale) or
 #     split into two carve-outs at adjacent file:line sites.
+
+# ---- SPEC.md carve-outs ----
+# Scope per chunk 3: the two §3.5-canonical SPEC.md sites — the deliberate
+# negation at :59 and the glossary explicit-NOT-IR entry at :353. Row 1's
+# `\bimg_data\b|\bsprite_name\b` matches at SPEC.md:51 and :174 are pre-excluded
+# by row 1's parenthetical "(excluding the accessor pattern `sprite.img_data()`)"
+# — pre-exclusion is part of the grep specification, not a registry carve-out,
+# so those lines do not need entries here.
+
+[[carveout]]
+path                   = "SPEC.md"
+line                   = 59
+pattern                = "validator pass"
+rationale              = "Deliberate negation — the word is the very thing being negated"
+invariant_not_violated = "per SPEC.md:59: 'There is no separate validator pass to bolt on later.'"
+
+[[carveout]]
+path                   = "SPEC.md"
+line                   = 353
+pattern                = "Capturable / Legendary"
+rationale              = "Glossary entry explicitly marked as game-design vocabulary, NOT IR identifiers"
+invariant_not_violated = "per SPEC.md:353: 'NOT IR identifiers — the IR discriminator is `SummonTrigger::{SideUse, Cast}`.'"
