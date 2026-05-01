@@ -42,13 +42,23 @@ fn doc_invariants_carveouts_toml_is_well_formed() {
         );
     }
 
-    // If `carveout` is present, it must be an array. Whether the array is
-    // empty (this PR's state) or non-empty (later doc-audit fix passes
-    // append entries) is allowed — that's how the registry grows.
+    // If `carveout` is present, it must be an array-of-tables: TOML's
+    // `[[carveout]]` syntax. The weaker `is_array()` predicate accepts
+    // `carveout = ["string"]` or `carveout = [42]`; those parse as
+    // arrays-of-strings or arrays-of-ints, which break the schema's
+    // table-per-entry contract that the future doc-invariant guard test
+    // (per-entry deserialize via `serde::Deserialize<CarveOut>`) depends
+    // on. Empty array (this PR's state) is allowed — that's how the
+    // registry grows.
     if let Some(c) = parsed.get("carveout") {
-        assert!(
-            c.is_array(),
-            "`carveout` top-level key must be an array-of-tables, got {c:?}"
-        );
+        let arr = c.as_array().unwrap_or_else(|| {
+            panic!("`carveout` top-level key must be an array-of-tables, got {c:?}")
+        });
+        for (i, entry) in arr.iter().enumerate() {
+            assert!(
+                entry.is_table(),
+                "carveout[{i}] must be a `[[carveout]]` table, got {entry:?}"
+            );
+        }
     }
 }
