@@ -1,0 +1,60 @@
+# Doc-invariant carve-out registry
+#
+# A carve-out is a deliberate, stable-rationale exception: text that the
+# doc-violation grep set hits but does not actually contradict the
+# protecting code-side invariant. Examples: a deliberate negation
+# (SPEC.md:59 "There is no separate validator pass to bolt on later." —
+# the very word being negated), or a glossary entry that explicitly
+# marks itself as game-design vocabulary, not an IR identifier (SPEC.md:353
+# "Capturable / Legendary").
+#
+# Every grep hit is either a fix or a carve-out. If a hit cannot be
+# paired with a stable rationale that survives hostile re-prosecution,
+# fix it.
+#
+# Schema (the example below is the schema by construction; field meanings
+# inline, usage constraints in the append-discipline block at the bottom):
+#
+#   [[carveout]]
+#   # repo-relative path to the file the grep hit
+#   path                   = "SPEC.md"
+#   # 1-indexed line number where the pattern appears
+#   line                   = 59
+#   # a case-sensitive literal substring of the line at path:line — no
+#   # regex, no whole-word, no anchoring (see the locked contract below)
+#   pattern                = "validator pass"
+#   # one-line stable rationale a future reviewer accepts
+#   rationale              = "Deliberate negation — the word is the very thing being negated"
+#   # the protecting code-side invariant this carve-out does not contradict,
+#   # named with enough specificity to disambiguate from neighbors. Quote
+#   # the underlying authority verbatim where the field can fit it on one line.
+#   invariant_not_violated = "per SPEC.md:59: 'There is no separate validator pass to bolt on later.'"
+#
+# This file is an append-only fixture for a future doc-invariant guard test
+# that will deserialize it via serde::Deserialize and use it to filter the
+# doc-violation grep set; once filtered, residual hits MUST be zero.
+#
+# Append-discipline:
+#   - Each carve-out is its own [[carveout]] table; never share a single
+#     entry across multiple file:line sites by reusing one rationale.
+#   - The `pattern` field must be a literal, case-sensitive substring of
+#     the line at `path`:`line`. The guard test reads that line and
+#     asserts `pattern` is contained within it — no regex, no whole-word,
+#     no anchoring — so both the carve-out author and the guard test
+#     agree on what "matches" means. Line-number drift surfaces as a test
+#     failure rather than silent rot.
+#   - File-wide blanket carve-outs are forbidden: a blanket would silently
+#     absorb future genuine violations of the same protected invariant,
+#     so each matched line gets its own entry.
+#   - The `invariant_not_violated` field cites the underlying authority
+#     directly — SPEC.md section, file:line, or test ID — never a
+#     plan-section reference.
+#   - When the load-bearing clause from the cited authority does not fit
+#     on one line, use a TOML multi-line basic string (triple-quoted)
+#     for `invariant_not_violated` so the verbatim quote is preserved
+#     without truncation. Never use `...` ellipsis to compress the
+#     quote — eliding into the middle of a clause loses the very
+#     content the carve-out is meant to protect. If a quote is so long
+#     that even multi-line form is unwieldy, narrow the carve-out's
+#     scope (cite a sub-clause that still resolves the rationale) or
+#     split into two carve-outs at adjacent file:line sites.

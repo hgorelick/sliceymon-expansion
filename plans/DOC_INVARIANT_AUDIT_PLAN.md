@@ -90,6 +90,7 @@ For each invariant in §3.1, write the grep that would find a doc claim contradi
 | `pub fn build(ir: &ModIR) -> Result<...>` (single-arg) | `rg -in 'build\(ir, sprites\|build_textmod\(.*sprites\|fn build.*sprites:' personas/ SPEC.md CLAUDE.md` |
 | Phantom files (`validator.rs`, `sprite.rs` at top-level, `capture_*.rs`) | `rg -in 'compiler/src/(validator\.rs\|sprite\.rs\|capture_)' personas/ SPEC.md CLAUDE.md` |
 | Real semantic-check fn = `xref::check_references` | `rg -in 'fn validate\(\|validate_textmod\b' personas/ SPEC.md CLAUDE.md` |
+| `xref` IS the validator — no separate pass to bolt on later (SPEC.md:59) | `rg -in '\bvalidator pass\b\|no separate validator' personas/ SPEC.md CLAUDE.md` (every hit is a registry-carve-out: SPEC.md:59, personas/architecture.md:72, personas/ai-development.md:628, :656) |
 
 Run **all** greps in one pass against the **full repo** (not just files modified by a prior round). Save the consolidated hit list to `plans/.doc_audit_violations.txt`. This is the punch list. Nothing gets fixed before the punch list is complete.
 
@@ -207,27 +208,17 @@ Every hit in `.doc_audit_violations.txt` is either a **fix** or a **carve-out**.
 - A one-line stable rationale that survives hostile re-prosecution (a future reviewer running the same grep lands on the same rationale).
 - An entry in the carve-out registry (path picked at implementation start per §6 decision 3) with the file:line, the rationale, and the invariant the carve-out doesn't violate.
 
-**Registry format** (resolved during round-1 audit). The registry is **TOML** (`compiler/tests/doc_invariants_carveouts.toml` is the working path; finalize at implementation start):
+**Registry format** (resolved during round-1 audit). The registry is **TOML** at `compiler/tests/doc_invariants_carveouts.toml`. The schema is documented by construction in the scaffold's header comment (the example `[[carveout]]` block at the top of the file IS the schema, with field meanings inline as comments above each field, plus the append-discipline bullets at the bottom). The plan does not re-list the field set; the scaffold is the implementation form and the canonical authority.
 
-```toml
-[[carveout]]
-path = "compiler/src/ir/mod.rs"
-line = 622
-pattern = "captures"
-rationale = "English-verb usage, not the retired Capture type name"
-invariant_not_violated = "Capture / Legendary IR vocabulary as kind-discriminator (§1 row 1)"
-```
-
-TOML is chosen because (a) the schema is rigid enough that the §5.1 guard tests can deserialize it with `serde::Deserialize` rather than hand-parsing markdown, (b) line-number drift is detectable (a `pattern` field that no longer matches at the recorded `line` triggers a guard-test failure that prompts the carve-out be re-verified or dropped). The `toml` crate is **not** currently in `[dev-dependencies]` per `compiler/Cargo.toml` (verified in this session by Read; current dev-deps are `assert_cmd = "2"` + `proptest = "1"` only); implementation must add `toml = "0.8"` to `[dev-dependencies]` as part of the §5.1 commit. Adding a dev-dep is **outside the doc-only PR boundary** (§0/§8) — it's the one exception, justified by the §5.1 guard tests being load-bearing for the audit's structural-enforcement story. The §8 anti-pattern "no source-code behavior changes" stands; a `[dev-dependencies]` addition does not change runtime behavior.
+TOML is chosen because (a) the schema is rigid enough that the §5.1 guard tests can deserialize it with `serde::Deserialize` rather than hand-parsing markdown, (b) line-number drift is detectable (a `pattern` field that no longer matches at the recorded `line` triggers a guard-test failure that prompts the carve-out be re-verified or dropped). The carve-out registry needs a TOML well-formedness gate from the moment it ships, otherwise structural regressions to the fixture (invalid TOML, broken example schema, stray top-level key) land silently — `cargo test` cannot parse a `.toml` file without the dep. So `toml = "0.8"` belongs in `[dev-dependencies]` alongside the registry scaffold, consumed first by the well-formedness gate and then by the §5.1 guard tests. Adding a dev-dep is **outside the doc-only PR boundary** (§0/§8) — it's the one exception, justified by the well-formedness gate (and, later, the §5.1 guard tests) being load-bearing for the audit's structural-enforcement story. The §8 anti-pattern "no source-code behavior changes" stands; a `[dev-dependencies]` addition does not change runtime behavior.
 
 Examples of stable rationales (each becomes a `[[carveout]]` entry):
-- "English-verb usage" — `compiler/src/ir/mod.rs:622` "captures" as a verb in a comment, not the retired type name.
-- "Negation, deliberate" — `SPEC.md:59` "There is no separate validator pass to bolt on later" — the word "validator" is the very thing being negated. Same pattern at `personas/architecture.md:72` (`"validator pass" exists` inside an ASCII-art negation), `personas/ai-development.md:628, :656` (both phrase "no separate validator pass"). Each gets a `[[carveout]]` entry; the rationale text is identical, the file:line differs.
+- "Negation, deliberate" — the word being negated is the very thing the grep matches. Canonical site: `SPEC.md:59` "There is no separate validator pass to bolt on later." Sibling sites: every hit of §3.2 row 7's grep (the four enumerated there). Each gets its own `[[carveout]]` entry; the rationale text is identical, the file:line differs.
 - "Game-design vocabulary, NOT IR identifier" — `personas/slice-and-dice-design.md:137-138` (literal `Capture:` / `Legendary:` headings naming textmod patterns) and `personas/slice-and-dice-design.md:232` ("pseudo-legendary" Pokemon classification term). Each line gets its own entry; the file-wide blanket carve-out the original draft proposed at §3.2 row 2 is **withdrawn** — too coarse, would silently absorb future genuine violations.
-- "Retired-vs-current contrast note, dated to commit" — `compiler/src/builder/mod.rs:23-27` "Post-8A: a single `replica_items` loop replaces the pre-rewrite capture / legendary stages" — historical contrast that documents the migration (verbatim text from Read above).
+- "Retired-vs-current contrast note, dated to commit" — `compiler/src/builder/mod.rs:25-27` "(Post-8A: a single `replica_items` loop replaces the pre-rewrite capture / legendary stages — `ReplicaItem` now models trigger-based summons via `SummonTrigger::SideUse` / `Cast` per `ir/mod.rs`.)" — historical contrast that documents the migration; the `\b(Legendary|Capture)\b -i` audit grep matches "capture / legendary" on line 26 specifically, with the parenthetical at 25-27 supplying the rationale context.
 - "Bucket label preserved per chunk-8B obligation" — `compiler/src/xref.rs:179-214` literal `"legendary"` retained until chunk-8B unifies the bucket name (`compiler/src/xref.rs:184-187, :205-210` show the wired-in carve-out comment).
 - "Error-payload field name, not IR field" — `compiler/src/error.rs:48` `ErrorKind::SpriteNotFound { sprite_name: String, ... }` — the name of the missing sprite, used for error display.
-- "Glossary explicit-NOT-IR carve-out" — `SPEC.md:353` "Capturable / Legendary — Game-design vocabulary ... NOT IR identifiers — the IR discriminator is `SummonTrigger::{SideUse, Cast}`." The glossary line is the very thing protecting the invariant; carving it out preserves the protection.
+- "Glossary explicit-NOT-IR carve-out" — `SPEC.md:353` "Capturable / Legendary — Game-design vocabulary for the player-facing roles a `ReplicaItem` can fill (one-shot ball-style capture vs persistent ally with spell). NOT IR identifiers — the IR discriminator is `SummonTrigger::{SideUse, Cast}`." The glossary line is the very thing protecting the invariant; carving it out preserves the protection.
 - "Proposed WASM wrapper, not phantom claim" — `personas/frontend.md:65` `pub fn build_textmod(ir_json: &str)` and `personas/frontend.md:71-77` `pub fn validate_textmod(input)` — both are *proposed* WASM bindings around real library functions (`build`, `extract` + `check_references`); the body comment at line 73 already self-corrects ("There is no single validate(textmod) entry point — the pipeline IS validation"). Carve-out preserves the design proposal.
 If a hit can't be paired with a stable rationale, it must be fixed.
 
@@ -271,7 +262,7 @@ Parallel Group A (after Chunk 2; SPEC must land before personas can quote it):
               Chunk 7g (personas/README.md)
 
 Integration (sequential, after Group B):
-  Chunk 8 (guard tests + Cargo.toml dev-dep)
+  Chunk 8 (guard tests)
     └── Chunk 9 (.claude/settings.json PreToolUse hook)
         └── Chunk 10 (inline /// doc comments — class-only)
 ```
@@ -464,10 +455,10 @@ Sub-commits 1a–1f share scope, dependencies, consumer, and verification — on
 
 ---
 
-#### Chunk 8: Guard tests + dev-dep
+#### Chunk 8: Guard tests
 
-**Scope**: Land the §5.1 guard tests. Adds `compiler/tests/doc_invariants.rs` (per-invariant tests + ruling-name uniqueness tests) + `compiler/tests/common/mod.rs` (`recursive_grep` with extension-list and skip-list parameters, `has_word_boundary_match`, `filter_carveouts` per §5.1). Adds `toml = "0.8"` to `[dev-dependencies]` in `compiler/Cargo.toml` (the only `Cargo.toml` change in this PR — justified at §3.5 / §5.1).
-**Files**: `compiler/tests/doc_invariants.rs` (new), `compiler/tests/common/mod.rs` (new), `compiler/Cargo.toml` (dev-dep).
+**Scope**: Land the §5.1 guard tests. Adds `compiler/tests/doc_invariants.rs` (per-invariant tests + ruling-name uniqueness tests) + `compiler/tests/common/mod.rs` (`recursive_grep` with extension-list and skip-list parameters, `has_word_boundary_match`, `filter_carveouts` per §5.1). The tests deserialize the carve-out registry through the existing `toml` dev-dep in `compiler/Cargo.toml`.
+**Files**: `compiler/tests/doc_invariants.rs` (new), `compiler/tests/common/mod.rs` (new).
 **Dependencies**: Chunks 2 (registry exists) + 3, 4, 5, 6, 7a–7g (registry populated). Cannot land before all of Group B.
 **Consumer**: CI runs the new tests on every commit forever; chunk 9 hook references the registry the tests load.
 
@@ -479,7 +470,6 @@ Sub-commits 1a–1f share scope, dependencies, consumer, and verification — on
 - [ ] One test per row in §3.1's invariant table.
 - [ ] One ruling-name uniqueness test per row of §3.3's ruling-name table.
 - [ ] Single `const CARVEOUT_REGISTRY: &str = "tests/doc_invariants_carveouts.toml";` declaration; all tests load the registry through it.
-- [ ] `compiler/Cargo.toml` `[dev-dependencies]` has `toml = "0.8"`; no other Cargo.toml changes.
 
 **Critical checkpoint after 8**: full test suite green; registry-driven enforcement is the audit's load-bearing artifact going forward.
 
@@ -556,7 +546,7 @@ Add `compiler/tests/doc_invariants.rs` with a test per invariant class. Each tes
   - (iii) **Self-skip parameterized.** Takes a skip-list of basenames so a test file containing the retirement-pattern string literals doesn't self-match: `recursive_grep(root, pattern, &["rs", "md"], &["doc_invariants.rs"])`.
 - **Word-boundary handling.** Substring search can't express `\b...\b` directly. For invariants where word boundaries matter (e.g., distinguishing `img_data` the retired field from `sprite.img_data()` the current accessor), implement a small `has_word_boundary_match(line: &str, needle: &str) -> bool` helper using `char::is_alphanumeric` (or `_`) checks on the byte before/after the substring match. The helper lives in the same shared `tests/common/` module.
 - **Carve-out registry.** `filter_carveouts(hits, registry_path)` deserializes the TOML registry (§3.5) into `Vec<CarveOut>` via `serde::Deserialize`, then drops any `Hit` where `(hit.path, hit.line)` matches a registry entry. The registry path is a single `const CARVEOUT_REGISTRY: &str = "tests/doc_invariants_carveouts.toml";` declared once at the top of `doc_invariants.rs`. Like the search helper, the path is resolved via `crate_dir().join(CARVEOUT_REGISTRY)` so it works regardless of CWD.
-- **Dependency.** Add `toml = "0.8"` to `[dev-dependencies]` (justified at §3.5 above; one-line addition, contained to the §5.1 commit).
+- **Dependency.** Chunk 8's tests deserialize the registry through the existing `toml` dev-dep in `compiler/Cargo.toml` (justified at §3.5 above).
 
 Example test (rewritten against the discipline above):
 
@@ -660,7 +650,7 @@ The plan ships ready to execute — no remaining ambiguity blocks §3-§5.
 - The carve-out registry (`compiler/tests/doc_invariants_carveouts.toml` per §3.5 working path) exists, lists every carve-out with stable rationale + invariant cite + (file, line, pattern) triple, and is referenced by every guard test through one constant.
 - `CLAUDE.md` carries the §5.3 retirement-discipline rule under `## Working principles` and a row in the source-of-truth table for the carve-out registry.
 - `.claude/settings.json` has a PreToolUse hook on `Edit`/`Write` for the doc surface (per §5.2 layer 3) that surfaces a **summary** of the carve-out registry (count + one-line index + pointer to the TOML file) into the conversation — not the full file contents per the §5.2 context-bound discipline.
-- `compiler/Cargo.toml` `[dev-dependencies]` includes `toml = "0.8"` (justified at §3.5 / §5.1 — needed by the carve-out-registry parser; the only Cargo.toml change in this PR).
+- `compiler/Cargo.toml` `[dev-dependencies]` includes `toml = "0.8"` (justified at §3.5 — needed by the carve-out-registry well-formedness gate and the §5.1 guard tests).
 - `compiler/tests/common/mod.rs` exists and exposes `recursive_grep` (with extension-list and skip-list parameters) + `has_word_boundary_match` + `filter_carveouts` per §5.1.
 - `personas/testing.md` has zero fenced ```rust blocks in Phases 1-5 of the TDD-progression chapter — `awk '/^## TDD Progression/,/^## Test Design Principles/' personas/testing.md | grep -c '^```rust'` returns 0 (per §3.4 "delete API-call examples"). Code samples elsewhere (Test Design Principles + downstream sections) remain.
 
