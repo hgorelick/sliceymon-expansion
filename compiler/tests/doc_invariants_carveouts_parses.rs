@@ -14,10 +14,12 @@
 //!      `[[carveout]]` tables).
 //!   3. If `carveout` is present, it is an array.
 //!
-//! Per-entry schema validation (path / line / pattern / rationale /
-//! invariant_not_violated) is intentionally NOT in this gate — that is
-//! the future guard test's job. This gate covers only the structural
-//! invariants the scaffold itself enforces.
+//! Per-entry schema validation against the scaffold's field set is
+//! intentionally NOT in this gate — that is the future guard test's
+//! job. This gate covers only the structural invariants the scaffold
+//! itself enforces; field-name authority is the scaffold (`tests/
+//! doc_invariants_carveouts.toml`'s example `[[carveout]]` block),
+//! re-enumerating it here would create a second canonical surface.
 
 use std::fs;
 use std::path::PathBuf;
@@ -48,8 +50,9 @@ fn doc_invariants_carveouts_toml_is_well_formed() {
     // arrays-of-strings or arrays-of-ints, which break the schema's
     // table-per-entry contract that the future doc-invariant guard test
     // (per-entry deserialize via `serde::Deserialize<CarveOut>`) depends
-    // on. Empty array (this PR's state) is allowed — that's how the
-    // registry grows.
+    // on. An empty `carveout` array is allowed — that's how the
+    // registry starts and how it stays valid before any entry is
+    // appended.
     if let Some(c) = parsed.get("carveout") {
         let arr = c.as_array().unwrap_or_else(|| {
             panic!("`carveout` top-level key must be an array-of-tables, got {c:?}")
