@@ -49,3 +49,12 @@
 #   - The `invariant_not_violated` field cites the underlying authority
 #     directly — SPEC.md section, file:line, or test ID — never a
 #     plan-section reference.
+#   - When the load-bearing clause from the cited authority does not fit
+#     on one line, use a TOML multi-line basic string (triple-quoted)
+#     for `invariant_not_violated` so the verbatim quote is preserved
+#     without truncation. Never use `...` ellipsis to compress the
+#     quote — eliding into the middle of a clause loses the very
+#     content the carve-out is meant to protect. If a quote is so long
+#     that even multi-line form is unwieldy, narrow the carve-out's
+#     scope (cite a sub-clause that still resolves the rationale) or
+#     split into two carve-outs at adjacent file:line sites.
