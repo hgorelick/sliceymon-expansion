@@ -16,13 +16,16 @@
 //!
 //!   1. The file parses as TOML.
 //!   2. The only permitted top-level key is `carveout` (an array of
-//!      `[[carveout]]` tables).
-//!   3. If `carveout` is present, it is an array of tables; required
-//!      string fields `path` and `pattern` are present on every entry
-//!      (missing or non-string is "unknown shape, fail fast" rather
-//!      than a silent skip). Field-shape validation against the rest
-//!      of the schema (`rationale`, `invariant_not_violated`) is the
-//!      future cross-grep guard test's job.
+//!      tables — TOML's `[[carveout]]` array-of-tables form is the
+//!      canonical surface syntax in the scaffold; the inline form
+//!      `carveout = [{ ... }]` parses to the same value and is
+//!      accepted but discouraged in the append-discipline).
+//!   3. If `carveout` is present, every entry is a table with
+//!      required string fields `path` and `pattern` present
+//!      (missing, non-string, or empty is "unknown shape, fail fast"
+//!      rather than a silent skip). Field-shape validation for
+//!      remaining fields per the scaffold's schema-by-construction
+//!      example block is the future cross-grep guard test's job.
 //!   4. **Per-file pattern uniqueness.** Every entry's `pattern` MUST
 //!      appear EXACTLY ONCE in the file at `path`. Per-file, not
 //!      global — identical patterns across distinct `path` values are
@@ -30,10 +33,14 @@
 //!      matches happen to land on the same line are also legitimate
 //!      (addressing is per-pattern, not per-line, because line numbers
 //!      are deliberately not stored).
-//!   5. **Pair uniqueness.** No two entries share a `(path, pattern)`
-//!      tuple — a duplicate would attach two contradictory rationales
-//!      to the same carved-out site, silent rot the per-entry count
-//!      check cannot detect (each entry's count is 1 independently).
+//!   5. **Pair uniqueness on canonical paths.** No two entries share
+//!      a `(canonicalized_path, pattern)` tuple — a duplicate would
+//!      attach two contradictory rationales to the same carved-out
+//!      site, silent rot the per-entry count check cannot detect
+//!      (each entry's count is 1 independently). The path is
+//!      canonicalized BEFORE the ledger lookup so two entries
+//!      addressing the same file via different spellings (e.g.
+//!      `SPEC.md` vs `./SPEC.md`) collapse to one canonical key.
 //!   6. **Repo-root containment.** Every `path`, after canonicalization
 //!      from the repo root, stays inside the repo. Absolute paths and
 //!      `..`-traversal that escapes the repo root are rejected so the
@@ -94,21 +101,25 @@ fn doc_invariants_carveouts_registry_is_well_formed_and_addressing_is_sound() {
         let arr = c.as_array().unwrap_or_else(|| {
             panic!("`carveout` top-level key must be an array-of-tables, got {c:?}")
         });
-        // Pair-uniqueness ledger: two entries sharing a `(path, pattern)`
-        // tuple would let the same carved-out site carry two
-        // potentially-contradictory rationales — silent rot the per-entry
-        // count==1 check cannot see (each entry's count is 1 independently).
-        let mut seen: HashSet<(&str, &str)> = HashSet::new();
+        // Pair-uniqueness ledger keyed on (canonical_path, pattern).
+        // Two entries sharing this key would attach contradictory
+        // rationales to the same carved-out site — silent rot the
+        // per-entry count==1 check cannot see (each entry's count is 1
+        // independently). Keying on the canonicalized path collapses
+        // spelling variants (`SPEC.md` vs `./SPEC.md` vs `compiler/../SPEC.md`)
+        // to one identity, so the duplicate cannot be smuggled in by
+        // path-spelling drift.
+        let mut seen: HashSet<(PathBuf, String)> = HashSet::new();
         for (i, entry) in arr.iter().enumerate() {
             let table = entry.as_table().unwrap_or_else(|| {
                 panic!("carveout[{i}] must be a `[[carveout]]` table, got {entry:?}")
             });
 
             // `path` and `pattern` are the two fields the addressing
-            // contract reads. Missing or non-string is "unknown shape,
-            // fail fast" — not a silent skip. The remaining schema
-            // fields (`rationale`, `invariant_not_violated`) are the
-            // future cross-grep guard test's responsibility.
+            // contract reads. Missing, non-string, or empty is
+            // "unknown shape, fail fast" — not a silent skip. Remaining
+            // schema fields are validated against the scaffold's
+            // schema-by-construction by the future cross-grep guard test.
             let entry_path = table
                 .get("path")
                 .unwrap_or_else(|| panic!("carveout[{i}] missing required `path` field"))
@@ -126,15 +137,18 @@ fn doc_invariants_carveouts_registry_is_well_formed_and_addressing_is_sound() {
                         table.get("pattern")
                     )
                 });
-
-            // Pair uniqueness: no two entries may share `(path, pattern)`.
+            // Empty-pattern reject. `String::matches("")` returns one
+            // match per byte boundary, so an empty pattern would
+            // incidentally fire the count==1 assert below with a
+            // count proportional to the file size — the panic message
+            // would name the wrong defect ("observed N occurrences" for
+            // a pattern that matches nothing meaningful). Catch the real
+            // defect ("pattern field is empty") here, before the count
+            // check, so the diagnostic points at the actual mistake.
             assert!(
-                seen.insert((entry_path, entry_pattern)),
-                "carveout[{i}] duplicates an earlier entry: \
-                 `(path = {entry_path:?}, pattern = {entry_pattern:?})` is already registered. \
-                 Two entries claiming the same site can carry contradictory rationales — \
-                 collapse them into one entry, or differentiate by lengthening one `pattern` \
-                 to address a sibling site."
+                !entry_pattern.is_empty(),
+                "carveout[{i}] `pattern` must be a non-empty literal substring \
+                 (an empty pattern matches every byte position and is not an addressing key)"
             );
 
             // Repo-root containment, two checks. (a) Reject absolute
@@ -166,16 +180,29 @@ fn doc_invariants_carveouts_registry_is_well_formed_and_addressing_is_sound() {
                 repo_root_canonical.display()
             );
 
+            // Pair uniqueness on canonical path. Performed AFTER
+            // canonicalize so the ledger key is the resolved file
+            // identity, not the author-supplied spelling — two entries
+            // addressing the same canonical site via different path
+            // spellings collapse to one key and the duplicate fires.
+            assert!(
+                seen.insert((canonical_target.clone(), entry_pattern.to_string())),
+                "carveout[{i}] duplicates an earlier entry on canonical path: \
+                 `(path = {entry_path:?}, pattern = {entry_pattern:?})` resolves to {} which \
+                 is already registered with the same pattern. Two entries claiming the same \
+                 site can carry contradictory rationales — collapse them into one entry, or \
+                 differentiate by lengthening one `pattern` to address a sibling site.",
+                canonical_target.display()
+            );
+
             // Per-file uniqueness: count occurrences of `pattern` as a
             // case-sensitive literal substring of the file at `path`.
-            // Anything other than exactly 1 is a guard-test failure —
-            // count == 0 means the pattern was removed (carve-out is
-            // dead) and count >= 2 means the pattern collided or grew
-            // ambiguous; in either case the carve-out's locator is
-            // unsound and the author must restore the line, lengthen
-            // the pattern, or drop the entry. Reading via the canonical
-            // path so the panic-context display matches what the
-            // containment check verified above.
+            // count != 1 is a guard-test failure (the scaffold's
+            // append-discipline at tests/doc_invariants_carveouts.toml
+            // enumerates the failure modes uniqueness catches and the
+            // remediation in each case). Reading via the canonical path
+            // so the panic-context display matches what the containment
+            // check verified above.
             let target_contents = fs::read_to_string(&canonical_target).unwrap_or_else(|e| {
                 panic!(
                     "carveout[{i}] `path = {entry_path:?}` could not be read at {}: {e}",
