@@ -79,11 +79,15 @@
 # Each entry below carves out a SPEC.md site that satisfies the per-file
 # `pattern`-uniqueness contract: a deliberate negation ("There is no
 # separate validator pass to bolt on later.") and a glossary explicit-NOT-IR
-# entry ("Capturable / Legendary"). Row 1 of §3.2's grep set also surfaces
-# `sprite.img_data()` accessor calls in SPEC.md, but those are pre-excluded
-# per the §5.1 pre-grep-parenthetical-exclusion rule (the parenthetical is
-# part of the grep specification, not a registry carve-out), so those sites
-# do not need entries here.
+# entry ("Capturable / Legendary"). The doc-violation grep set also surfaces
+# `sprite.img_data()` accessor calls at SPEC.md:51 and :174, but the audit
+# grep that surfaces them was specified to exclude the accessor pattern
+# `sprite.img_data()` (the exclusion is part of how the grep is *written*,
+# not a registry carve-out), so those sites do not need entries here. The
+# accessor `sprite.img_data()` is the current API surface (verified against
+# `compiler/src/ir/mod.rs` and the `sprite: SpriteId` field shape per the
+# `serde_breaking_change_on_sprite_shape` ruling); the retired top-level
+# `img_data` field is what the audit grep was written to find.
 
 [[carveout]]
 path                   = "SPEC.md"
