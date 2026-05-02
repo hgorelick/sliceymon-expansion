@@ -210,7 +210,7 @@ Every hit in `.doc_audit_violations.txt` is either a **fix** or a **carve-out**.
 
 **Registry format**. The registry is **TOML** at `compiler/tests/doc_invariants_carveouts.toml`. The schema is documented by construction in the scaffold's header comment (the example `[[carveout]]` block at the top of the file IS the schema, with field meanings inline as comments above each field, plus the append-discipline bullets at the bottom). The plan does not re-list the field set; the scaffold is the implementation form and the canonical authority.
 
-The load-bearing addressing contract is `pattern`-uniqueness: every `[[carveout]]` entry's `pattern` MUST appear **exactly once** in the file at `path`. Uniqueness — not a recorded line number — locates the carved-out site. The scaffold's append-discipline (in `compiler/tests/doc_invariants_carveouts.toml`) is the canonical enumeration of the failure modes uniqueness catches and the remediation in each case; the gate's per-entry uniqueness assertion fires whenever any of those modes surfaces. Under uniqueness addressing, edit-induced line-number drift is moot because line numbers are not stored.
+The load-bearing addressing contract is `pattern`-uniqueness — the per-file `pattern` must appear exactly once at the registered `path`, and that unique match IS the carved-out site. The scaffold's append-discipline (`compiler/tests/doc_invariants_carveouts.toml`) is canonical for the failure-mode enumeration and remediation; the gate's per-entry uniqueness assertion fires whenever any mode surfaces.
 
 TOML is chosen because (a) the schema is rigid enough that the §5.1 guard tests can deserialize it with `serde::Deserialize` rather than hand-parsing markdown, (b) the pattern-uniqueness invariant is mechanically checkable per entry — `fs::read_to_string(path)?.matches(pattern).count() == 1` — and any failure of the per-entry uniqueness check surfaces as a guard-test failure rather than silent rot. The carve-out registry needs a TOML well-formedness gate from the moment it ships, otherwise structural regressions to the fixture (invalid TOML, broken example schema, stray top-level key) land silently — `cargo test` cannot parse a `.toml` file without the dep. So `toml = "0.8"` belongs in `[dev-dependencies]` alongside the registry scaffold, consumed first by the well-formedness gate and then by the §5.1 guard tests. Adding a dev-dep is **outside the doc-only PR boundary** (§0/§8) — it's the one exception, justified by the well-formedness gate (and, later, the §5.1 guard tests) being load-bearing for the audit's structural-enforcement story. The §8 anti-pattern "no source-code behavior changes" stands; a `[dev-dependencies]` addition does not change runtime behavior.
 
@@ -364,7 +364,7 @@ Sub-commits 1a–1f share scope, dependencies, consumer, and verification — on
 **Verification**:
 - [ ] File parses as valid TOML.
 - [ ] Comment header matches §3.5 schema.
-- [ ] `cargo test --test doc_invariants_carveouts_parses` is green; the gate fires on every contract clause its docstring enumerates (verified by the gate's own adversarial probes — see commit history of `compiler/tests/doc_invariants_carveouts_parses.rs`).
+- [ ] `cargo test --test doc_invariants_carveouts_parses` is green against the empty scaffold and against any chunks 3–7 append.
 
 ---
 
