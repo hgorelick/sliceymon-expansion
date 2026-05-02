@@ -3,10 +3,10 @@
 # A carve-out is a deliberate, stable-rationale exception: text that the
 # doc-violation grep set hits but does not actually contradict the
 # protecting code-side invariant. Examples: a deliberate negation
-# (SPEC.md:59 "There is no separate validator pass to bolt on later." —
-# the very word being negated), or a glossary entry that explicitly
-# marks itself as game-design vocabulary, not an IR identifier (SPEC.md:353
-# "Capturable / Legendary").
+# ("There is no separate validator pass to bolt on later." — the very
+# word being negated), or a glossary entry that explicitly marks itself
+# as game-design vocabulary, not an IR identifier ("Capturable /
+# Legendary").
 #
 # Every grep hit is either a fix or a carve-out. If a hit cannot be
 # paired with a stable rationale that survives hostile re-prosecution,
@@ -18,17 +18,20 @@
 #   [[carveout]]
 #   # repo-relative path to the file the grep hit
 #   path                   = "SPEC.md"
-#   # 1-indexed line number where the pattern appears
-#   line                   = 59
-#   # a case-sensitive literal substring of the line at path:line — no
-#   # regex, no whole-word, no anchoring (see the locked contract below)
+#   # a case-sensitive literal substring that appears EXACTLY ONCE in
+#   # the file at `path`. Uniqueness within the file is the load-bearing
+#   # contract: it locates the carved-out site without a line number,
+#   # and silent collision (the same pattern accidentally matching an
+#   # unrelated line) is detected as a uniqueness violation rather than
+#   # a false-positive whitelist. No regex, no whole-word, no anchoring
+#   # (see the append-discipline below).
 #   pattern                = "validator pass"
 #   # one-line stable rationale a future reviewer accepts
 #   rationale              = "Deliberate negation — the word is the very thing being negated"
 #   # the protecting code-side invariant this carve-out does not contradict,
 #   # named with enough specificity to disambiguate from neighbors. Quote
 #   # the underlying authority verbatim where the field can fit it on one line.
-#   invariant_not_violated = "per SPEC.md:59: 'There is no separate validator pass to bolt on later.'"
+#   invariant_not_violated = "per SPEC.md: 'There is no separate validator pass to bolt on later.'"
 #
 # This file is an append-only fixture for a future doc-invariant guard test
 # that will deserialize it via serde::Deserialize and use it to filter the
@@ -36,19 +39,31 @@
 #
 # Append-discipline:
 #   - Each carve-out is its own [[carveout]] table; never share a single
-#     entry across multiple file:line sites by reusing one rationale.
-#   - The `pattern` field must be a literal, case-sensitive substring of
-#     the line at `path`:`line`. The guard test reads that line and
-#     asserts `pattern` is contained within it — no regex, no whole-word,
-#     no anchoring — so both the carve-out author and the guard test
-#     agree on what "matches" means. Line-number drift surfaces as a test
-#     failure rather than silent rot.
+#     entry across multiple sites by reusing one rationale.
+#   - The `pattern` field must be a case-sensitive literal substring that
+#     appears **exactly once** in the file at `path`. The guard test reads
+#     `path`, counts occurrences of `pattern`, and treats the unique
+#     matching line as the carved-out site (count != 1 is a guard-test
+#     failure). No regex, no whole-word, no anchoring — author and guard
+#     test agree on what "matches" means. The uniqueness invariant catches
+#     three failure modes that a line-number-keyed entry could not:
+#     silent collision (count >= 2 — the pattern accidentally matches an
+#     unrelated line that should not be carved out), pattern removal by
+#     unrelated edit (count == 0 — the carved-out line was deleted, so
+#     the carve-out is dead and the author should remove it or restore
+#     the line), and too-short patterns that become ambiguous as the file
+#     grows (count >= 2). To regain uniqueness, lengthen the pattern by
+#     quoting more of the carved-out line.
 #   - File-wide blanket carve-outs are forbidden: a blanket would silently
 #     absorb future genuine violations of the same protected invariant,
-#     so each matched line gets its own entry.
+#     so each carved-out line gets its own entry. The uniqueness invariant
+#     above enforces this mechanically — a pattern that matches more than
+#     one line is rejected by the guard test.
 #   - The `invariant_not_violated` field cites the underlying authority
-#     directly — SPEC.md section, file:line, or test ID — never a
-#     plan-section reference.
+#     directly — SPEC.md section, file path, or test ID — never a
+#     plan-section reference. Line numbers in citations are optional
+#     reader-aids, not load-bearing: the registry locates the site via
+#     `pattern`, not via a line number.
 #   - When the load-bearing clause from the cited authority does not fit
 #     on one line, use a TOML multi-line basic string (triple-quoted)
 #     for `invariant_not_violated` so the verbatim quote is preserved
@@ -57,4 +72,31 @@
 #     content the carve-out is meant to protect. If a quote is so long
 #     that even multi-line form is unwieldy, narrow the carve-out's
 #     scope (cite a sub-clause that still resolves the rationale) or
-#     split into two carve-outs at adjacent file:line sites.
+#     split into two carve-outs at adjacent sites (each with its own
+#     unique `pattern`).
+
+# ---- SPEC.md carve-outs ----
+# Each entry below carves out a SPEC.md site that satisfies the per-file
+# `pattern`-uniqueness contract: a deliberate negation ("There is no
+# separate validator pass to bolt on later.") and a glossary explicit-NOT-IR
+# entry ("Capturable / Legendary"). The doc-violation grep set also surfaces
+# `sprite.img_data()` accessor calls at SPEC.md:51 and :174, but the audit
+# grep that surfaces them was specified to exclude the accessor pattern
+# `sprite.img_data()` (the exclusion is part of how the grep is *written*,
+# not a registry carve-out), so those sites do not need entries here. The
+# accessor `sprite.img_data()` is the current API surface (verified against
+# `compiler/src/ir/mod.rs` and the `sprite: SpriteId` field shape per the
+# `serde_breaking_change_on_sprite_shape` ruling); the retired top-level
+# `img_data` field is what the audit grep was written to find.
+
+[[carveout]]
+path                   = "SPEC.md"
+pattern                = "validator pass"
+rationale              = "Deliberate negation — the word is the very thing being negated"
+invariant_not_violated = "per SPEC.md: 'There is no separate validator pass to bolt on later.'"
+
+[[carveout]]
+path                   = "SPEC.md"
+pattern                = "Capturable / Legendary"
+rationale              = "Glossary entry explicitly marked as game-design vocabulary, NOT IR identifiers"
+invariant_not_violated = "per SPEC.md: 'NOT IR identifiers — the IR discriminator is `SummonTrigger::{SideUse, Cast}`.'"
