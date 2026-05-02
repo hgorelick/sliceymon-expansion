@@ -1,6 +1,6 @@
 # Documentation ↔ Invariant Audit (remaining work)
 
-> **Status.** Chunks 1, 1.5, 2, 3, 4 landed: §F-series and plan-section citation rewrites in `compiler/src/` + `compiler/tests/`, carve-out registry scaffold + well-formedness gate (`compiler/tests/doc_invariants_carveouts.toml` + `_parses.rs`), SPEC.md and CLAUDE.md sweeps with registry populated, and CLAUDE.md's §5.3 retirement-discipline rule + source-of-truth row.
+> **Status.** Chunks 1, 1.5, 2, 3, 4 landed: §F-series and plan-section citation rewrites in `compiler/src/` + `compiler/tests/`, carve-out registry scaffold + well-formedness gate (`compiler/tests/doc_invariants_carveouts.toml` + `_parses.rs`), SPEC.md sweep populated the registry (the two existing entries), CLAUDE.md sweep produced zero registry entries (no §3.2 patterns hit in CLAUDE.md), and CLAUDE.md's retirement-discipline rule (per §5.3) + source-of-truth row landed.
 >
 > **Scope reduction (this rewrite).** The original plan's Parallel Group B (chunks 5, 7a–7g — eight more persona files) and chunk 10 (`///` doc-comment mop-up) are withdrawn. Rationale at §1. The remaining work is three chunks: testing.md TDD-progression rewrite (own rationale, not audit-class), CI guard tests on a re-scoped surface, and the PreToolUse hook reminder layer.
 >
@@ -12,17 +12,17 @@
 
 **In scope:**
 - **Chunk 6** — Rewrite `personas/testing.md`'s TDD-progression chapter per §3.1 as workflow prose; delete Rust snippets that pin parser/builder API signatures. The lesson is the workflow (red-green-refactor); API-call examples rot every time a signature changes. This chunk's rationale is independent of the doc-audit class motivation — it's a separate active footgun.
-- **Chunk 8** — Land `compiler/tests/doc_invariants.rs` + `compiler/tests/common/mod.rs`. One test per §3.2 invariant class + one ruling-name uniqueness test per §3.3 ruling-name row. **Test surface is re-scoped to `SPEC.md`, `CLAUDE.md`, and `compiler/src/**/*.rs`** — not the persona files (per §6 decision 7's withdrawal of Group B).
+- **Chunk 8** — Land `compiler/tests/doc_invariants.rs` + `compiler/tests/common/mod.rs`. One test per §3.2 invariant class + one ruling-name uniqueness test per §3.3 ruling-name row. **Test surface is re-scoped to `SPEC.md`, `CLAUDE.md`, and `compiler/src/`** (the helper's extension parameter `["rs", "md"]` per §5.1 owns what files match under `compiler/src/`) — not the persona files (per §6 decision 7's withdrawal of Group B).
 - **Chunk 9** — Add the §5.2 layer-3 PreToolUse hook on `Edit`/`Write` for `personas/*.md`, `SPEC.md`, `CLAUDE.md` (HANDOFF.md excluded per ephemeral-file exclusion). Surfaces a summary (count + one-line index + pointer) of the carve-out registry; never the full TOML.
 
 **Withdrawn from scope (per §6 decision 7):**
-- **Chunks 5, 7a–7g** — `personas/{architecture,backend,frontend,code-reviewer,ai-development,slice-and-dice-design,security,README}.md` audit sweeps. Marginal find rate over the round-19-23 cumulative-class baseline is low; those rounds already swept these surfaces hard. The chunk 8 cross-tree grep targets `SPEC.md` + `CLAUDE.md` + `compiler/src/**/*.rs`, where retirements actually happen — persona drift not anchored to a `compiler/src/` retirement is rare. CLAUDE.md's §5.3 retirement-discipline rule (landed in chunk 4) makes future retirements a multi-step commitment that includes doc updates, so new persona drift is structurally bounded going forward.
+- **Chunks 5, 7a–7g** — `personas/{architecture,backend,frontend,code-reviewer,ai-development,slice-and-dice-design,security,README}.md` audit sweeps. Marginal find rate over the round-19-23 cumulative-class baseline is low; those rounds already swept these surfaces hard. The chunk 8 cross-tree grep targets `SPEC.md` + `CLAUDE.md` + `compiler/src/`, where retirements actually happen — persona drift not anchored to a `compiler/src/` retirement is rare. CLAUDE.md's retirement-discipline rule (per §5.3, landed in chunk 4) makes future retirements a multi-step commitment that includes doc updates, so new persona drift is structurally bounded going forward.
 - **Chunk 10 (`///` mop-up)** — Subsumed by chunk 8's cross-tree grep. The guard tests fire on `compiler/src/**/*.rs` `///` comments alongside markdown; any drift surfaces as a CI failure in the chunk that retires the identifier, not a separate manual sweep.
 
 **Tradeoff acknowledged.** A stale claim in `personas/{architecture,backend,frontend,code-reviewer,ai-development,slice-and-dice-design,security,README}.md` could slip into Claude's suggestions on a future task and cost a tribunal round before chunk 8 catches it on a code-side retirement. That cost is real but bounded; lower than the cost of auditing eight more persona files preemptively when the audit grep + carve-out registry already exist as reactive tools.
 
 **Out of scope (unchanged from original plan):**
-- Bucket-label asymmetry between xref's `"thief"` and emitter's `"Thief"` — chunk-8B obligation.
+- Bucket-label asymmetry between xref's `"thief"` and emitter's `"Thief"` — tracked separately.
 - Plan files under `plans/` — explicit CLAUDE.md carve-out.
 - `archive/pre-guide/`, `HANDOFF.md`.
 - The global `~/.claude/skills/review-pr` skill — project-local enforcement only.
@@ -68,7 +68,7 @@ The carve-out registry does not carry these as carve-outs after the rewrite — 
 
 ### 3.2 Invariant catalog (chunk 8 input)
 
-Chunk 8's per-invariant guard tests are derived from this catalog. One test per row, asserting zero hits across the re-scoped doc surface (SPEC.md + CLAUDE.md + `compiler/src/**/*.rs`) modulo carve-outs from the registry.
+Chunk 8's per-invariant guard tests are derived from this catalog. One test per row, asserting zero hits across the re-scoped doc surface (`SPEC.md` + `CLAUDE.md` + `compiler/src/`, with `recursive_grep`'s extension parameter `["rs", "md"]` per §5.1 owning what files match under `compiler/src/`) modulo carve-outs from the registry.
 
 | Class | Protecting invariant (code side) | Doc-violation grep |
 |-------|----------------------------------|--------------------|
@@ -78,7 +78,7 @@ Chunk 8's per-invariant guard tests are derived from this catalog. One test per 
 | `Validator` as pipeline stage / `textmod-compiler validate` CLI | `compiler/src/main.rs:15-51` Subcommand list; CLAUDE.md:12 negation; round-trip lives on `Check` | `rg -in 'textmod-compiler (validate\|verify\|run)\b'` |
 | External `sprites.json` / `SpriteMap` / `build(ir, sprites)` 2-arg signature | `compiler/src/lib.rs:26` `pub fn build(ir: &ModIR) -> Result<String, CompilerError>` (single arg); no `SpriteMap` | `rg -in 'build\(ir, sprites\|build_textmod\(.*sprites\|fn build.*sprites:'` |
 | Phantom WASM API `validate(input)` | No `pub fn validate` on `lib.rs`; semantic checks are `xref::check_references` | `rg -in 'fn validate\(\|validate_textmod\b'` |
-| Retired pre-§F4 top-level `img_data` / `sprite_name` fields | `compiler/src/ir/mod.rs:1908-1920` `serde_breaking_change_on_sprite_shape` negative-test guard; real shape is `sprite: SpriteId` accessed via `sprite.img_data()` | `rg -inE '\bimg_data\b\|\bsprite_name\b'` (excluding accessor pattern `sprite.img_data()` — pre-grep filter at the test grep site, not registry carve-out) |
+| Retired pre-§F4 top-level `img_data` / `sprite_name` fields | `compiler/src/ir/mod.rs:1895` `serde_breaking_change_on_sprite_shape` negative-test guard; real shape is `sprite: SpriteId` accessed via `sprite.img_data()` | `rg -inE '\bimg_data\b\|\bsprite_name\b'` (excluding accessor pattern `sprite.img_data()` — pre-grep filter at the test grep site, not registry carve-out) |
 | `xref` IS the validator — no separate pass | `compiler/src/lib.rs:12` exports `xref::check_references`; CLAUDE.md:12 | `rg -in '\bvalidator pass\b\|no separate validator'` (every hit is a deliberate-negation registry carve-out) |
 | §F-series source citations referencing plan-only sections | CLAUDE.md "plans go stale once executed" — source code MUST NOT cite plan-section IDs as durable references | `rg -nE '§F[0-9]+'` (zero hits expected post chunk 1; the test asserts the post-rewrite zero-hit state holds — surface is `DOC_SURFACE` per §5.1, named once at §1's chunk-8 entry, not re-listed per row) |
 | `§Chunk Na` / `plan §N` / direct-plan-filename source citations | Same protected invariant as §F-N; spelling differs | `rg -nE '§Chunk [0-9]+\|plan §[0-9]+\.[0-9]+\|plan §[0-9]+\b\|parent plan §[0-9]+\|PLATFORM_FOUNDATIONS_PLAN\.md\|AUTHORING_ERGONOMICS_PLAN\.md'` (zero hits expected post chunk 1.5 — surface is `DOC_SURFACE` per §5.1, same as the §F-N row above) |
@@ -132,7 +132,7 @@ Each chunk uses the persona-required template: Scope / Files / Dependencies / Co
 
 ### Chunk 8: Guard tests (re-scoped surface)
 
-**Scope.** Land `compiler/tests/doc_invariants.rs` + `compiler/tests/common/mod.rs`. One test per §3.2 invariant class; one ruling-name uniqueness test per §3.3 row. The test surface is `SPEC.md`, `CLAUDE.md`, and `compiler/src/**/*.rs` — **personas excluded** per §1's withdrawal of Group B. The `recursive_grep` helper takes parameterized roots, so a future scope expansion to `personas/` is a one-line change in `DOC_SURFACE`.
+**Scope.** Land `compiler/tests/doc_invariants.rs` + `compiler/tests/common/mod.rs`. One test per §3.2 invariant class; one ruling-name uniqueness test per §3.3 row. The test surface is `SPEC.md`, `CLAUDE.md`, and `compiler/src/` (extensions filtered to `["rs", "md"]` by `recursive_grep` per §5.1) — **personas excluded** per §1's withdrawal of Group B. The `recursive_grep` helper takes parameterized roots, so a future scope expansion to `personas/` is a one-line change in `DOC_SURFACE`.
 
 **Files.** `compiler/tests/doc_invariants.rs` (new), `compiler/tests/common/mod.rs` (new).
 
@@ -237,7 +237,7 @@ fn no_doc_references_to_retired_img_data_field() {
         violations.is_empty(),
         "Doc reference to the retired top-level img_data/sprite_name field. \
          Real shape: sprite: SpriteId per compiler/src/ir/mod.rs:574; accessor \
-         is sprite.img_data() per :1885. Negative-test guard at :1908-1920 \
+         is sprite.img_data() per :1885. Negative-test guard at :1895 \
          requires legacy JSON to fail deserialization.\n\n\
          Violations:\n{:#?}",
         violations,
@@ -247,7 +247,7 @@ fn no_doc_references_to_retired_img_data_field() {
 
 One such test per row in §3.2. The test catalog is the audit's load-bearing artifact.
 
-**Ruling-name uniqueness guard.** Per §3.3, the canonical datestamped name (e.g., `"no legacy back-compat" ruling on sprite shape`) is the load-bearing identifier. Add one guard test per ruling-name string asserting it appears nowhere in the doc surface OR `compiler/src/**/*.rs` outside of citations of its protected invariant (the carve-out registry whitelists legitimate citations). Date alone repeats across rulings (multiple decisions landed 2026-04-20 and 2026-04-22), so the name is what makes the handle stable.
+**Ruling-name uniqueness guard.** Per §3.3, the canonical datestamped name (e.g., `"no legacy back-compat" ruling on sprite shape`) is the load-bearing identifier. Add one guard test per ruling-name string asserting it appears nowhere in the doc surface (`SPEC.md` + `CLAUDE.md` + `compiler/src/`, extensions filtered to `["rs", "md"]` per §5.1) outside of citations of its protected invariant (the carve-out registry whitelists legitimate citations). Date alone repeats across rulings (multiple decisions landed 2026-04-20 and 2026-04-22), so the name is what makes the handle stable.
 
 ### 5.2 Enforcement layers (additive)
 
@@ -274,14 +274,14 @@ This rule + chunk 8's guard tests mean a future identifier retirement either shi
 
 Decisions 1–6 from the original plan landed in chunks 1–4 and are recorded in commit messages on `main`. The new decision driving this rewrite:
 
-7. **Group B (chunks 5, 7a–7g) and chunk 10 withdrawn.** The marginal find rate over the round-19-23 cumulative-class baseline is low; rounds 19-23 already swept persona surfaces hard. The structural lock-in (chunk 8) targets `SPEC.md` + `CLAUDE.md` + `compiler/src/**/*.rs` — the surfaces where retirements actually originate. Future persona drift not anchored to a `compiler/src/` retirement is rare and bounded by CLAUDE.md's §5.3 rule. Tradeoff acknowledged: a stale persona claim could slip through and cost a tribunal round. That cost is bounded; lower than the cost of auditing eight persona files preemptively. Rationale: `recursive_grep` is parameterized, so extending `DOC_SURFACE` is a one-line change if a future audit revisits Group B.
+7. **Group B (chunks 5, 7a–7g) and chunk 10 withdrawn.** The marginal find rate over the round-19-23 cumulative-class baseline is low; rounds 19-23 already swept persona surfaces hard. The structural lock-in (chunk 8) targets `SPEC.md` + `CLAUDE.md` + `compiler/src/` — the surfaces where retirements actually originate. Future persona drift not anchored to a `compiler/src/` retirement is rare and bounded by CLAUDE.md's retirement-discipline rule (per §5.3). Tradeoff acknowledged: a stale persona claim could slip through and cost a tribunal round. That cost is bounded; lower than the cost of auditing eight persona files preemptively. Rationale: `recursive_grep` is parameterized, so extending `DOC_SURFACE` is a one-line change if a future audit revisits Group B.
 
 ## 7. Acceptance criteria
 
 - `cargo test --test doc_invariants` passes — every §3.2 invariant test green, every §3.3 ruling-name uniqueness test green.
 - `cargo test` (full suite) passes — no regressions vs. pre-chunk-8 baseline.
 - `cargo run --example roundtrip_diag` passes (4× ROUNDTRIP OK) — proves the audit didn't accidentally touch behavior.
-- `personas/testing.md` has zero fenced ```rust blocks in Phases 1-5 of the TDD-progression chapter — `awk '/^## TDD Progression/,/^## Test Design Principles/' personas/testing.md | grep -c '^```rust'` returns 0. Code samples elsewhere remain.
+- `personas/testing.md` has zero fenced ```rust blocks in the TDD-progression chapter (every row of §3.1's table, including the `assert_ir_equal` description row, per §4 chunk 6 scope) — `awk '/^## TDD Progression/,/^## Test Design Principles/' personas/testing.md | grep -c '^```rust'` returns 0. Code samples elsewhere remain.
 - `.claude/settings.json` has a PreToolUse hook on `Edit`/`Write` for `personas/*.md`, `SPEC.md`, `CLAUDE.md` that surfaces a summary of the carve-out registry — not the full file contents.
 - `compiler/tests/common/mod.rs` exists and exposes `recursive_grep` (with extension-list and skip-list parameters) + `has_word_boundary_match` + `filter_carveouts`.
 - `compiler/tests/doc_invariants.rs` `DOC_SURFACE` constant scopes to `SPEC.md` + `CLAUDE.md` + `compiler/src/`. The site comment cites §1's Group B withdrawal so a future scope flip is a one-line change.

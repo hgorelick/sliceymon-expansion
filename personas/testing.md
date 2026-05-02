@@ -34,25 +34,26 @@ Write a failing test that takes a single modifier line copied verbatim from a wo
 
 ### Phase 2: Hero Parser
 
-Write a failing test that takes a sample hero modifier line, parses it to IR, and asserts the IR has exactly five tiers — the T1, T2A, T2B, T3A, T3B progression every hero in the corpus follows. Watch it fail. Implement until it passes. Add a second test asserting tier-by-tier HP values match what the line encodes; anchor the expected values to the working-mod source line so the assertion is grounded in format truth, not implementation choice. Then a coverage test: parse every hero in a working mod and assert every tier carries a non-empty face ID and a non-empty hero name, with diagnostic messages that name the hero and tier index when something is empty.
+Write a failing test that takes a sample hero modifier line copied verbatim from a working mod, parses it to IR, and asserts the IR encodes that line's blocks — block count, per-block face ID, per-block hero name. Anchor expected values to the source line, not to a corpus universal: hero shape varies across the corpus (legendaries differ from branching evolutions; some entries collapse to fewer blocks). The lesson is "the test asserts what the source line encodes," not "every hero has shape X." Watch it fail. Implement until it passes. Add a second test asserting per-block HP values match what the line encodes; anchor the expected values to the working-mod source line so the assertion is grounded in format truth, not implementation choice. Then a coverage test: parse every hero in a working mod and assert every block carries a non-empty face ID and a non-empty hero name, with diagnostic messages that name the hero and block index when something is empty.
 
 ### Phase 3: Builder / Emitter
 
-Write three failing tests that emit a hero from IR back to textmod and assert the structural invariants `reference/textmod_guide.md` requires:
+Write three failing tests that emit a hero from IR back to textmod and assert the structural invariants the project requires:
 
-1. **Parentheses balance.** Walk the emitted string and assert depth returns to zero at end of line. The guide makes this non-negotiable, and the property is reproducible against any working-mod hero line.
-2. **Tier separators at depth zero.** The `+` character that separates tier segments must sit outside any parenthetical group. Walk the string while tracking depth; every `+` encountered must be at depth 0.
-3. **Hero name is last in each tier segment.** Split the emitted hero at depth-zero `+` boundaries; in each segment, the hero-name property must be the final property — nothing follows it. The guide is explicit about this ordering, and emitter mistakes here corrupt the textmod silently because the game still loads it.
+1. **Parentheses balance.** Walk the emitted string and assert depth returns to zero at end of line. SPEC.md formalizes the builder's "parens balanced by construction" guarantee; the property is reproducible against any working-mod hero line.
+2. **Tier separators at depth zero.** The `+` character that separates tier segments must sit outside any parenthetical group. SPEC.md's tier glossary formalizes this: tiers are "separated by `+` at depth 0 in the modifier." Walk the string while tracking depth; every `+` encountered must be at depth 0.
+3. **Hero name is last in each tier segment.** Split the emitted hero at depth-zero `+` boundaries; in each segment, the hero-name property must be the final property — nothing follows it. The corpus is uniform on this ordering across all four working mods (neither SPEC nor the textmod guide formalizes it, so the corpus is the authority); emitter mistakes here corrupt the textmod silently because the game still loads it.
 
 Implement the emitter until all three pass. The tests target output *shape*, not emitter internals — they will catch any future emitter regression that breaks the format, regardless of how the emitter is structured.
 
-### Phase 4: Character Selection + Ditto + ReplicaItems + Monsters
+### Phase 4: Cross-Reference Modifiers + Sub-Collection Round-Trips
 
-Each of these subsystems consumes IR and produces a textmod fragment with structural obligations the game enforces. Write a test per subsystem that takes an already-parsed working mod's IR, runs the subsystem, and asserts the structural guarantee holds:
+Some modifiers don't carry their content directly — they reference IR built elsewhere in the mod. Character selection enumerates the hero pool's colors. Ditto names every T3 form in the roster. The general invariant is **a modifier that cross-references hero IR must preserve its referenced set under round-trip**: round-tripping the mod cannot silently drop a referenced hero, color, or form. Write a test per cross-reference modifier present in the working mods, taking the parsed IR, generating the modifier, and asserting the cross-reference set equals the corresponding IR set:
 
-- **Character selection.** Every hero color present in the IR must appear in the generated character-select fragment. The game crashes when a hero's color is missing.
-- **Ditto.** Every hero's T3 form must be referenced in the generated Ditto modifier — Ditto copies from the full T3 roster, so a missing entry silently shrinks Ditto's pool.
-- **ReplicaItems / Monsters.** Round-trip the sub-collection individually: parse a working mod, emit, parse the emission, and walk the resulting collection asserting every item is preserved with its trigger, target, and structural payload intact. Round-tripping the *individual sub-collection* surfaces bugs that whole-mod IR equality can mask when the global structure matches but data inside an item is lost.
+- **Character selection.** Every hero color present in the IR appears in the generated character-select fragment. The game crashes when a hero's color is missing.
+- **Ditto** (sliceymon-only). Every hero's T3 form is referenced in the generated Ditto modifier — Ditto copies from the full T3 roster, so a missing entry silently shrinks Ditto's pool. This test exists to prove the system can parse and reproduce the original sliceymon mod faithfully; Ditto is not a forever-feature of the format, but it's part of the corpus the round-trip oracle has to handle.
+
+For sub-collections that carry their own content (replica items, monsters), the test shape is different: round-trip the sub-collection individually — parse a working mod, emit, parse the emission, and walk the resulting collection asserting every item is preserved with its trigger, target, and structural payload intact. Round-tripping the *individual sub-collection* surfaces bugs that whole-mod IR equality can mask when the global structure matches but data inside an item is lost.
 
 Implement each until passing. Diagnostic messages must name the hero or item at fault on failure — a Ditto test that says "missing T3 for 'Charizard'" is debuggable; "Ditto wrong" is not.
 
