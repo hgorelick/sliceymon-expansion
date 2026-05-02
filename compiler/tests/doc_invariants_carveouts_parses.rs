@@ -39,15 +39,22 @@
 //!      site, silent rot the per-entry count check cannot detect
 //!      (each entry's count is 1 independently). The path is
 //!      canonicalized BEFORE the ledger lookup so two entries
-//!      addressing the same file via different spellings (e.g.
-//!      `SPEC.md` vs `./SPEC.md`) collapse to one canonical key.
+//!      addressing the same file via different spellings collapse to
+//!      one canonical key: segment-syntax variants (`SPEC.md` vs
+//!      `./SPEC.md` vs `compiler/../SPEC.md`) AND case-only spellings
+//!      on case-insensitive filesystems (macOS APFS-default,
+//!      NTFS-default), because `Path::canonicalize` resolves to the
+//!      on-disk leaf-name spelling — `path = "spec.md"` and `path =
+//!      "SPEC.md"` canonicalize to the same `PathBuf` when the file's
+//!      actual on-disk name is `SPEC.md`, so the duplicate cannot be
+//!      smuggled in by path-spelling drift.
 //!   6. **Repo-root containment.** Every `path`, after canonicalization
 //!      from the repo root, stays inside the repo. Absolute paths and
 //!      `..`-traversal that escapes the repo root are rejected so the
-//!      gate's source-vs-registry check cannot silently reference a
-//!      file outside the audit's scope (a registry entry whose
-//!      uniqueness "evidence" is bytes the audit doesn't own would
-//!      defeat the contract).
+//!      gate's per-file uniqueness count is taken against bytes inside
+//!      the repo (a registry entry whose uniqueness "evidence" is
+//!      bytes the audit doesn't own would defeat the contract; chunk
+//!      8's cross-grep guard then inherits that guarantee).
 
 use std::collections::HashSet;
 use std::fs;
@@ -137,6 +144,23 @@ fn doc_invariants_carveouts_registry_is_well_formed_and_addressing_is_sound() {
                         table.get("pattern")
                     )
                 });
+            // Empty-`path` reject. `Path::new("").is_absolute()` is
+            // false, so the absolute-path check below would let an
+            // empty path through. `repo_root.join("")` returns
+            // `repo_root` (a directory), `canonicalize` succeeds on
+            // it, `starts_with(&repo_root_canonical)` passes, then
+            // `fs::read_to_string` panics with "Is a directory" —
+            // diagnosing the wrong defect class (read failure, not
+            // empty-field). Catch it here so the panic names the real
+            // mistake. Symmetric with the empty-`pattern` reject below
+            // and with clause 3 of the contract docstring at the top
+            // of this file (which names BOTH `path` and `pattern` for
+            // "missing, non-string, or empty is fail-fast").
+            assert!(
+                !entry_path.is_empty(),
+                "carveout[{i}] `path` must be a non-empty repo-relative file path \
+                 (an empty path joins to the repo root, which is a directory and not an addressing target)"
+            );
             // Empty-pattern reject. `String::matches("")` returns one
             // match per byte boundary, so an empty pattern would
             // incidentally fire the count==1 assert below with a
@@ -175,7 +199,7 @@ fn doc_invariants_carveouts_registry_is_well_formed_and_addressing_is_sound() {
                 canonical_target.starts_with(&repo_root_canonical),
                 "carveout[{i}] `path = {entry_path:?}` escapes the repo root \
                  (resolved to {}, expected to start with {}); registry paths must stay inside the repo \
-                 so the source-vs-registry uniqueness check addresses bytes the audit owns",
+                 so the per-file uniqueness count is taken against bytes inside the audit's scope",
                 canonical_target.display(),
                 repo_root_canonical.display()
             );
@@ -197,12 +221,10 @@ fn doc_invariants_carveouts_registry_is_well_formed_and_addressing_is_sound() {
 
             // Per-file uniqueness: count occurrences of `pattern` as a
             // case-sensitive literal substring of the file at `path`.
-            // count != 1 is a guard-test failure (the scaffold's
-            // append-discipline at tests/doc_invariants_carveouts.toml
-            // enumerates the failure modes uniqueness catches and the
-            // remediation in each case). Reading via the canonical path
-            // so the panic-context display matches what the containment
-            // check verified above.
+            // count != 1 is the guard-test failure mode the registry's
+            // addressing contract depends on. Reading via the canonical
+            // path so the panic-context display matches what the
+            // containment check verified above.
             let target_contents = fs::read_to_string(&canonical_target).unwrap_or_else(|e| {
                 panic!(
                     "carveout[{i}] `path = {entry_path:?}` could not be read at {}: {e}",
