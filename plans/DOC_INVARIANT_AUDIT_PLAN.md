@@ -11,7 +11,7 @@
 ## 1. Scope
 
 **In scope:**
-- **Chunk 6** — Rewrite `personas/testing.md`'s TDD-progression chapter (Phases 1–5, lines 31–198 per §3.1) as workflow prose; delete Rust snippets that pin parser/builder API signatures. The lesson is the workflow (red-green-refactor); API-call examples rot every time a signature changes. This chunk's rationale is independent of the doc-audit class motivation — it's a separate active footgun.
+- **Chunk 6** — Rewrite `personas/testing.md`'s TDD-progression chapter per §3.1 as workflow prose; delete Rust snippets that pin parser/builder API signatures. The lesson is the workflow (red-green-refactor); API-call examples rot every time a signature changes. This chunk's rationale is independent of the doc-audit class motivation — it's a separate active footgun.
 - **Chunk 8** — Land `compiler/tests/doc_invariants.rs` + `compiler/tests/common/mod.rs`. One test per §3.2 invariant class + one ruling-name uniqueness test per §3.3 ruling-name row. **Test surface is re-scoped to `SPEC.md`, `CLAUDE.md`, and `compiler/src/**/*.rs`** — not the persona files (per §6 decision 7's withdrawal of Group B).
 - **Chunk 9** — Add the §5.2 layer-3 PreToolUse hook on `Edit`/`Write` for `personas/*.md`, `SPEC.md`, `CLAUDE.md` (HANDOFF.md excluded per ephemeral-file exclusion). Surfaces a summary (count + one-line index + pointer) of the carve-out registry; never the full TOML.
 
@@ -80,8 +80,8 @@ Chunk 8's per-invariant guard tests are derived from this catalog. One test per 
 | Phantom WASM API `validate(input)` | No `pub fn validate` on `lib.rs`; semantic checks are `xref::check_references` | `rg -in 'fn validate\(\|validate_textmod\b'` |
 | Retired pre-§F4 top-level `img_data` / `sprite_name` fields | `compiler/src/ir/mod.rs:1908-1920` `serde_breaking_change_on_sprite_shape` negative-test guard; real shape is `sprite: SpriteId` accessed via `sprite.img_data()` | `rg -inE '\bimg_data\b\|\bsprite_name\b'` (excluding accessor pattern `sprite.img_data()` — pre-grep filter at the test grep site, not registry carve-out) |
 | `xref` IS the validator — no separate pass | `compiler/src/lib.rs:12` exports `xref::check_references`; CLAUDE.md:12 | `rg -in '\bvalidator pass\b\|no separate validator'` (every hit is a deliberate-negation registry carve-out) |
-| §F-series source citations referencing plan-only sections | CLAUDE.md "plans go stale once executed" — source code MUST NOT cite plan-section IDs as durable references | `rg -nE '§F[0-9]+' compiler/ SPEC.md CLAUDE.md` (zero hits expected post chunk 1; the test asserts the post-rewrite zero-hit state holds) |
-| `§Chunk Na` / `plan §N` / direct-plan-filename source citations | Same protected invariant as §F-N; spelling differs | `rg -nE '§Chunk [0-9]+\|plan §[0-9]+\.[0-9]+\|plan §[0-9]+\b\|parent plan §[0-9]+\|PLATFORM_FOUNDATIONS_PLAN\.md\|AUTHORING_ERGONOMICS_PLAN\.md' compiler/src/ compiler/tests/` (zero hits expected post chunk 1.5) |
+| §F-series source citations referencing plan-only sections | CLAUDE.md "plans go stale once executed" — source code MUST NOT cite plan-section IDs as durable references | `rg -nE '§F[0-9]+'` (zero hits expected post chunk 1; the test asserts the post-rewrite zero-hit state holds — surface is `DOC_SURFACE` per §5.1, named once at §1's chunk-8 entry, not re-listed per row) |
+| `§Chunk Na` / `plan §N` / direct-plan-filename source citations | Same protected invariant as §F-N; spelling differs | `rg -nE '§Chunk [0-9]+\|plan §[0-9]+\.[0-9]+\|plan §[0-9]+\b\|parent plan §[0-9]+\|PLATFORM_FOUNDATIONS_PLAN\.md\|AUTHORING_ERGONOMICS_PLAN\.md'` (zero hits expected post chunk 1.5 — surface is `DOC_SURFACE` per §5.1, same as the §F-N row above) |
 
 ### 3.3 Ruling-name table (chunk 8 input)
 
@@ -111,7 +111,7 @@ Each chunk uses the persona-required template: Scope / Files / Dependencies / Co
 
 ### Chunk 6: personas/testing.md TDD-progression rewrite
 
-**Scope.** Rewrite the TDD-progression chapter (Phases 1–5, lines 31–198 per §3.1) as workflow prose. Delete API-pinning Rust snippets per §3.1's table. The `assert_ir_equal` description (lines 200–205) loses its field-pinning bullets.
+**Scope.** Rewrite the TDD-progression chapter per §3.1 as workflow prose. Delete API-pinning Rust snippets per §3.1's table — every row of the table, including the closing `assert_ir_equal` description, loses its API-pinning content.
 
 **Files.** `personas/testing.md`.
 
