@@ -50,8 +50,8 @@ Implement the emitter until all three pass. The tests target output *shape*, not
 
 Some modifiers don't carry their content directly — they reference IR built elsewhere in the mod. Character selection enumerates the hero pool's colors. Ditto names every T3 form in the roster. The general invariant is **a modifier that cross-references hero IR must preserve its referenced set under round-trip**: round-tripping the mod cannot silently drop a referenced hero, color, or form. Write a test per cross-reference modifier present in the working mods, taking the parsed IR, generating the modifier, and asserting the cross-reference set equals the corresponding IR set:
 
-- **Character selection.** Every hero color present in the IR appears in the generated character-select fragment. The game crashes when a hero's color is missing.
-- **Ditto** (sliceymon-only). Every hero's T3 form is referenced in the generated Ditto modifier — Ditto copies from the full T3 roster, so a missing entry silently shrinks Ditto's pool. This test exists to prove the system can parse and reproduce the original sliceymon mod faithfully; Ditto is not a forever-feature of the format, but it's part of the corpus the round-trip oracle has to handle.
+- **Character selection.** Every hero color present in the IR appears in the generated character-select fragment. A test failure here means an authored hero was dropped from the menu; that's the failure mode the original `charselect_has_all_hero_colors` test was written to catch.
+- **Ditto** (sliceymon-only). For every hero in the sliceymon corpus that carries a T3 form (sliceymon's heroes follow the standard 5-block shape; other corpora vary per Phase 2), the generated Ditto modifier references that T3 — Ditto copies from the T3 roster, so a missing entry silently shrinks Ditto's pool. This test exists to prove the system can parse and reproduce the original sliceymon mod faithfully; Ditto is not a forever-feature of the format, but it's part of the corpus the round-trip oracle has to handle.
 
 For sub-collections that carry their own content (replica items, monsters), the test shape is different: round-trip the sub-collection individually — parse a working mod, emit, parse the emission, and walk the resulting collection asserting every item is preserved with its trigger, target, and structural payload intact. Round-tripping the *individual sub-collection* surfaces bugs that whole-mod IR equality can mask when the global structure matches but data inside an item is lost.
 
@@ -61,7 +61,7 @@ Implement each until passing. Diagnostic messages must name the hero or item at 
 
 For each working mod (`pansaer`, `punpuns`, `sliceymon`, `community`), write a test that reads the mod from disk, extracts it to IR, builds it back to text, extracts the rebuilt text again, and asserts the two IRs are semantically equal. The double-extraction is load-bearing: comparing IR-after-build against IR-from-original would mask emitter-then-parser asymmetries that round-tripping through emit-and-re-parse exposes. Watch the tests fail when any sub-system regresses; they are the project's correctness oracle.
 
-The IR-equality helper compares the two IRs by walking every IR collection and checking field equality — never string equality of textmod output, since the emitter is allowed to normalize whitespace and pick among equivalent forms the guide treats as interchangeable. The helper's job is to fail loudly when *meaning* differs, with diagnostic error messages that name the divergence (hero name, tier index, item position) so a regression is debuggable without re-reading the diff against the working mod by hand.
+The IR-equality helper compares the two IRs by walking every IR collection and checking field equality — never string equality of textmod output, since the emitter is allowed to normalize whitespace and pick among equivalent forms the guide treats as interchangeable. The helper's job is to fail loudly when *meaning* differs, with diagnostic error messages that name the divergence (hero name, block index, item position) so a regression is debuggable without re-reading the diff against the working mod by hand.
 
 ## Test Design Principles
 
@@ -82,7 +82,7 @@ A failing assertion that says "expected 5, got 3" without naming which entity, w
 For every test, ask: **"If I introduce a bug in the parser/emitter, will this test fail?"**
 
 Specifically, imagine these mutations:
-- Parser drops the last tier of a hero → does a test catch it?
+- Parser drops the last block of a hero → does a test catch it?
 - Emitter puts `.n.` before `.speech.` → does a test catch it?
 - Parenthesis depth goes negative → does a test catch it?
 - HP value is parsed as 0 instead of the real value → does a test catch it?
@@ -141,7 +141,7 @@ These are the oracle. Tests that pass against all four mods prove the compiler w
 After writing any test:
 
 - [ ] Every assertion is specific (exact values, not just `is_ok()` or `is_some()`)
-- [ ] Error messages include context (hero name, tier index, line number)
+- [ ] Error messages include context (hero name, block index, line number)
 - [ ] Real mod data is used (not only synthetic strings)
 - [ ] Both parsing and emission are tested for each IR type
 - [ ] Round-trip test exists for the feature
