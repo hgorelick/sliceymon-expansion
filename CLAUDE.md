@@ -26,6 +26,7 @@ Sliceymon+ (the ~100-Pokemon expansion) is authored *through* the compiler — I
 | Cross-IR semantic checks | `compiler/src/xref.rs` |
 | Reference mods (roundtrip target + sprite/face-id corpus) | `working-mods/{sliceymon,pansaer,punpuns,community}.txt` |
 | Compiler tests | `compiler/tests/`, `cargo test` |
+| Doc-invariant carve-outs (per-file `pattern`-uniqueness; well-formedness gate at `compiler/tests/doc_invariants_carveouts_parses.rs`) | `compiler/tests/doc_invariants_carveouts.toml` |
 | Game-balance reference | `personas/slice-and-dice-design.md` |
 | AI workflow reference | `personas/ai-development.md` |
 
@@ -78,6 +79,14 @@ If evidence is missing, stop and gather it before editing. If the change is genu
 - `cargo test` (lib + integration + proptest) must pass.
 - All four mods in `working-mods/` must still roundtrip — `extract(build(extract(mod))) == extract(mod)`.
 - New parser/emitter behavior must be defensible against `reference/textmod_guide.md`. If the guide is silent, prefer normalization only for shapes the guide shows in multiple equivalent forms.
+
+### Retiring a public identifier (non-negotiable)
+Retiring a public identifier (function, type, field, enum variant, file path, CLI subcommand) is a three-step commitment in the same chunk:
+1. Add a retirement comment dated to the chunk at the site where the identifier used to live (or at the negative-test guard that locks the retirement in).
+2. Add a guard test that greps the retired identifier across both the markdown surface AND `compiler/src/**/*.rs`, asserting zero hits modulo carve-outs registered in `compiler/tests/doc_invariants_carveouts.toml`. Place the guard alongside the other doc-invariant guards in `compiler/tests/`; if no doc-invariant guard suite yet exists, create one following the existing test pattern.
+3. Update every doc reference (markdown + `///` comments + persona claims) to the replacement, in the same commit.
+
+A retirement that ships any of the three steps deferred re-opens the class on the next tribunal round. The guard test is what makes "next round will catch it" stop being the failure mode — once landed, future drift fails CI in the chunk that introduced it, not three rounds later.
 
 ### Authoring Sliceymon+ content
 - Build IR through the compiler's authoring layer, not hand-written struct literals or hand-edited textmod lines.

@@ -1,14 +1,9 @@
 //! Trigger-based ReplicaItem emitter + itempool emitter.
 //!
-//! The pre-8a module emitted the flat Legendary shape (`item.TEMPLATE...`);
-//! that entire surface is retired because the four working-mods contain zero
-//! top-level `item.<…>` modifiers (verified 2026-04-24:
-//! `rg -o '^item\.|[,!+]item\.[a-z]' working-mods/*.txt` returns empty).
-//!
-//! 8a ships three public surfaces: `emit_replica_item` (one summon entry,
-//! non-fallible), `emit_itempool` (pure-IR rebuild of an itempool), and the
-//! two Cast emitter constants. Shared payload flows through one private
-//! helper — no N-line incantation duplicated per trigger arm.
+//! Three public surfaces: `emit_replica_item` (one summon entry, non-fallible),
+//! `emit_itempool` (pure-IR rebuild of an itempool), and the two Cast emitter
+//! constants. Shared payload flows through one private helper — no N-line
+//! incantation duplicated per trigger arm.
 
 use crate::ir::{DiceLocation, ItempoolItem, ReplicaItem, SummonTrigger};
 

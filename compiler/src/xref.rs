@@ -977,17 +977,13 @@ mod tests {
     // -- X003: No duplicate Pokemon across hero/legendary/monster buckets --
     //
     // `ReplicaItem` models trigger-based summons (SideUse / Cast) bucketed
-    // under the "legendary" label. The former `capture` bucket was retired
-    // upstream — no corpus instance.
+    // under the "legendary" label.
 
     #[test]
     fn x003_duplicate_pokemon_across_kinds() {
         // Pikachu as both Hero and replica item (legendary bucket) — X003
         // must fire even though V020 also catches this case. X003 reports
-        // per-bucket granularity. The bucket label "legendary" is preserved
-        // across the 8A rewrite per the function-doc on
-        // check_duplicate_pokemon_buckets; the IR itself is no longer
-        // Legendary-only (SummonTrigger::SideUse / Cast).
+        // per-bucket granularity.
         let mut ir = ModIR::empty();
         ir.heroes.push(make_hero("Pikachu", 'a'));
         ir.replica_items.push(make_replica_item("Pikachu"));
