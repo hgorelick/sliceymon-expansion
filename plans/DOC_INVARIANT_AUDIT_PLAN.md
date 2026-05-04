@@ -19,7 +19,7 @@
 
 **Tradeoff acknowledged.** Without mechanical CI guards, doc drift surfaces only on tribunal review or when a future contributor reads an out-of-date claim. The retirement-discipline rule is the structural backstop; review is the human one.
 
-**Out of scope (unchanged from original plan):**
+**Out of scope:**
 - Bucket-label asymmetry between xref's `"thief"` and emitter's `"Thief"` — tracked separately.
 - Plan files under `plans/` — explicit CLAUDE.md carve-out.
 - `archive/pre-guide/`, `HANDOFF.md`.

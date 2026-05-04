@@ -977,8 +977,7 @@ mod tests {
     // -- X003: No duplicate Pokemon across hero/legendary/monster buckets --
     //
     // `ReplicaItem` models trigger-based summons (SideUse / Cast) bucketed
-    // under the "legendary" label. The former `capture` bucket was retired
-    // upstream — no corpus instance.
+    // under the "legendary" label.
 
     #[test]
     fn x003_duplicate_pokemon_across_kinds() {

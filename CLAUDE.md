@@ -26,7 +26,7 @@ Sliceymon+ (the ~100-Pokemon expansion) is authored *through* the compiler — I
 | Cross-IR semantic checks | `compiler/src/xref.rs` |
 | Reference mods (roundtrip target + sprite/face-id corpus) | `working-mods/{sliceymon,pansaer,punpuns,community}.txt` |
 | Compiler tests | `compiler/tests/`, `cargo test` |
-| Doc-invariant carve-outs (per-file `pattern`-uniqueness; loaded by future `compiler/tests/doc_invariants.rs`) | `compiler/tests/doc_invariants_carveouts.toml` |
+| Doc-invariant carve-outs (per-file `pattern`-uniqueness; well-formedness gate at `compiler/tests/doc_invariants_carveouts_parses.rs`) | `compiler/tests/doc_invariants_carveouts.toml` |
 | Game-balance reference | `personas/slice-and-dice-design.md` |
 | AI workflow reference | `personas/ai-development.md` |
 
