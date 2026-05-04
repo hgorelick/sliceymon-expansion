@@ -53,8 +53,9 @@
 //!      `..`-traversal that escapes the repo root are rejected so the
 //!      gate's per-file uniqueness count is taken against bytes inside
 //!      the repo (a registry entry whose uniqueness "evidence" is
-//!      bytes the audit doesn't own would defeat the contract; chunk
-//!      8's cross-grep guard then inherits that guarantee).
+//!      bytes the audit doesn't own would defeat the contract; a
+//!      future hand-written cross-grep guard would inherit that
+//!      guarantee).
 
 use std::collections::HashSet;
 use std::fs;
