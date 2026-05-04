@@ -72,8 +72,8 @@ Chunk 8's per-invariant guard tests are derived from this catalog. One test per 
 
 | Class | Protecting invariant (code side) | Doc-violation grep |
 |-------|----------------------------------|--------------------|
-| Capture / Legendary IR vocabulary as kind-discriminator | `compiler/src/ir/mod.rs` ReplicaItem shape; no `Capture`/`Legendary` enum variant; `ModifierType::Legendary` retired in chunk-8A | `rg -in '\b(Legendary\|Capture)\b'` (excluding registered carve-outs) |
-| `parse_legendary` / `legendary_*` / `parse_simple` | Deleted in chunk-8A; Rust's compile-time enforcement prevents silent reintroduction | `rg -in '\bparse_legendary\b\|\blegendary_\w+\b\|\bparse_simple\b'` |
+| Capture / Legendary IR vocabulary as kind-discriminator | `compiler/src/ir/mod.rs` ReplicaItem shape; `ModifierType` (`compiler/src/extractor/classifier.rs`) has no `Capture`/`Legendary` variant | `rg -in '\b(Legendary\|Capture)\b'` (excluding registered carve-outs) |
+| `parse_legendary` / `legendary_*` / `parse_simple` | These functions do not exist anywhere in `compiler/src/`; Rust's compile-time enforcement prevents silent reintroduction | `rg -in '\bparse_legendary\b\|\blegendary_\w+\b\|\bparse_simple\b'` |
 | Phantom files (`validator.rs`, top-level `sprite.rs`, `capture_*.rs`) | `ls` confirms non-existence; real surface is `xref.rs` + `authoring/sprite.rs` + `replica_item_*` | `rg -in 'compiler/src/(validator\.rs\|sprite\.rs\|capture_)'` |
 | `Validator` as pipeline stage / `textmod-compiler validate` CLI | `compiler/src/main.rs:15-51` Subcommand list; CLAUDE.md:12 negation; round-trip lives on `Check` | `rg -in 'textmod-compiler (validate\|verify\|run)\b'` |
 | External `sprites.json` / `SpriteMap` / `build(ir, sprites)` 2-arg signature | `compiler/src/lib.rs:26` `pub fn build(ir: &ModIR) -> Result<String, CompilerError>` (single arg); no `SpriteMap` | `rg -in 'build\(ir, sprites\|build_textmod\(.*sprites\|fn build.*sprites:'` |
@@ -97,7 +97,7 @@ Chunk 8 asserts each ruling-name string appears nowhere in the doc surface that 
 
 ### 3.4 Carve-out registry (already exists)
 
-`compiler/tests/doc_invariants_carveouts.toml` was populated by chunks 3 (SPEC.md) and 4 (CLAUDE.md). The well-formedness gate at `compiler/tests/doc_invariants_carveouts_parses.rs` enforces structural-and-addressing contracts (per-file `pattern`-uniqueness keyed on canonical path).
+`compiler/tests/doc_invariants_carveouts.toml` was populated by chunk 3's SPEC.md sweep (the two existing entries); chunk 4's CLAUDE.md sweep produced zero registry entries. The well-formedness gate at `compiler/tests/doc_invariants_carveouts_parses.rs` enforces structural-and-addressing contracts (per-file `pattern`-uniqueness keyed on canonical path).
 
 Chunk 8's `filter_carveouts` deserializes the registry via `serde::Deserialize` and treats it as known-sound (the gate runs first; CI ordering guarantees gate-asserted invariants hold before chunk 8 runs).
 
@@ -236,8 +236,8 @@ fn no_doc_references_to_retired_img_data_field() {
     assert!(
         violations.is_empty(),
         "Doc reference to the retired top-level img_data/sprite_name field. \
-         Real shape: sprite: SpriteId per compiler/src/ir/mod.rs:574; accessor \
-         is sprite.img_data() per :1885. Negative-test guard at :1895 \
+         Real shape: sprite: SpriteId per compiler/src/ir/mod.rs:574 \
+         (accessed via sprite.img_data()). Negative-test guard at :1895 \
          requires legacy JSON to fail deserialization.\n\n\
          Violations:\n{:#?}",
         violations,
@@ -259,16 +259,9 @@ Three layers, all project-local (no global skill changes):
 
 The `/review-pr` skill is not updated. Project-local enforcement only.
 
-### 5.3 Retirement-discipline rule (already in CLAUDE.md)
+### 5.3 Retirement-discipline rule (canonical home: CLAUDE.md)
 
-Landed in chunk 4 under `## Working principles`:
-
-> **Retiring a public identifier (function, type, field, enum variant, file path, CLI subcommand) is a three-step commitment in the same chunk:**
-> 1. Add a retirement comment dated to the chunk.
-> 2. Add a guard test in `compiler/tests/doc_invariants.rs` that greps the retired identifier across both the markdown surface AND `compiler/src/**/*.rs`, asserting zero hits (modulo carve-outs).
-> 3. Update every doc reference (markdown + `///` comments + persona claims) to the replacement, in the same commit.
-
-This rule + chunk 8's guard tests mean a future identifier retirement either ships clean or fails CI immediately. There is no "next round of tribunal will catch it".
+The rule body lives at `CLAUDE.md` `## Working principles` § "Retiring a public identifier (non-negotiable)" — that is the canonical site, named once. The plan does not restate it here; chunk 8's guard tests and chunk 9's hook are the in-test and in-tooling implementations of that rule. Together they mean a future identifier retirement either ships clean or fails CI immediately, with no "next round of tribunal will catch it" failure mode.
 
 ## 6. Decisions resolved during planning
 

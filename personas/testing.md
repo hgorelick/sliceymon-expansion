@@ -40,8 +40,8 @@ Write a failing test that takes a sample hero modifier line copied verbatim from
 
 Write three failing tests that emit a hero from IR back to textmod and assert the structural invariants the project requires:
 
-1. **Parentheses balance.** Walk the emitted string and assert depth returns to zero at end of line. SPEC.md formalizes the builder's "parens balanced by construction" guarantee; the property is reproducible against any working-mod hero line.
-2. **Tier separators at depth zero.** The `+` character that separates tier segments must sit outside any parenthetical group. SPEC.md's tier glossary formalizes this: tiers are "separated by `+` at depth 0 in the modifier." Walk the string while tracking depth; every `+` encountered must be at depth 0.
+1. **Parentheses balance.** Walk the emitted string and assert depth returns to zero at end of line. SPEC.md states "parens balanced by construction" as the builder's guarantee (per the architecture-diagram annotation at SPEC.md:94); the property is reproducible against any working-mod hero line.
+2. **Tier separators at depth zero.** The `+` character that separates tier segments must sit outside any parenthetical group. SPEC.md's tier glossary (SPEC.md:351) states tiers are "separated by `+` at depth 0 in the modifier." Walk the string while tracking depth; every `+` encountered must be at depth 0.
 3. **Hero name is last in each tier segment.** Split the emitted hero at depth-zero `+` boundaries; in each segment, the hero-name property must be the final property — nothing follows it. The corpus is uniform on this ordering across all four working mods (neither SPEC nor the textmod guide formalizes it, so the corpus is the authority); emitter mistakes here corrupt the textmod silently because the game still loads it.
 
 Implement the emitter until all three pass. The tests target output *shape*, not emitter internals — they will catch any future emitter regression that breaks the format, regardless of how the emitter is structured.
