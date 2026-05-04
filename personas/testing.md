@@ -67,40 +67,15 @@ The IR-equality helper compares the two IRs by walking every IR collection and c
 
 ### 1. Specific Assertions Over Vague Ones
 
-```rust
-// BAD: Vague — passes for any non-error result
-assert!(result.is_ok());
-
-// GOOD: Specific — verifies exact values
-let hero = result.unwrap();
-assert_eq!(hero.tiers.len(), 5);
-assert_eq!(hero.tiers[0].hp, 4);
-assert_eq!(hero.tiers[0].color, 'b');
-```
+Vague assertions like `is_ok()` or `is_some()` pass for any non-error result and silently accept a parser that succeeded with the wrong values. Specific assertions name exact expected values — the parsed entity's name, HP, color, the count and shape of inner blocks anchored to the source line — so a test fails when any field flips. A test that only checks the result is non-error catches almost nothing: a parser that returns a default-initialized struct on every input would pass.
 
 ### 2. Test Against Real Mods, Not Synthetic Input
 
-```rust
-// BAD: Synthetic input that doesn't represent real mod format
-let line = "hero.test.hp.5";
-
-// GOOD: Actual line from a working mod
-let text = fs::read_to_string("../working-mods/sliceymon.txt").unwrap();
-let ir = extract(&text).unwrap();
-assert!(ir.heroes.len() > 0, "Should parse at least one hero from sliceymon");
-```
+Synthetic strings invented for the test (a hand-crafted modifier line that fits no real mod's format) prove the parser handles the test author's mental model — not the format the game emits. The four mods in `working-mods/` are the corpus; tests that read from disk and assert against parsed shapes prove the compiler handles real input. Reach for a synthetic string only when isolating a single-line edge case the corpus doesn't reach, and even then derive it from a real corpus line rather than authoring from scratch.
 
 ### 3. Error Messages Must Be Diagnostic
 
-```rust
-// BAD: Unhelpful on failure
-assert_eq!(hero.tiers.len(), 5);
-
-// GOOD: Tells you which hero and what went wrong
-assert_eq!(hero.tiers.len(), 5,
-    "Hero '{}' has {} tiers, expected 5 (T1 + T2A + T2B + T3A + T3B)",
-    hero.mn_name, hero.tiers.len());
-```
+A failing assertion that says "expected 5, got 3" without naming which entity, which position within the entity, or which field tells you nothing about the regression — the next person reading the CI log has to bisect by hand. Diagnostic messages name the entity (hero internal name, monster index), the position (block index, modifier offset), and the expected-vs-actual values so a regression is debuggable from the log alone. Any assertion that could fire on multiple values must name *which* value failed.
 
 ### 4. The Litmus Test
 
@@ -218,7 +193,6 @@ cargo test --test cli_tests
 | Parentheses balanced in all output | Check depth == 0 at end of every emitted line |
 | Tier separators at depth 0 | Check depth == 0 at every `+` in emitted output |
 | `.n.NAME` is last before `+` or end | Check nothing follows `.n.` in each tier segment |
-| 5 tiers per hero | Assert `hero.tiers.len() == 5` for every parsed hero |
 | HP values preserved | Compare parsed HP against known values from test mods |
 | Face IDs preserved as strings | Assert `.sd.` field matches exactly after round-trip |
 | ASCII-only output | Check every byte in output is 0x20-0x7E or newline |

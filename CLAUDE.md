@@ -83,7 +83,7 @@ If evidence is missing, stop and gather it before editing. If the change is genu
 ### Retiring a public identifier (non-negotiable)
 Retiring a public identifier (function, type, field, enum variant, file path, CLI subcommand) is a three-step commitment in the same chunk:
 1. Add a retirement comment dated to the chunk at the site where the identifier used to live (or at the negative-test guard that locks the retirement in).
-2. Add a guard test in `compiler/tests/doc_invariants.rs` that greps the retired identifier across both the markdown surface AND `compiler/src/**/*.rs`, asserting zero hits modulo carve-outs registered in `compiler/tests/doc_invariants_carveouts.toml`.
+2. Add a guard test that greps the retired identifier across both the markdown surface AND `compiler/src/**/*.rs`, asserting zero hits modulo carve-outs registered in `compiler/tests/doc_invariants_carveouts.toml`. The doc-invariant guard suite lives at `compiler/tests/doc_invariants.rs` (with shared helpers in `compiler/tests/common/mod.rs`); create the file with the existing test pattern if it does not yet exist, then add the guard there.
 3. Update every doc reference (markdown + `///` comments + persona claims) to the replacement, in the same commit.
 
 A retirement that ships any of the three steps deferred re-opens the class on the next tribunal round. The guard test is what makes "next round will catch it" stop being the failure mode — once landed, future drift fails CI in the chunk that introduced it, not three rounds later.
