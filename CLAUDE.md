@@ -79,6 +79,14 @@ If evidence is missing, stop and gather it before editing. If the change is genu
 - All four mods in `working-mods/` must still roundtrip — `extract(build(extract(mod))) == extract(mod)`.
 - New parser/emitter behavior must be defensible against `reference/textmod_guide.md`. If the guide is silent, prefer normalization only for shapes the guide shows in multiple equivalent forms.
 
+### Retiring a public identifier (non-negotiable)
+Retiring a public identifier (function, type, field, enum variant, file path, CLI subcommand) is a three-step commitment in the same chunk:
+1. Add a retirement comment dated to the chunk at the site where the identifier used to live (or at the negative-test guard that locks the retirement in).
+2. Add a guard test in `compiler/tests/` (creating a doc-invariant guard suite if none yet exists) that greps the retired identifier across both the markdown surface AND `compiler/src/**/*.rs`, asserting zero hits modulo any documented exceptions (the first guard test that needs an exception facility decides whether to inline the exceptions or build a registry).
+3. Update every doc reference (markdown + `///` comments + persona claims) to the replacement, in the same commit.
+
+A retirement that ships any of the three steps deferred re-opens the class on the next tribunal round. The guard test is what makes "next round will catch it" stop being the failure mode — once landed, future drift fails CI in the chunk that introduced it, not three rounds later.
+
 ### Authoring Sliceymon+ content
 - Build IR through the compiler's authoring layer, not hand-written struct literals or hand-edited textmod lines.
 - Face IDs, sprites, and dice patterns must be typed/looked-up so hallucination is a compile error.
@@ -105,7 +113,6 @@ cargo run --example drift_audit                    # drift-class audit across mo
 - Branch from `main` for new features.
 - Commit format: `type: description` (feat, fix, refactor, docs).
 - **Never** add `Co-Authored-By` lines or any AI attribution to commits or PRs.
-- Don't push while the user is on the work git account — ask first. User's GitHub: `hgorelick` (not `hgorelick-scala`).
 
 ## Personas
 
