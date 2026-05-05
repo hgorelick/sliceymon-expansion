@@ -30,11 +30,11 @@ The compiler is built in phases. Each phase writes tests first, then implements 
 
 ### Phase 1: Modifier Classification
 
-Write a failing test that takes a single modifier line copied verbatim from a working mod and asserts the classifier identifies it as a hero modifier. Watch it fail. Implement the classifier until it passes. Then add a coverage test: read a full working mod, classify every non-empty line, and assert nothing comes back as the "unknown" sentinel — when something does, the failure message must name the line index and a prefix of the offending line so the gap is debuggable. The first test pins one line shape; the second proves the classifier covers the full corpus.
+Write a failing test that takes a single modifier line copied verbatim from a working mod and asserts the classifier identifies it as a hero modifier. Watch it fail. Implement the classifier until it passes. Then add a coverage test: read a full working mod, classify every non-empty line, and assert every line returns a typed variant (no error). When the classifier rejects a line, the failure message must name the line index and a prefix of the offending line so the gap is debuggable — the rejection is the classifier's signal that a new construct needs an explicit variant added (the classifier surfaces unrecognized input as an error rather than a silent catch-all, so a coverage test propagates that error and asserts no line falls through). The first test pins one line shape; the second proves the classifier covers the full corpus.
 
 ### Phase 2: Hero Parser
 
-Write a failing test that takes a sample hero modifier line copied verbatim from a working mod, parses it to IR, and asserts the IR encodes that line's blocks — block count, per-block face ID, per-block hero name. Anchor expected values to the source line, not to a corpus universal: hero shape varies across the corpus (legendaries differ from branching evolutions; some entries collapse to fewer blocks). The lesson is "the test asserts what the source line encodes," not "every hero has shape X." Watch it fail. Implement until it passes. Add a second test asserting per-block HP values match what the line encodes; anchor the expected values to the working-mod source line so the assertion is grounded in format truth, not implementation choice. Then a coverage test: parse every hero in a working mod and assert every block carries a non-empty face ID and a non-empty hero name, with diagnostic messages that name the hero and block index when something is empty.
+Write a failing test that takes a sample hero modifier line copied verbatim from a working mod, parses it to IR, and asserts the IR encodes that line's blocks — block count, per-block face ID, per-block hero name. Anchor expected values to the source line, not to a corpus universal: hero shape varies across the corpus (legendaries differ from branching evolutions; some entries collapse to fewer blocks). The lesson is "the test asserts what the source line encodes," not "every hero has shape X." Watch it fail. Implement until it passes. Add a second test asserting per-block HP values match what the line encodes; anchor the expected values to the working-mod source line so the assertion is grounded in format truth, not implementation choice. Then a coverage test: parse every hero in a working mod, filter degenerate blocks (parser outputs for vanilla references that carry no per-block content) before asserting every remaining block carries a non-empty face ID and a non-empty hero name. Diagnostic messages must name the hero and block index when something is empty. The emitter applies the same filter — see `compiler/src/builder/hero_emitter.rs` for the predicate it uses — so the coverage test asserts on the same shape the emitter operates on.
 
 ### Phase 3: Builder / Emitter
 
@@ -42,7 +42,7 @@ Write three failing tests that emit a hero from IR back to textmod and assert th
 
 1. **Parentheses balance.** Walk the emitted string and assert depth returns to zero at end of line. SPEC.md states "parens balanced by construction" as the builder's guarantee (per the architecture-diagram annotation at SPEC.md:94); the property is reproducible against any working-mod hero line.
 2. **Tier separators at depth zero.** The `+` character that separates tier segments must sit outside any parenthetical group. SPEC.md's tier glossary (SPEC.md:351) states tiers are "separated by `+` at depth 0 in the modifier." Walk the string while tracking depth; every `+` encountered must be at depth 0.
-3. **Hero name is last in each tier segment.** Split the emitted hero at depth-zero `+` boundaries; in each segment, the hero-name property must be the final property — nothing follows it. The corpus is uniform on this ordering across all four working mods (neither SPEC nor the textmod guide formalizes it, so the corpus is the authority); emitter mistakes here corrupt the textmod silently because the game still loads it.
+3. **Per-block name is last in each non-final tier segment.** Split the emitted hero at depth-zero `+` boundaries; in each segment except the last, the per-block display-name property (`.n.<name>`) must be the final property — nothing follows it. The last segment additionally carries the per-hero metadata suffix that emits once after all blocks: `.mn.<menu_name>` for the grouped format, and `.part.1&hidden.mn.<menu_name>@2!m(skip&hidden&temporary)` for the sliceymon format. The corpus is uniform on this ordering across all four working mods (neither SPEC nor the textmod guide formalizes it, so the corpus is the authority); emitter mistakes that drop or reorder per-block names corrupt the textmod silently because the game still loads it.
 
 Implement the emitter until all three pass. The tests target output *shape*, not emitter internals — they will catch any future emitter regression that breaks the format, regardless of how the emitter is structured.
 
@@ -50,8 +50,8 @@ Implement the emitter until all three pass. The tests target output *shape*, not
 
 Some modifiers don't carry their content directly — they reference IR built elsewhere in the mod. Character selection enumerates the hero pool's colors. Ditto names every T3 form in the roster. The general invariant is **a modifier that cross-references hero IR must preserve its referenced set under round-trip**: round-tripping the mod cannot silently drop a referenced hero, color, or form. Write a test per cross-reference modifier present in the working mods, taking the parsed IR, generating the modifier, and asserting the cross-reference set equals the corresponding IR set:
 
-- **Character selection.** Every hero color present in the IR appears in the generated character-select fragment. A test failure here means an authored hero was dropped from the menu — the menu-completeness invariant is what makes the test load-bearing.
-- **Ditto** (sliceymon-only). For every hero in the sliceymon corpus that carries a T3 form, the generated Ditto modifier references that T3 — Ditto copies from the T3 roster, so a missing entry silently shrinks Ditto's pool. The test enumerates the IR rather than assuming every hero has a T3.
+- **Character selection.** Every hero in the IR appears (by `mn_name`) in the generated character-select body. The compiler emits the body as `1.ph.s` followed by one `@1<mn_name>` segment per hero, sorted by `Hero.color`; the test asserts the set of emitted `mn_name`s equals the set in the IR (sort order is incidental to menu-completeness). A test failure here means an authored hero was dropped from the menu — the menu-completeness invariant is what makes the test load-bearing.
+- **Ditto** (sliceymon-only). The compiler does not regenerate Ditto's T3 roster from IR today — Ditto's modifier rides through as structural passthrough, so round-trip preserves the original bytes regardless of what the IR holds. A hero added to the IR but missing from Ditto's text would not surface as a regression here. A future cross-reference Ditto generator would test as: for every hero in the sliceymon IR that carries a T3 form, the regenerated Ditto modifier references that T3, with the test enumerating the IR rather than assuming every hero has one.
 
 For sub-collections that carry their own content (replica items, monsters), the test shape is different: round-trip the sub-collection individually — parse a working mod, emit, parse the emission, and walk the resulting collection asserting every item is preserved with its trigger, target, and structural payload intact. Round-tripping the *individual sub-collection* surfaces bugs that whole-mod IR equality can mask when the global structure matches but data inside an item is lost.
 
@@ -59,7 +59,7 @@ Implement each until passing. Diagnostic messages must name the hero or item at 
 
 ### Phase 5: Full Round-Trip
 
-For each working mod (`pansaer`, `punpuns`, `sliceymon`, `community`), write a test that reads the mod from disk, extracts it to IR, builds it back to text, extracts the rebuilt text again, and asserts the two IRs are semantically equal. The double-extraction is load-bearing: comparing IR-after-build against IR-from-original would mask emitter-then-parser asymmetries that round-tripping through emit-and-re-parse exposes. Watch the tests fail when any sub-system regresses; they are the project's correctness oracle.
+For each working mod (`pansaer`, `punpuns`, `sliceymon`, `community`), write a test that reads the mod from disk, extracts it to IR, builds it back to text, extracts the rebuilt text again, and asserts the two IRs are semantically equal. The second extraction is load-bearing because `build()` produces text — there is no post-build IR to compare against directly. We re-extract the emitted text and compare the resulting IR against the IR we started with, so emitter-allowed normalization (whitespace, equivalent forms the textmod guide treats as interchangeable) doesn't masquerade as a regression — meaning is preserved iff the two IRs match. Watch the tests fail when any sub-system regresses; they are the project's correctness oracle.
 
 The IR-equality helper compares the two IRs by walking every IR collection and checking field equality — never string equality of textmod output, since the emitter is allowed to normalize whitespace and pick among equivalent forms the guide treats as interchangeable. The helper's job is to fail loudly when *meaning* differs, with diagnostic error messages that name the divergence (hero name, block index, item position) so a regression is debuggable without re-reading the diff against the working mod by hand.
 
@@ -111,17 +111,19 @@ For every IR type, test both:
 ```
 compiler/
   src/
-    extractor/
-      mod.rs
-      hero_parser.rs        # Unit tests in #[cfg(test)] module
-    builder/
-      hero_emitter.rs       # Unit tests in #[cfg(test)] module
-  tests/
-    extractor_tests.rs      # Integration tests — parse entire mods
-    builder_tests.rs        # Integration tests — build entire mods
-    roundtrip_tests.rs      # Round-trip on pansaer, punpuns, sliceymon
-    expansion_tests.rs      # Sliceymon+ specific tests
-    cli_tests.rs            # End-to-end CLI tests via assert_cmd
+    extractor/                          # parsers; some files carry #[cfg(test)] unit modules
+    builder/                            # emitters; some files carry #[cfg(test)] unit modules
+    ir/                                 # IR shape (compiler/src/ir/mod.rs)
+  tests/                                # integration tests against working-mods/
+    audit_lib_panic_free.rs             # SPEC §8 audit: lib code outside #[cfg(test)] must not unwrap/expect/panic!/unimplemented!/todo!
+    baselines/roundtrip/                # per-mod .baseline data fixtures (community, pansaer, punpuns, sliceymon)
+    build_options_tests.rs              # build_with(&BuildOptions) variants + Finding.source provenance
+    correctness_tests.rs                # proptest-based parse→emit round-trip properties
+    doc_invariants_carveouts_parses.rs  # well-formedness gate for the carve-out registry
+    doc_invariants_carveouts.toml       # carve-out registry fixture
+    integration_tests.rs                # cross-module integration cases (phase parse→emit, etc.)
+    merge_tests.rs                      # SPEC §4 derived-structural provenance + merge(&mut base, overlay) semantics
+    roundtrip_baseline.rs               # baseline pins for the full-mod extract→build→extract while it remains red
 ```
 
 ### Test Fixtures
@@ -154,26 +156,23 @@ After writing any test:
 # All tests
 cd compiler && cargo test
 
-# Specific test
-cargo test roundtrip_sliceymon
+# Specific test by name (e.g., one of the per-mod baseline pins)
+cargo test baseline_sliceymon
 
 # With output (see println! in tests)
 cargo test -- --nocapture
 
-# Only integration tests
-cargo test --test roundtrip_tests
-
-# CLI tests
-cargo test --test cli_tests
+# A specific integration-test file
+cargo test --test integration_tests
 ```
 
 ## When to Defer
 
-- **Rust implementation details** -> Rust Engineer persona
-- **Architecture decisions** -> Architecture persona
-- **Format correctness review** -> Code Reviewer persona
-- **WASM/browser testing** -> Frontend persona
+- **Architecture decisions** -> `personas/architecture.md`
+- **Format correctness review** -> `personas/code-reviewer.md`
+- **WASM/browser testing** -> `personas/frontend.md`
 - **Game mechanics context** -> `personas/slice-and-dice-design.md`
+- **Rust chunking / plan structure** -> `personas/ai-development.md`
 
 ## Project-Specific Context
 
@@ -192,7 +191,7 @@ cargo test --test cli_tests
 |-----------|------|
 | Parentheses balanced in all output | Check depth == 0 at end of every emitted line |
 | Tier separators at depth 0 | Check depth == 0 at every `+` in emitted output |
-| `.n.NAME` is last before `+` or end | Check nothing follows `.n.` in each tier segment |
+| `.n.NAME` is last in each non-final tier segment | Check nothing follows `.n.<name>` in each segment except the last; the last segment additionally carries the per-hero metadata suffix (`.mn.<menu_name>`, plus the sliceymon-format `.part.1&hidden` … `@2!m(skip&hidden&temporary)` envelope) |
 | HP values preserved | Compare parsed HP against known values from test mods |
 | Face IDs preserved as strings | Assert `.sd.` field matches exactly after round-trip |
 | ASCII-only output | Check every byte in output is 0x20-0x7E or newline |
