@@ -119,8 +119,6 @@ compiler/
     baselines/roundtrip/                # per-mod .baseline data fixtures (community, pansaer, punpuns, sliceymon)
     build_options_tests.rs              # build_with(&BuildOptions) variants + Finding.source provenance
     correctness_tests.rs                # proptest-based parse→emit round-trip properties
-    doc_invariants_carveouts_parses.rs  # well-formedness gate for the carve-out registry
-    doc_invariants_carveouts.toml       # carve-out registry fixture
     integration_tests.rs                # cross-module integration cases (phase parse→emit, etc.)
     merge_tests.rs                      # SPEC §4 derived-structural provenance + merge(&mut base, overlay) semantics
     roundtrip_baseline.rs               # baseline pins for the full-mod extract→build→extract while it remains red

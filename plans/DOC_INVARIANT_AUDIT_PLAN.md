@@ -1,8 +1,8 @@
 # Documentation ↔ Invariant Audit (remaining work)
 
-> **Status.** Chunks 1, 1.5, 2, 3, 4 landed: §F-series and plan-section citation rewrites in `compiler/src/` + `compiler/tests/`, carve-out registry scaffold + well-formedness gate (`compiler/tests/doc_invariants_carveouts.toml` + `_parses.rs`), SPEC.md sweep populated the registry (the two existing entries), CLAUDE.md sweep produced zero registry entries (no invariant-catalog patterns hit in CLAUDE.md), and CLAUDE.md's retirement-discipline rule (canonical home: CLAUDE.md `## Working principles` § "Retiring a public identifier (non-negotiable)") + source-of-truth row landed.
+> **Status.** Chunks 1, 1.5, 2, 3, 4 landed: §F-series and plan-section citation rewrites in `compiler/src/` + `compiler/tests/`, and CLAUDE.md's retirement-discipline rule (canonical home: CLAUDE.md `## Working principles` § "Retiring a public identifier (non-negotiable)") landed. The carve-out registry scaffold (`compiler/tests/doc_invariants_carveouts.toml` + `_parses.rs`) and its CLAUDE.md source-of-truth row landed in earlier chunks but were removed in this PR alongside the chunk 8 withdrawal — the registry had no consumer once chunk 8 was withdrawn, and a parked scaffold no future chunk will adopt is dead-weight.
 >
-> **Going-forward enforcement.** The retirement-discipline rule (CLAUDE.md `## Working principles`) is the durable mechanism: any future retirement is a three-step commitment in the same chunk (dated retirement comment + guard test in `compiler/tests/` + same-commit doc updates). The first retirement that needs a guard test creates the doc-invariant guard suite using the existing test pattern. The carve-out registry scaffold (TOML + well-formedness gate) is parked but available — a future hand-written guard test can load it via `serde::Deserialize` if per-file pattern carve-outs are needed.
+> **Going-forward enforcement.** The retirement-discipline rule (CLAUDE.md `## Working principles`) is the durable mechanism: any future retirement is a three-step commitment in the same chunk (dated retirement comment + guard test in `compiler/tests/` + same-commit doc updates). The first retirement that needs a guard test creates the doc-invariant guard suite using the existing test pattern; the first retirement that needs an exception facility decides whether to inline exceptions or build a registry.
 >
 > **Why withdraw the planned guard-test infrastructure.** The originally-planned chunk 8 (guard test suite) and chunk 9 (PreToolUse hook) were CI scaffolding for ~10 doc-drift patterns. Most of those patterns are already covered by stronger mechanisms: Rust's compile-time enforcement protects retired identifiers (`parse_legendary`, `legendary_*`); `serde_breaking_change_on_sprite_shape` at `compiler/src/ir/mod.rs:1895` protects the §F4 `img_data`/`sprite_name` retirement; CLAUDE.md:76 + the retirement-discipline rule protect against §F-N / `§Chunk Na` doc drift. The CI scaffolding's marginal value over those mechanisms doesn't justify the engineering scope.
 
@@ -86,7 +86,6 @@ The "Test Design Principles" rust-fenced examples that pin the hallucinated `her
 **Verification.**
 - [ ] Zero ```rust fences in TDD-progression chapter.
 - [ ] Code samples remain only where teaching a Rust-specific pattern prose can't carry.
-- [ ] No registry append needed (chapter is rewritten, not carved out).
 
 ## Acceptance criteria
 
