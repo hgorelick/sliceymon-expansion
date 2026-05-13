@@ -15,6 +15,8 @@ This folder contains AI persona files representing expert principal engineers wi
 | Security | [security.md](security.md) | Input validation, parser robustness, WASM safety, supply chain, fuzzing |
 | Testing | [testing.md](testing.md) | TDD progression, round-trip testing, Rust test patterns, assertion quality |
 | AI Development | [ai-development.md](ai-development.md) | Prompt engineering, one-shot completion, chunked plans, AI verification |
+| Product | [product.md](product.md) | Authoring-layer UX, error surface, library/CLI/JSON-Schema coherence |
+| Project Manager | [project-manager.md](project-manager.md) | Plan scope, dependency sequencing, source-of-truth anchoring, CI-gate alignment |
 | Game Design | [slice-and-dice-design.md](slice-and-dice-design.md) | Slice & Dice mechanics, balance, tier budgets, Face IDs, keywords |
 
 ## Project Context
