@@ -12,3 +12,4 @@ test_output/
 mod-testing/
 HANDOFF.md
 .scratch/
+.claude/*.lock
