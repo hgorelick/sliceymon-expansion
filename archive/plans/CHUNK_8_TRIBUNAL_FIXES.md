@@ -84,7 +84,7 @@ overrides.
   ~514, §4 line ~542), test assertions (§5 lines ~577, 581, 594, 624), §9 file
   list (lines ~700, 703, 726, 731). Grep the whole file for `target_pokemon`
   and rename each hit.
-- `plans/CHUNK_8A_REPLICA_IR_ATOMIC_REWRITE.md` — struct doc-comments (§3.2
+- `plans/replica-ir-atomic-rewrite.md` — struct doc-comments (§3.2
   lines ~170–206), field-note prose (§3.3 lines ~329–349), rename table
   callsite migration (§3.1 lines ~336–349), authoring-builder code samples
   (§3.6 lines ~521, 545–557, 618, 629, 640, 661), test samples (§5 lines
@@ -232,7 +232,7 @@ working-mods/pansaer.txt\`)`.
 
 ---
 
-## Fixes — `plans/CHUNK_8A_REPLICA_IR_ATOMIC_REWRITE.md`
+## Fixes — `plans/replica-ir-atomic-rewrite.md`
 
 ### A1. Embed DiceLocation corpus grep evidence inline in §2 or §3.2
 
@@ -383,7 +383,7 @@ Audit 8A for `pansaer line N` references; replace with grep anchors.
 
 ---
 
-## Fixes — `plans/CHUNK_8A5_NONSUMMON_TYPED_SCHEMA.md`
+## Fixes — `plans/nonsummon-typed-schema.md`
 
 ### A5-1. Resolve V8/V15 prose-vs-schema contradiction
 
@@ -861,8 +861,8 @@ optional task is to upstream the second hook."
 
 ```
 plans/CHUNK_8_REPLICA_ITEM_TRIGGER_PLAN.md   — fixes M1–M6 (6 edits)
-plans/CHUNK_8A_REPLICA_IR_ATOMIC_REWRITE.md  — fixes A1–A10 (10 edits)
-plans/CHUNK_8A5_NONSUMMON_TYPED_SCHEMA.md    — fixes A5-1 through A5-11 (11 edits)
+plans/replica-ir-atomic-rewrite.md  — fixes A1–A10 (10 edits)
+plans/nonsummon-typed-schema.md    — fixes A5-1 through A5-11 (11 edits)
 plans/CHUNK_8B_REPLICA_EXTRACTOR_XREF.md     — fixes B1–B10 (10 edits)
 plans/CHUNK_8C_PROSE_SPEC_HOOKS.md           — fixes C1–C8 (8 edits)
 ```
@@ -903,8 +903,8 @@ rg -c 'pub enum ReplicaItemContainer|ReplicaItemContainer::' compiler/src/   # 0
 # 4. Re-run /plan-review with same personas (architecture, slice-and-dice-design,
 # code-reviewer) on all five plans and confirm zero critical findings remain.
 /plan-review plans/CHUNK_8_REPLICA_ITEM_TRIGGER_PLAN.md \
-             plans/CHUNK_8A_REPLICA_IR_ATOMIC_REWRITE.md \
-             plans/CHUNK_8A5_NONSUMMON_TYPED_SCHEMA.md \
+             plans/replica-ir-atomic-rewrite.md \
+             plans/nonsummon-typed-schema.md \
              plans/CHUNK_8B_REPLICA_EXTRACTOR_XREF.md \
              plans/CHUNK_8C_PROSE_SPEC_HOOKS.md
 ```
