@@ -545,14 +545,12 @@ The original plan's "parallel groups A/B/C" are false — Chunk 2 and Chunk 3 bo
 - `compiler/src/authoring/face_id.rs` — `FaceId`, `FaceIdValue::{Known, Unknown}`, `Pips`, `FaceIdError`. `#![deny(missing_docs)]` scoped to `authoring/` and passes.
 - `DiceFace::Active { face_id: FaceIdValue, pips: Pips }` — single-pass flip across parser + emitter + tests.
 - `xref.rs` X016 (template-compat framework with empty production table — guide makes no per-FaceID restriction claim today) + X017 (`Severity::Warning` on `Unknown(_)`).
-- `compiler/tests/spec_amendments.rs` — smoke tests pinning the SPEC wording.
 
 **Verification (plan checklist)**:
 - [x] `authoring::face_id::tests::face_id_try_new_known` / `face_id_try_new_unknown` / `pips_try_new_accepts_i16_range`
 - [x] `ir::tests::diceface_roundtrip_through_newtypes` (+ `diceface_unknown_face_id_roundtrips` for Unknown)
 - [x] `xref::tests::x016_flags_template_restricted_face` (injected restriction table) + `x016_silent_when_production_table_empty`
 - [x] `xref::tests::x017_flags_unknown_face_id_as_warning` + `x017_silent_when_all_face_ids_known`
-- [x] `spec_amendments::spec_section_3_6_mentions_unknown_variant` + `spec_section_3_6_pips_is_i16`
 - [x] Build-script determinism — MD5 identical across rebuilds
 - [x] All 4 working mods IR-equal roundtrip (per `tests/baselines/roundtrip/*.baseline` — unchanged shape; PIPELINE_FIDELITY_PLAN owns the known-red full-cycle fix)
 - [x] `cargo rustdoc --lib` clean for `authoring` module with `deny(missing_docs)`

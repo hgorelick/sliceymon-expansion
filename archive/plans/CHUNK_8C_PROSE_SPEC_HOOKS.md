@@ -1,6 +1,6 @@
 # Chunk 8c: Prose — SPEC + foundations-plan alignment (post-Chunk-9 Legendary-only shape)
 
-**Parent plans**: §3.6 and §3.7 of `plans/CHUNK_8_REPLICA_ITEM_TRIGGER_PLAN.md`. 8A (`plans/CHUNK_8A_REPLICA_IR_ATOMIC_REWRITE.md`) is the upstream gate for any IR-shape-sensitive prose; 8C does not ship IR edits.
+**Parent plans**: §3.6 and §3.7 of `plans/CHUNK_8_REPLICA_ITEM_TRIGGER_PLAN.md`. 8A (`plans/replica-ir-atomic-rewrite.md`) is the upstream gate for any IR-shape-sensitive prose; 8C does not ship IR edits.
 
 **Authority contract (C7 fix)**: this plan **executes** the parent's §3.6/§3.7 SPEC
 and plan-prose amendments. Chunk 9 (landed 2026-04-23) retired the IR-shape
