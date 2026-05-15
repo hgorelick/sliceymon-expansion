@@ -1,3 +1,4 @@
+pub mod audit_markers;
 pub mod authoring;
 pub mod constants;
 pub mod error;
@@ -11,6 +12,7 @@ pub mod xref;
 pub use finding::{Finding, Severity};
 pub use xref::{check_references, check_hero_in_context, check_boss_in_context, ValidationReport};
 pub use ir::Source;
+pub use audit_markers::InternalStateEnum;
 pub use authoring::SpriteId;
 pub use builder::{BuildOptions, SourceFilter, SourceSet};
 
