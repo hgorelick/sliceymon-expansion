@@ -84,16 +84,22 @@ fn strip_comments_and_blanks(src: &str) -> Vec<&str> {
 
 #[test]
 fn audit_markers_residue_contains_exactly_one_trait_declaration() {
+    // AC1 binds `^pub trait InternalStateEnum \{\}\s*$` — empty `{}` body, no
+    // super-trait bound, no generic parameter, no associated type. The Review
+    // checklist (chunk plan) bans the same set explicitly. Match the bound
+    // line shape exactly so a future `pub trait InternalStateEnum: Send {}`
+    // or `pub trait InternalStateEnum<T> {}` trips this guard rather than
+    // sliding through a `starts_with` prefix match.
     let src = read_audit_markers_source();
     let residue = strip_comments_and_blanks(&src);
     let trait_decl_lines: Vec<&&str> = residue
         .iter()
-        .filter(|line| line.trim_start().starts_with("pub trait InternalStateEnum"))
+        .filter(|line| line.trim_end() == "pub trait InternalStateEnum {}")
         .collect();
     assert_eq!(
         trait_decl_lines.len(),
         1,
-        "audit_markers.rs residue must contain exactly one `pub trait InternalStateEnum` declaration; got {} (residue: {:?})",
+        "audit_markers.rs residue must contain exactly one `pub trait InternalStateEnum {{}}` declaration line (AC1 + Review-checklist body-shape ban — no super-trait bound, no generic parameter); got {} (residue: {:?})",
         trait_decl_lines.len(),
         residue
     );
@@ -205,9 +211,25 @@ fn lib_rs_pub_mod_and_reexport_adjacency_hold() {
         pub_mod_hits, src
     );
 
+    // AC4 binds `rg -PUc "^pub use ir::Source;\n^pub use audit_markers::InternalStateEnum;$"`
+    // returning 1 — both lines must each start at column 0 of their own line.
+    // A bare `src.contains("pub use ir::Source;\npub use audit_markers::InternalStateEnum;")`
+    // matches when the first line is e.g. `// pub use ir::Source;` (commented-out
+    // source above the re-export), which the AC's `^` anchors reject. Iterate
+    // adjacent line pairs and match each line's trimmed content exactly.
+    // Exact equality (no `trim_end()`) — AC4's rg `^pub use ir::Source;\n` does
+    // not admit trailing whitespace on the first line; `\s*$` slack appears
+    // only on the second line by `$`-anchor convention. `str::lines()` strips
+    // line terminators but preserves trailing horizontal whitespace, so exact
+    // equality is the faithful match.
+    let lines: Vec<&str> = src.lines().collect();
+    let adjacent_hit = lines.windows(2).any(|pair| {
+        pair[0] == "pub use ir::Source;"
+            && pair[1] == "pub use audit_markers::InternalStateEnum;"
+    });
     assert!(
-        src.contains("pub use ir::Source;\npub use audit_markers::InternalStateEnum;"),
-        "lib.rs must contain `pub use audit_markers::InternalStateEnum;` IMMEDIATELY after `pub use ir::Source;` (AC4 + decisions.md 2026-05-15 point 3 — consumer-import-path stability); full lib.rs:\n{}",
+        adjacent_hit,
+        "lib.rs must contain `pub use audit_markers::InternalStateEnum;` on the line IMMEDIATELY after a column-0 `pub use ir::Source;` line (AC4 + decisions.md 2026-05-15 point 3 — consumer-import-path stability); full lib.rs:\n{}",
         src
     );
 }
