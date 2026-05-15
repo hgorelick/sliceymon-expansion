@@ -56,6 +56,14 @@ fn read_audit_markers_source() -> String {
 /// downstream checks treat `use `, `pub mod`, etc. as start-of-non-whitespace
 /// code patterns without false-positives from rustdoc prose containing English
 /// words like "use", "misuse", or "because".
+///
+/// Does NOT strip `/* ... */` block-comment continuations whose continuation
+/// lines begin with ` *`. The file's bound shape uses `///` outer
+/// doc-comments exclusively (no block comments today), so the limitation is
+/// dormant at HEAD. A future contributor introducing a block comment to
+/// `audit_markers.rs` would need to extend this helper before doing so, or
+/// the residue check could either false-positive on continuation prose or
+/// fail to flag a real banned item co-located with one.
 fn strip_comments_and_blanks(src: &str) -> Vec<&str> {
     src.lines()
         .filter(|line| {
@@ -96,7 +104,9 @@ fn audit_markers_residue_carries_no_other_items() {
         "pub struct",
         "pub enum",
         "pub mod",
+        "mod ",
         "use ",
+        "pub use ",
         "#[derive(",
         "extern crate",
     ];
