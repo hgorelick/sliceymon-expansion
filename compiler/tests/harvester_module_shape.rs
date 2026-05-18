@@ -119,6 +119,40 @@ fn is_ident(s: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// `use std::<sub>::...` with at least one sub-segment before a non-empty leaf.
+/// Admits `use std::collections::BTreeMap;`, `use std::fmt::Write as _;`,
+/// `use std::convert::TryInto;`. Rejects `use std::env;`, `use std::fs;`,
+/// `use std::process;` — single-level imports that admit bare-module reach
+/// (`env::var(...)`) the full-file substring scan misses.
+fn is_licensed_std_use(line: &str) -> bool {
+    licensed_root_use(line, "use std::")
+}
+
+fn is_licensed_core_use(line: &str) -> bool {
+    licensed_root_use(line, "use core::")
+}
+
+fn licensed_root_use(line: &str, prefix: &str) -> bool {
+    let Some(rest) = line.strip_prefix(prefix) else {
+        return false;
+    };
+    // After `use std::` / `use core::`, the next `::` must occur before any
+    // terminator (`;`, `{`, ` as `, whitespace, end-of-line). Reject single-
+    // level imports like `use std::env;`.
+    let mut chars = rest.char_indices();
+    let mut first_sep: Option<usize> = None;
+    for (i, c) in chars.by_ref() {
+        if c == ':' && rest[i..].starts_with("::") {
+            first_sep = Some(i);
+            break;
+        }
+        if c == ';' || c == '{' || c.is_whitespace() {
+            return false;
+        }
+    }
+    first_sep.is_some()
+}
+
 #[test]
 fn harvester_directory_exists_with_at_least_one_source_file() {
     // Establishes the test's load-bearing precondition: the chunk creates the
@@ -146,13 +180,17 @@ fn harvester_residue_scope_has_no_banned_patterns() {
         for (idx, raw_line) in residue.iter().enumerate() {
             let trimmed = raw_line.trim_start();
 
-            // Ban `use ` UNLESS `use std::` / `use core::`.
+            // Ban `use ` UNLESS `use std::<sub>::...` / `use core::<sub>::...`.
+            // The second `::` requirement closes a re-export bypass: `use std::env;`
+            // alone (single-level) admits `env::var(...)` calls that the full-file
+            // substring scan misses because no `std::env::` literal appears in the
+            // bare-module callsite.
             if trimmed.starts_with("use ")
-                && !trimmed.starts_with("use std::")
-                && !trimmed.starts_with("use core::")
+                && !is_licensed_std_use(trimmed)
+                && !is_licensed_core_use(trimmed)
             {
                 panic!(
-                    "{}:{}: banned `use` reach in residue (only `use std::` / `use core::` admitted): {:?}",
+                    "{}:{}: banned `use` reach in residue (only `use std::<sub>::...` / `use core::<sub>::...` admitted): {:?}",
                     path.display(),
                     idx,
                     raw_line

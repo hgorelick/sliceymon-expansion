@@ -136,13 +136,13 @@ pub fn harvest_face_ids(mods: &[(&'static str, String)]) -> Vec<(String, String)
                 format!("{}:{}", meta.first_seen.0, meta.first_seen.1)
             };
             let mut block = String::new();
-            let _ = write!(
+            let _ = writeln!(
                 &mut block,
-                "    /// FaceID {id} — first seen {provenance}. See reference/textmod_guide.md.\n"
+                "    /// FaceID {id} — first seen {provenance}. See reference/textmod_guide.md."
             );
-            let _ = write!(
+            let _ = writeln!(
                 &mut block,
-                "    pub const {const_name}: FaceId = FaceId({id});\n"
+                "    pub const {const_name}: FaceId = FaceId({id});"
             );
             (id.to_string(), block)
         })
