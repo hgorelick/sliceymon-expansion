@@ -3,6 +3,7 @@ pub mod authoring;
 pub mod constants;
 pub mod error;
 pub mod finding;
+pub mod harvester;
 pub mod ir;
 pub mod extractor;
 pub mod builder;
