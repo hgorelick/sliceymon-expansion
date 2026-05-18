@@ -212,9 +212,9 @@ fn parse_face_id_chunk(chunk: &str) -> Option<u16> {
 //
 // For each `.img.<payload>` in the corpus, pair it with the nearest `.mn.`
 // or `.n.` name at the same paren depth. The result is a `BTreeMap<String,
-// ...>` (keyed by display name, first-write-wins in `WORKING_MOD_ORDER` —
-// sliceymon highest priority). Empty or pathological lines produce no
-// pairs; they don't error.
+// ...>` keyed by display name, first-write-wins under the caller-supplied
+// `mods` slice order. Empty or pathological lines produce no pairs; they
+// don't error.
 
 /// Harvest sprite entries from the corpus into per-entry
 /// `(sprite_name, sprite_id_value_expression, "<mod>:<line>")` triples.
@@ -240,12 +240,12 @@ pub fn harvest_sprites(
     for (mod_name, contents) in mods {
         for (line_idx, line) in contents.lines().enumerate() {
             for (name, img) in scan_entity_sprites(line) {
-                // First-write-wins in WORKING_MOD_ORDER. Because `sliceymon`
-                // iterates first, its sprites stick — the plan's "mod-priority
-                // last-write-wins" phrasing refers to the priority outcome,
-                // not iteration direction: equivalent here under forward
-                // iteration + first-write. Later mods reusing the same name
-                // are skipped.
+                // First-write-wins under the caller-supplied `mods` slice
+                // order. Later entries reusing a name already in the BTreeMap
+                // are skipped. The caller controls priority by ordering
+                // `mods`; "mod-priority last-write-wins" in upstream prose
+                // refers to the priority outcome, not iteration direction —
+                // equivalent under forward iteration + first-write.
                 sprites.entry(name).or_insert_with(|| SpriteEntry {
                     img_data: img,
                     first_seen: ((*mod_name).to_string(), line_idx + 1),

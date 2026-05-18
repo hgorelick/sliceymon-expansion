@@ -29,15 +29,19 @@ fn corpus() -> Vec<(&'static str, String)> {
 
 #[test]
 fn harvest_face_ids_returns_at_least_eighteen_pairs() {
-    // The 18-floor catches a regression that drops the `KNOWN_FACE_NAMES`
-    // curated belt-and-suspenders seeding loop in the pure-core. Today's
-    // table seeds 18 entries; a regression dropping that loop would still
-    // emit corpus-evidenced FaceIDs but trip the floor.
+    // The 18-floor catches a catastrophic empty-return regression. Today's
+    // KNOWN_FACE_NAMES table seeds 18 curated entries and the four-mod
+    // corpus contributes ~170 additional distinct FaceIDs, so the floor is
+    // far below the natural-passing output size — it fires when `harvest_face_ids`
+    // returns essentially nothing (e.g., the BTreeMap aggregation regressed
+    // to an unreachable branch). Curated-loop drift (dropping the
+    // KNOWN_FACE_NAMES belt-and-suspenders seeding) is caught by the
+    // SHA-256 ledger on face_id_generated.rs, not by this assertion.
     let mods = corpus();
     let face_ids: Vec<(String, String)> = harvest_face_ids(&mods);
     assert!(
         face_ids.len() >= 18,
-        "harvest_face_ids returned {} pairs; expected at least 18 (curated KNOWN_FACE_NAMES seeding floor)",
+        "harvest_face_ids returned {} pairs; expected at least 18 (catastrophic empty-return floor)",
         face_ids.len()
     );
 }
