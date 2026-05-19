@@ -287,8 +287,8 @@ pub fn collect_stripped_kinds(structural: &[StructuralModifier]) -> Vec<Structur
 /// `derived::generate_char_selection`, `HeroPoolBase` via
 /// `derived::generate_hero_pool_base`, `PoolReplacement` via
 /// `derived::generate_pool_replacement` (canonical shape; widened by the
-/// `poolreplacement-typed-payload` sibling chunk per decisions.md
-/// 2026-05-19), and hero-bound `ItemPool` via
+/// future typed-payload retype of `StructuralContent::PoolReplacement` per
+/// decisions.md 2026-05-19), and hero-bound `ItemPool` via
 /// `derived::generate_hero_item_pool` against the trigger-based replica list.
 ///
 /// Contract: callers must invoke `strip_derived_structurals` on `structural`

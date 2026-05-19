@@ -58,9 +58,9 @@ pub fn generate_char_selection(heroes: &[Hero]) -> StructuralModifier {
 /// `working-mods/punpuns.txt`'s richer
 /// `((heropool.<list>)&Hidden).doc.<text>.mn.<name>` corpus shape, including
 /// inline `(replica.<X>.abilitydata.(...)).n.<X>` rows, is delivered by the
-/// `poolreplacement-typed-payload` sibling chunk per decisions.md
-/// 2026-05-19, which widens this signature to consume the typed payload.
-/// `name: None` here pins the seam the sibling widens.
+/// future typed-payload retype of `StructuralContent::PoolReplacement` per
+/// decisions.md 2026-05-19, which widens this signature to consume the typed
+/// payload. `name: None` here pins the seam the retype widens.
 pub fn generate_pool_replacement(heroes: &[Hero]) -> StructuralModifier {
     let hero_names: Vec<String> = heroes.iter().map(|h| h.internal_name.clone()).collect();
     let body = format!("((heropool.{}))", hero_names.join("+"));
@@ -399,8 +399,8 @@ mod tests {
     /// `generate_pool_replacement` emits the canonical `((heropool.<list>))`
     /// shape from `&[Hero]`, populates `hero_names` from `internal_name`, and
     /// sets `derived: true` + `source: Source::Base`. Pinned per
-    /// decisions.md 2026-05-19 (the canonical-shape regenerator; the
-    /// typed-payload sibling chunk widens this signature later).
+    /// decisions.md 2026-05-19 (the canonical-shape regenerator; the future
+    /// typed-payload retype widens this signature later).
     #[test]
     fn generate_pool_replacement_canonical_shape() {
         let heroes = vec![
