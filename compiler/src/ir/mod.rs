@@ -910,15 +910,71 @@ impl StructuralModifier {
     /// than stripped. That is intentional — if the user didn't declare it as
     /// derived, we have no way to distinguish it from an authored shape that
     /// happens to coincide, and silently stripping would destroy content.
+    ///
+    /// The "which `StructuralType` variants are derived" set is encoded
+    /// exactly once, in [`DerivedKind`]'s variant list; this predicate
+    /// delegates via `DerivedKind::try_from` so the encoding can't drift
+    /// (per decisions.md 2026-05-13).
     pub fn is_derived(&self) -> bool {
-        self.derived
-            && matches!(
-                self.modifier_type,
-                StructuralType::Selector
-                    | StructuralType::HeroPoolBase
-                    | StructuralType::PoolReplacement
-                    | StructuralType::ItemPool
-            )
+        self.derived && DerivedKind::try_from(&self.modifier_type).is_ok()
+    }
+}
+
+/// Helper-only discriminator for the four SPEC §4 derived
+/// `StructuralType` variants. Single source-of-truth for "which
+/// `StructuralType` variants are derived" per decisions.md 2026-05-13
+/// (`DerivedKind` is single source-of-truth; `is_derived()` delegates) —
+/// adding a fifth derived `StructuralType` extends this enum, which then
+/// forces both the inner exhaustive match in
+/// `crate::ir::merge::regenerate_derived_kinds` AND auto-flips
+/// `StructuralModifier::is_derived()` via its `TryFrom` delegation.
+///
+/// Layer-2-unreachable from `ModIR` (never stored on a `ModIR` field; used
+/// only as a transient discriminator inside helper functions) — no
+/// `Serialize` / `Deserialize` / `JsonSchema` derives. The
+/// `REACHABILITY_CARVE_OUT` extension obligation in `audit-harness`'s
+/// registry is bound by decisions.md 2026-05-13 "`DerivedKind`
+/// classification disposition independent of merge order".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DerivedKind {
+    Selector,
+    HeroPoolBase,
+    PoolReplacement,
+    ItemPool,
+}
+
+/// Chunk-internal error type for the `TryFrom<&StructuralType> for DerivedKind`
+/// conversion. `.is_ok()` is the only observation site at every callsite, so
+/// the inner value is unused — the unit struct exists purely so the trait's
+/// associated `Error` type is named (Rust requires a distinct type, not
+/// `()`, to keep the conversion's failure mode out of any error-taxonomy
+/// hierarchy; chunk plan §Conventions explicitly forbids reusing
+/// `CompilerError` / `ErrorKind` for this conversion).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotDerived;
+
+impl TryFrom<&StructuralType> for DerivedKind {
+    type Error = NotDerived;
+
+    fn try_from(value: &StructuralType) -> Result<Self, Self::Error> {
+        match value {
+            StructuralType::Selector => Ok(DerivedKind::Selector),
+            StructuralType::HeroPoolBase => Ok(DerivedKind::HeroPoolBase),
+            StructuralType::PoolReplacement => Ok(DerivedKind::PoolReplacement),
+            StructuralType::ItemPool => Ok(DerivedKind::ItemPool),
+            _ => Err(NotDerived),
+        }
+    }
+}
+
+impl From<DerivedKind> for StructuralType {
+    fn from(value: DerivedKind) -> Self {
+        match value {
+            DerivedKind::Selector => StructuralType::Selector,
+            DerivedKind::HeroPoolBase => StructuralType::HeroPoolBase,
+            DerivedKind::PoolReplacement => StructuralType::PoolReplacement,
+            DerivedKind::ItemPool => StructuralType::ItemPool,
+        }
     }
 }
 
@@ -1992,6 +2048,114 @@ mod new_enum_compile_guards {
         let r: SummonTrigger =
             serde_json::from_str(&j).expect("SummonTrigger deserializes");
         assert_eq!(t, r);
+    }
+}
+
+// =========================================================================
+// is_derived() ↔ DerivedKind parity
+// =========================================================================
+
+#[cfg(test)]
+mod derived_kind_parity {
+    use super::*;
+
+    /// Exhaustiveness regression guard: for every `StructuralType` variant,
+    /// `is_derived()` (with `derived: true`) returns the same boolean as
+    /// `DerivedKind::try_from(&variant).is_ok()`. Locks the delegation per
+    /// decisions.md 2026-05-13 "`DerivedKind` is single source-of-truth;
+    /// `is_derived()` delegates" — a future contributor flipping a fifth
+    /// `StructuralType` variant to derived in `is_derived()` without extending
+    /// `DerivedKind` (or vice versa) fails here.
+    #[test]
+    fn is_derived_matches_derived_kind_try_from_for_every_variant() {
+        let variants_and_content = [
+            (StructuralType::PartyConfig, StructuralContent::from_body(&StructuralType::PartyConfig, "x".into())),
+            (StructuralType::EventModifier, StructuralContent::from_body(&StructuralType::EventModifier, "x".into())),
+            (StructuralType::Dialog, StructuralContent::from_body(&StructuralType::Dialog, "x".into())),
+            (StructuralType::HeroPoolBase, StructuralContent::from_body(&StructuralType::HeroPoolBase, "x".into())),
+            (StructuralType::LevelUpAction, StructuralContent::from_body(&StructuralType::LevelUpAction, "x".into())),
+            (StructuralType::ItemPool, StructuralContent::from_body(&StructuralType::ItemPool, "x".into())),
+            (StructuralType::Selector, StructuralContent::from_body(&StructuralType::Selector, "x".into())),
+            (StructuralType::GenSelect, StructuralContent::from_body(&StructuralType::GenSelect, "x".into())),
+            (StructuralType::Difficulty, StructuralContent::from_body(&StructuralType::Difficulty, "x".into())),
+            (StructuralType::EndScreen, StructuralContent::from_body(&StructuralType::EndScreen, "x".into())),
+            (StructuralType::BossModifier, StructuralContent::from_body(&StructuralType::BossModifier, "x".into())),
+            (StructuralType::ArtCredits, StructuralContent::from_body(&StructuralType::ArtCredits, "x".into())),
+            (StructuralType::PoolReplacement, StructuralContent::from_body(&StructuralType::PoolReplacement, "x".into())),
+            (StructuralType::PhaseModifier, StructuralContent::from_body(&StructuralType::PhaseModifier, "x".into())),
+            (StructuralType::Choosable, StructuralContent::from_body(&StructuralType::Choosable, "x".into())),
+            (StructuralType::ValueModifier, StructuralContent::from_body(&StructuralType::ValueModifier, "x".into())),
+            (StructuralType::HiddenModifier, StructuralContent::from_body(&StructuralType::HiddenModifier, "x".into())),
+            (StructuralType::FightModifier, StructuralContent::from_body(&StructuralType::FightModifier, "x".into())),
+        ];
+        assert_eq!(variants_and_content.len(), 18,
+            "StructuralType has 18 variants — parity test must enumerate every one");
+        for (ty, content) in variants_and_content {
+            let s = StructuralModifier {
+                modifier_type: ty.clone(),
+                name: None,
+                content,
+                derived: true,
+                source: Source::Base,
+            };
+            let try_from_ok = DerivedKind::try_from(&ty).is_ok();
+            assert_eq!(
+                s.is_derived(),
+                try_from_ok,
+                "is_derived() must agree with DerivedKind::try_from(&{:?}).is_ok() — drift indicates the delegation has been bypassed",
+                ty
+            );
+        }
+    }
+
+    /// `DerivedKind`'s variant set is exactly the four SPEC §4 derived kinds.
+    /// Adding a fifth derived `StructuralType` requires extending
+    /// `DerivedKind` (the load-bearing single source-of-truth per
+    /// decisions.md 2026-05-13); this test pins the current four.
+    #[test]
+    fn derived_kind_try_from_admits_exactly_four_variants() {
+        assert!(DerivedKind::try_from(&StructuralType::Selector).is_ok());
+        assert!(DerivedKind::try_from(&StructuralType::HeroPoolBase).is_ok());
+        assert!(DerivedKind::try_from(&StructuralType::PoolReplacement).is_ok());
+        assert!(DerivedKind::try_from(&StructuralType::ItemPool).is_ok());
+        // Every other StructuralType variant returns Err.
+        for ty in [
+            StructuralType::PartyConfig,
+            StructuralType::EventModifier,
+            StructuralType::Dialog,
+            StructuralType::LevelUpAction,
+            StructuralType::GenSelect,
+            StructuralType::Difficulty,
+            StructuralType::EndScreen,
+            StructuralType::BossModifier,
+            StructuralType::ArtCredits,
+            StructuralType::PhaseModifier,
+            StructuralType::Choosable,
+            StructuralType::ValueModifier,
+            StructuralType::HiddenModifier,
+            StructuralType::FightModifier,
+        ] {
+            assert!(
+                DerivedKind::try_from(&ty).is_err(),
+                "DerivedKind::try_from(&{:?}) must err — admitting a non-derived kind breaks is_derived() delegation",
+                ty
+            );
+        }
+    }
+
+    /// Inverse `From<DerivedKind> for StructuralType` round-trips through
+    /// `TryFrom` — symmetry pinned per the chunk plan's Contracts changed row.
+    #[test]
+    fn derived_kind_from_inverse_round_trips() {
+        for dk in [
+            DerivedKind::Selector,
+            DerivedKind::HeroPoolBase,
+            DerivedKind::PoolReplacement,
+            DerivedKind::ItemPool,
+        ] {
+            let ty: StructuralType = dk.into();
+            assert_eq!(DerivedKind::try_from(&ty), Ok(dk));
+        }
     }
 }
 

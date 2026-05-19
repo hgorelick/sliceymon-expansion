@@ -9,24 +9,66 @@ use crate::ir::{
     StructuralType, SummonTrigger,
 };
 
-/// Generate a character selection Selector from the hero list.
-/// Options are sorted by hero color alphabetically.
+/// Generate a character selection Selector from the hero list in the
+/// canonical SeqPhase form per `reference/textmod_guide.md` §SeqPhase
+/// (decisions.md 2026-05-18):
+/// `ph.sChoose a Party@1[<H1>][<H2>]…[<HN>]@2!mparty.<H1>+<H2>+…+<HN>` — one
+/// button containing the full party list of bracketed `mn_name` labels,
+/// followed by a `@2!mparty.+`-joined add action. The bracketed-label list,
+/// the `mparty.+` list, and `content.options` all iterate the same
+/// color-sorted hero view, so the three ordered sequences agree on hero
+/// order. Output is `derived: true` so the strip-and-regen cycle owns it;
+/// `name: None` matches the canonical-shape convention shared with
+/// `generate_hero_pool_base`.
 pub fn generate_char_selection(heroes: &[Hero]) -> StructuralModifier {
     let mut sorted: Vec<&Hero> = heroes.iter().collect();
     sorted.sort_by_key(|h| h.color);
 
-    let mut body = String::from("1.ph.s");
+    let mut bracketed = String::new();
+    let mut party_list = String::new();
     let mut options = Vec::new();
 
-    for hero in &sorted {
-        body.push_str(&format!("@1{}", hero.mn_name));
+    for (i, hero) in sorted.iter().enumerate() {
+        bracketed.push('[');
+        bracketed.push_str(&hero.mn_name);
+        bracketed.push(']');
+        if i > 0 {
+            party_list.push('+');
+        }
+        party_list.push_str(&hero.mn_name);
         options.push(hero.mn_name.clone());
     }
+
+    let body = format!(
+        "ph.sChoose a Party@1{bracketed}@2!mparty.{party_list}"
+    );
 
     StructuralModifier {
         modifier_type: StructuralType::Selector,
         name: None,
         content: StructuralContent::Selector { body, options },
+        derived: true,
+        source: Source::Base,
+    }
+}
+
+/// Generate a canonical-shape `PoolReplacement` structural from the hero
+/// list — emits `((heropool.<h1.internal_name>+<h2.internal_name>+…))` for
+/// the `derived: true` synthesized case. The four-mod byte-match against
+/// `working-mods/punpuns.txt`'s richer
+/// `((heropool.<list>)&Hidden).doc.<text>.mn.<name>` corpus shape, including
+/// inline `(replica.<X>.abilitydata.(...)).n.<X>` rows, is delivered by the
+/// `poolreplacement-typed-payload` sibling chunk per decisions.md
+/// 2026-05-19, which widens this signature to consume the typed payload.
+/// `name: None` here pins the seam the sibling widens.
+pub fn generate_pool_replacement(heroes: &[Hero]) -> StructuralModifier {
+    let hero_names: Vec<String> = heroes.iter().map(|h| h.internal_name.clone()).collect();
+    let body = format!("((heropool.{}))", hero_names.join("+"));
+
+    StructuralModifier {
+        modifier_type: StructuralType::PoolReplacement,
+        name: None,
+        content: StructuralContent::PoolReplacement { body, hero_names },
         derived: true,
         source: Source::Base,
     }
@@ -236,9 +278,20 @@ mod tests {
         ir.heroes.push(make_hero("Gamma", 'c'));
 
         let output = crate::builder::build_complete(&ir).unwrap();
-        // Should contain auto-generated selector and hero pool
-        assert!(output.contains("@1Alpha"), "missing char selection option Alpha");
-        assert!(output.contains("@1Beta"), "missing char selection option Beta");
+        // Should contain auto-generated selector and hero pool in the
+        // canonical SeqPhase form per reference/textmod_guide.md §SeqPhase
+        // (per decisions.md 2026-05-18): one button with bracketed labels
+        // followed by an `@2!mparty.+`-joined add action.
+        assert!(
+            output.contains("ph.sChoose a Party@1[Alpha][Beta][Gamma]"),
+            "missing canonical-form bracketed-label list — got:\n{}",
+            output
+        );
+        assert!(
+            output.contains("@2!mparty.Alpha+Beta+Gamma"),
+            "missing canonical-form mparty.+ add action — got:\n{}",
+            output
+        );
         assert!(output.contains("heropool."), "missing hero pool base");
     }
 
@@ -341,6 +394,107 @@ mod tests {
         let pools = generate_hero_item_pool(&heroes, &replica_items);
         assert_eq!(pools.len(), 1, "only heroes with matches get a pool");
         assert_eq!(pools[0].name.as_deref(), Some("AlphaItem"));
+    }
+
+    /// `generate_pool_replacement` emits the canonical `((heropool.<list>))`
+    /// shape from `&[Hero]`, populates `hero_names` from `internal_name`, and
+    /// sets `derived: true` + `source: Source::Base`. Pinned per the
+    /// complete-regenerators chunk plan + decisions.md 2026-05-19 (the
+    /// canonical-shape regenerator; the typed-payload sibling chunk widens
+    /// this signature later).
+    #[test]
+    fn generate_pool_replacement_canonical_shape() {
+        let heroes = vec![
+            make_hero("Alpha", 'a'),
+            make_hero("Beta", 'b'),
+            make_hero("Gamma", 'c'),
+        ];
+        let modifier = generate_pool_replacement(&heroes);
+        assert_eq!(modifier.modifier_type, StructuralType::PoolReplacement);
+        assert!(modifier.derived);
+        assert_eq!(modifier.source, Source::Base);
+        assert_eq!(modifier.name, None,
+            "canonical-shape body carries no .mn.<name> suffix; sibling chunk plumbs typed name");
+        match &modifier.content {
+            StructuralContent::PoolReplacement { body, hero_names } => {
+                assert_eq!(body, "((heropool.alpha+beta+gamma))");
+                assert_eq!(hero_names, &["alpha", "beta", "gamma"]);
+            }
+            other => panic!("expected PoolReplacement content, got {:?}", other),
+        }
+    }
+
+    /// Source-vs-IR divergence: altering `internal_name` shifts the regenerated
+    /// `body` bytes accordingly (proves the regenerator reads from content
+    /// rather than hardcoding canonical bytes; mirrors the brief Goal 5
+    /// verifier's per-regenerator divergence property).
+    #[test]
+    fn generate_pool_replacement_reads_internal_name_from_content() {
+        let mut heroes = vec![make_hero("Foo", 'a'), make_hero("Bar", 'b')];
+        // Alter internal_names — the regenerated body must reflect them.
+        heroes[0].internal_name = "renamedfoo".into();
+        heroes[1].internal_name = "renamedbar".into();
+        let modifier = generate_pool_replacement(&heroes);
+        match &modifier.content {
+            StructuralContent::PoolReplacement { body, hero_names } => {
+                assert_eq!(body, "((heropool.renamedfoo+renamedbar))");
+                assert_eq!(hero_names, &["renamedfoo", "renamedbar"]);
+            }
+            other => panic!("expected PoolReplacement content, got {:?}", other),
+        }
+    }
+
+    /// `generate_char_selection`'s rewritten body matches the canonical
+    /// SeqPhase form per `reference/textmod_guide.md` §SeqPhase
+    /// (`ph.sChoose a Party@1[Hero1][Hero2]…@2!mparty.Hero1+Hero2+…`) per
+    /// decisions.md 2026-05-18. The adversarial non-color-sorted input order
+    /// discriminates between an implementation that iterates the color-sorted
+    /// view (correct) and one that iterates the raw `&[Hero]` (regression).
+    #[test]
+    fn generate_char_selection_canonical_form_byte_match() {
+        let heroes = vec![
+            make_hero("Gamma", 'c'),
+            make_hero("Alpha", 'a'),
+            make_hero("Beta", 'b'),
+        ];
+        let sel = generate_char_selection(&heroes);
+        assert_eq!(sel.modifier_type, StructuralType::Selector);
+        assert!(sel.derived);
+        assert_eq!(sel.source, Source::Base);
+        assert_eq!(sel.name, None);
+        match &sel.content {
+            StructuralContent::Selector { body, options } => {
+                assert_eq!(
+                    body,
+                    "ph.sChoose a Party@1[Alpha][Beta][Gamma]@2!mparty.Alpha+Beta+Gamma"
+                );
+                // options[] also iterates the color-sorted view — pinned by the
+                // existing generate_char_selection_alphabetical test.
+                assert_eq!(options, &["Alpha", "Beta", "Gamma"]);
+            }
+            other => panic!("expected Selector content, got {:?}", other),
+        }
+    }
+
+    /// Source-vs-IR divergence for `generate_char_selection`: altered
+    /// `mn_name` values must shift the body bytes in both the bracketed-label
+    /// list AND the `@2!mparty.+`-joined add-action list.
+    #[test]
+    fn generate_char_selection_reads_mn_name_from_content() {
+        let mut heroes = vec![make_hero("Original1", 'a'), make_hero("Original2", 'b')];
+        heroes[0].mn_name = "Renamed1".into();
+        heroes[1].mn_name = "Renamed2".into();
+        let sel = generate_char_selection(&heroes);
+        match &sel.content {
+            StructuralContent::Selector { body, options } => {
+                assert_eq!(
+                    body,
+                    "ph.sChoose a Party@1[Renamed1][Renamed2]@2!mparty.Renamed1+Renamed2"
+                );
+                assert_eq!(options, &["Renamed1", "Renamed2"]);
+            }
+            other => panic!("expected Selector content, got {:?}", other),
+        }
     }
 
     /// The strip-regenerate cycle (SPEC §4) must re-author stripped derived

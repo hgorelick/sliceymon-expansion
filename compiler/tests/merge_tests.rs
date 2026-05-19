@@ -51,11 +51,17 @@ fn make_hero(name: &str, color: char, source: Source) -> textmod_compiler::ir::H
 }
 
 fn derived_char_selection(source: Source) -> StructuralModifier {
+    // Fixture body matches the canonical SeqPhase form per
+    // reference/textmod_guide.md §SeqPhase (decisions.md 2026-05-18): one
+    // button with bracketed labels followed by an `@2!mparty.+`-joined add
+    // action. The strip-regenerate cycle replaces this body anyway — the
+    // fixture exists so the pre-strip modifier looks like a real derived
+    // Selector to merge's `is_derived()` check.
     StructuralModifier {
         modifier_type: StructuralType::Selector,
         name: None,
         content: StructuralContent::Selector {
-            body: "1.ph.s@1Alpha@1Beta".into(),
+            body: "ph.sChoose a Party@1[Alpha][Beta]@2!mparty.Alpha+Beta".into(),
             options: vec!["Alpha".into(), "Beta".into()],
         },
         derived: true,
@@ -451,11 +457,21 @@ fn path_c_merge_adds_hero_regenerates_selector() {
 
     merge(&mut base, overlay).unwrap();
 
-    // merge stripped the derived Selector (Base → X010 warn). build regenerates.
+    // merge stripped the derived Selector (Base → X010 warn). build regenerates
+    // the canonical SeqPhase form per reference/textmod_guide.md §SeqPhase
+    // (decisions.md 2026-05-18) — one button with bracketed labels for every
+    // post-merge hero, followed by an `@2!mparty.+`-joined add action.
     let output = textmod_compiler::build(&base).expect("build should succeed");
-    assert!(output.contains("@1Alpha"), "regenerated selector missing Alpha");
-    assert!(output.contains("@1Beta"), "regenerated selector missing Beta");
-    assert!(output.contains("@1Gamma"), "regenerated selector missing Gamma");
+    assert!(
+        output.contains("ph.sChoose a Party@1[Alpha][Beta][Gamma]"),
+        "regenerated selector missing canonical bracketed-label list — got:\n{}",
+        output
+    );
+    assert!(
+        output.contains("@2!mparty.Alpha+Beta+Gamma"),
+        "regenerated selector missing canonical mparty.+ add action — got:\n{}",
+        output
+    );
 }
 
 // -- filter × derived-regen interaction (PR #12 round-7) --
@@ -484,13 +500,16 @@ fn build_with_filter_regenerates_derived_from_post_filter_heroes() {
     };
     let out = build_with(&ir, &opts).expect("build_with should succeed");
 
+    // Canonical form per decisions.md 2026-05-18 — admitted hero appears in
+    // the bracketed-label list AND the mparty.+ add action; filtered-out hero
+    // appears in neither.
     assert!(
-        out.contains("@1OverlayHero"),
+        out.contains("[OverlayHero]"),
         "regen under Only(Overlay) must include admitted heroes — got:\n{}",
         out
     );
     assert!(
-        !out.contains("@1BaseHero"),
+        !out.contains("[BaseHero]"),
         "regen under Only(Overlay) must NOT include filtered-out heroes — got:\n{}",
         out
     );
