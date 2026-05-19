@@ -414,10 +414,16 @@ mod per_arm_regenerator_guards {
         assert_eq!(structural.len(), 1, "Selector arm regenerates exactly one modifier");
         assert_eq!(structural[0].modifier_type, StructuralType::Selector);
         assert!(structural[0].derived);
-        assert!(
-            !structural[0].body().is_empty(),
-            "Selector regenerator body must be non-empty"
-        );
+        match &structural[0].content {
+            StructuralContent::Selector { body, options } => {
+                assert_eq!(
+                    body,
+                    "ph.sChoose a Party@1[Alpha][Beta]@2!mparty.Alpha+Beta"
+                );
+                assert_eq!(options, &["Alpha", "Beta"]);
+            }
+            other => panic!("expected Selector content, got {:?}", other),
+        }
     }
 
     #[test]

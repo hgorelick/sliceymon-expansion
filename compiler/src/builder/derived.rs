@@ -398,10 +398,9 @@ mod tests {
 
     /// `generate_pool_replacement` emits the canonical `((heropool.<list>))`
     /// shape from `&[Hero]`, populates `hero_names` from `internal_name`, and
-    /// sets `derived: true` + `source: Source::Base`. Pinned per the
-    /// complete-regenerators chunk plan + decisions.md 2026-05-19 (the
-    /// canonical-shape regenerator; the typed-payload sibling chunk widens
-    /// this signature later).
+    /// sets `derived: true` + `source: Source::Base`. Pinned per
+    /// decisions.md 2026-05-19 (the canonical-shape regenerator; the
+    /// typed-payload sibling chunk widens this signature later).
     #[test]
     fn generate_pool_replacement_canonical_shape() {
         let heroes = vec![
@@ -426,8 +425,9 @@ mod tests {
 
     /// Source-vs-IR divergence: altering `internal_name` shifts the regenerated
     /// `body` bytes accordingly (proves the regenerator reads from content
-    /// rather than hardcoding canonical bytes; mirrors the brief Goal 5
-    /// verifier's per-regenerator divergence property).
+    /// rather than hardcoding canonical bytes; mirrors the brief's
+    /// "Derived-structural regenerators are complete and corpus-matched"
+    /// Goal verifier's per-regenerator divergence property).
     #[test]
     fn generate_pool_replacement_reads_internal_name_from_content() {
         let mut heroes = vec![make_hero("Foo", 'a'), make_hero("Bar", 'b')];

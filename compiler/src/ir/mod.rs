@@ -947,9 +947,10 @@ pub enum DerivedKind {
 /// conversion. `.is_ok()` is the only observation site at every callsite, so
 /// the inner value is unused — the unit struct exists purely so the trait's
 /// associated `Error` type is named (Rust requires a distinct type, not
-/// `()`, to keep the conversion's failure mode out of any error-taxonomy
-/// hierarchy; chunk plan §Conventions explicitly forbids reusing
-/// `CompilerError` / `ErrorKind` for this conversion).
+/// `()`). Decoupled from `CompilerError` / `ErrorKind`: this conversion's
+/// failure mode has no semantic relationship to compiler-error taxonomy and
+/// importing one would couple the trait signature to an unrelated module
+/// (decisions.md 2026-05-13 "`DerivedKind` is single source-of-truth").
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NotDerived;
 
@@ -2144,7 +2145,8 @@ mod derived_kind_parity {
     }
 
     /// Inverse `From<DerivedKind> for StructuralType` round-trips through
-    /// `TryFrom` — symmetry pinned per the chunk plan's Contracts changed row.
+    /// `TryFrom` — symmetry pinned per decisions.md 2026-05-13
+    /// "`DerivedKind` is single source-of-truth".
     #[test]
     fn derived_kind_from_inverse_round_trips() {
         for dk in [
