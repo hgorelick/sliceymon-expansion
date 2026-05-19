@@ -949,8 +949,7 @@ pub enum DerivedKind {
 /// associated `Error` type is named (Rust requires a distinct type, not
 /// `()`). Decoupled from `CompilerError` / `ErrorKind`: this conversion's
 /// failure mode has no semantic relationship to compiler-error taxonomy and
-/// importing one would couple the trait signature to an unrelated module
-/// (decisions.md 2026-05-13 "`DerivedKind` is single source-of-truth").
+/// importing one would couple the trait signature to an unrelated module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NotDerived;
 
@@ -2145,8 +2144,8 @@ mod derived_kind_parity {
     }
 
     /// Inverse `From<DerivedKind> for StructuralType` round-trips through
-    /// `TryFrom` — symmetry pinned per decisions.md 2026-05-13
-    /// "`DerivedKind` is single source-of-truth".
+    /// `TryFrom` — symmetry over `DerivedKind`'s four variants, with
+    /// exhaustiveness checked at compile time.
     #[test]
     fn derived_kind_from_inverse_round_trips() {
         for dk in [
