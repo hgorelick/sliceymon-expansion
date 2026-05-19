@@ -1,12 +1,18 @@
-//! CLAUDE.md "Retiring a public identifier" guard suite: literal-string
-//! greps over `compiler/src/**/*.rs` asserting that retired identifiers,
-//! retired comment markers, and retired sentinel prose return zero hits
-//! across the library source tree.
+//! Source-tree literal-string guards: each test greps for a retired
+//! pattern marker / comment sentinel across `compiler/src/**/*.rs` and
+//! asserts zero hits.
 //!
-//! Each guard pins the third step of CLAUDE.md's three-step retirement
-//! protocol (the rest — retirement comment dated to the chunk + atomic
-//! removal of every doc reference — is enforced at chunk-land time; this
-//! suite is the permanent CI floor that prevents reintroduction).
+//! Patterned after CLAUDE.md's "Retiring a public identifier" three-step
+//! protocol but bounded to the source tree. The CLAUDE.md protocol's
+//! two-surface (markdown + source) grep requirement is the contract for
+//! retiring a public identifier (function, type, field, enum variant,
+//! file path, CLI subcommand); the guards currently in this suite retire
+//! code-level pattern markers / inline comments, not public identifiers,
+//! so the markdown surface is intentionally out of scope (documentation
+//! that historically quotes a retired marker is description, not
+//! reintroduction). If a future retirement adds a public identifier to
+//! this suite, extend the walker to cover the markdown surface per
+//! CLAUDE.md step 2.
 
 use std::fs;
 use std::path::{Path, PathBuf};

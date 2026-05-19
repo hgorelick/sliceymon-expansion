@@ -2060,14 +2060,24 @@ mod derived_kind_parity {
     use super::*;
 
     /// Exhaustiveness regression guard: for every `StructuralType` variant,
-    /// `is_derived()` (with `derived: true`) returns the same boolean as
-    /// `DerivedKind::try_from(&variant).is_ok()`. Locks the delegation per
-    /// decisions.md 2026-05-13 "`DerivedKind` is single source-of-truth;
-    /// `is_derived()` delegates" — a future contributor flipping a fifth
-    /// `StructuralType` variant to derived in `is_derived()` without extending
-    /// `DerivedKind` (or vice versa) fails here.
+    /// `is_derived()` (with `derived: true`) must agree with a hand-authored
+    /// derived-set AND with `DerivedKind::try_from(&variant).is_ok()`. The
+    /// hand-authored set is independent of the implementation: it pins the
+    /// SPEC §4 derived four (`Selector`, `HeroPoolBase`, `PoolReplacement`,
+    /// `ItemPool`), so a regression that bypasses `DerivedKind::try_from` in
+    /// `is_derived()`'s body (e.g. inlining a `matches!` literal with the
+    /// wrong set) is caught against this independent anchor, not only against
+    /// the implementation it delegates to. A second pass with `derived: false`
+    /// asserts the `self.derived &&` conjunct holds for every variant —
+    /// catches "someone simplified `is_derived()` by dropping the conjunct".
     #[test]
     fn is_derived_matches_derived_kind_try_from_for_every_variant() {
+        const DERIVED_SET: &[StructuralType] = &[
+            StructuralType::Selector,
+            StructuralType::HeroPoolBase,
+            StructuralType::PoolReplacement,
+            StructuralType::ItemPool,
+        ];
         let variants_and_content = [
             (StructuralType::PartyConfig, StructuralContent::from_body(&StructuralType::PartyConfig, "x".into())),
             (StructuralType::EventModifier, StructuralContent::from_body(&StructuralType::EventModifier, "x".into())),
@@ -2090,19 +2100,39 @@ mod derived_kind_parity {
         ];
         assert_eq!(variants_and_content.len(), 18,
             "StructuralType has 18 variants — parity test must enumerate every one");
-        for (ty, content) in variants_and_content {
+        for (ty, content) in &variants_and_content {
+            let expected_derived = DERIVED_SET.contains(ty);
             let s = StructuralModifier {
                 modifier_type: ty.clone(),
                 name: None,
-                content,
+                content: content.clone(),
                 derived: true,
                 source: Source::Base,
             };
-            let try_from_ok = DerivedKind::try_from(&ty).is_ok();
             assert_eq!(
                 s.is_derived(),
-                try_from_ok,
-                "is_derived() must agree with DerivedKind::try_from(&{:?}).is_ok() — drift indicates the delegation has been bypassed",
+                expected_derived,
+                "is_derived() (with derived: true) must match the hand-authored derived-set for {:?} — independent anchor catches delegation bypass",
+                ty
+            );
+            assert_eq!(
+                DerivedKind::try_from(ty).is_ok(),
+                expected_derived,
+                "DerivedKind::try_from must match the hand-authored derived-set for {:?} — independent anchor catches TryFrom drift",
+                ty
+            );
+        }
+        for (ty, content) in &variants_and_content {
+            let s = StructuralModifier {
+                modifier_type: ty.clone(),
+                name: None,
+                content: content.clone(),
+                derived: false,
+                source: Source::Base,
+            };
+            assert!(
+                !s.is_derived(),
+                "is_derived() must return false when self.derived is false, regardless of variant ({:?}) — catches dropped self.derived && conjunct",
                 ty
             );
         }
