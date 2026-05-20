@@ -1,6 +1,6 @@
 use crate::error::CompilerError;
 use crate::finding::{Finding, Severity};
-use crate::ir::{Hero, ModIR, ReplicaItem, Source, StructuralModifier, StructuralType};
+use crate::ir::{DerivedKind, Hero, ModIR, ReplicaItem, Source, StructuralModifier, StructuralType};
 
 /// X010 — derived structural (`CharacterSelection`, `HeroPoolBase`,
 /// `PoolReplacement`, hero-bound `ItemPool`) present in IR. Authoring derived
@@ -283,39 +283,188 @@ pub fn collect_stripped_kinds(structural: &[StructuralModifier]) -> Vec<Structur
 /// no separate char-selection Selector, and nothing in this function adds
 /// one unless the input already had one marked derived).
 ///
-/// Hero-bound `ItemPool` regeneration is wired: a stripped derived
-/// `ItemPool` is re-authored by `derived::generate_hero_item_pool` against
-/// the trigger-based replica list. `PoolReplacement` remains a `_ => {}`
-/// sink — its regenerator is deferred.
+/// Every derived kind has a wired regenerator: `Selector` via
+/// `derived::generate_char_selection`, `HeroPoolBase` via
+/// `derived::generate_hero_pool_base`, `PoolReplacement` via
+/// `derived::generate_pool_replacement` (canonical shape; widened by the
+/// future typed-payload retype of `StructuralContent::PoolReplacement` per
+/// decisions.md 2026-05-19), and hero-bound `ItemPool` via
+/// `derived::generate_hero_item_pool` against the trigger-based replica list.
 ///
 /// Contract: callers must invoke `strip_derived_structurals` on `structural`
 /// before calling this — `collect_stripped_kinds` returns a deduped `kinds`
 /// list from the pre-strip structural, and strip guarantees no `derived:true`
 /// items remain, so each regenerated kind is pushed exactly once.
+///
+/// Dispatch shape per decisions.md 2026-05-13 "`DerivedKind` is single
+/// source-of-truth; `is_derived()` delegates": this outer function filters
+/// `StructuralType` to [`DerivedKind`] via `TryFrom`, delegating to
+/// `regenerate_derived_kind_inner` which is exhaustive over `DerivedKind`'s
+/// four variants. Rust's compiler-enforced exhaustiveness check on
+/// `DerivedKind` is the load-bearing property: flipping a fifth
+/// `StructuralType` variant to derived requires only extending `DerivedKind`,
+/// which then forces the inner exhaustive-match update.
 pub fn regenerate_derived_kinds(
     structural: &mut Vec<StructuralModifier>,
     heroes: &[Hero],
     replica_items: &[ReplicaItem],
     kinds: &[StructuralType],
 ) {
+    // Outer/inner dispatch split (chunk complete-regenerators, 2026-05-19):
+    // the `_ => {}` wildcard sink that previously deferred `PoolReplacement`
+    // retired here. Upstream callers build `kinds` via `collect_stripped_kinds`,
+    // which filters by `is_derived()` — and `is_derived()` returns `true` only
+    // when `DerivedKind::try_from` succeeds — so the outer `Err` arm is
+    // structurally unreachable; reaching it indicates a caller bypassed the
+    // upstream-filter discipline.
     if heroes.is_empty() || kinds.is_empty() {
         return;
     }
     for kind in kinds {
-        match kind {
-            StructuralType::Selector => {
-                structural.push(crate::builder::derived::generate_char_selection(heroes));
-            }
-            StructuralType::HeroPoolBase => {
-                structural.push(crate::builder::derived::generate_hero_pool_base(heroes));
-            }
-            StructuralType::ItemPool => {
-                structural.extend(
-                    crate::builder::derived::generate_hero_item_pool(heroes, replica_items),
+        match DerivedKind::try_from(kind) {
+            Ok(dk) => regenerate_derived_kind_inner(structural, heroes, replica_items, dk),
+            Err(_) => unreachable!(
+                "regenerate_derived_kinds reached a non-derived StructuralType ({:?}). \
+                 collect_stripped_kinds builds `kinds` via `is_derived()`, and `is_derived()` \
+                 returns true only when `DerivedKind::try_from` succeeds — reaching this arm \
+                 means a caller bypassed `collect_stripped_kinds`-style filtering before \
+                 invoking `regenerate_derived_kinds`.",
+                kind
+            ),
+        }
+    }
+}
+
+/// Inner dispatch — exhaustive over [`DerivedKind`]. Adding a fifth variant
+/// to `DerivedKind` forces this match's update at compile time, per the
+/// chunk's "compile-time enforcement of the derived-allowed-set" property.
+fn regenerate_derived_kind_inner(
+    structural: &mut Vec<StructuralModifier>,
+    heroes: &[Hero],
+    replica_items: &[ReplicaItem],
+    kind: DerivedKind,
+) {
+    match kind {
+        DerivedKind::Selector => {
+            structural.push(crate::builder::derived::generate_char_selection(heroes));
+        }
+        DerivedKind::HeroPoolBase => {
+            structural.push(crate::builder::derived::generate_hero_pool_base(heroes));
+        }
+        DerivedKind::PoolReplacement => {
+            structural.push(crate::builder::derived::generate_pool_replacement(heroes));
+        }
+        DerivedKind::ItemPool => {
+            structural.extend(
+                crate::builder::derived::generate_hero_item_pool(heroes, replica_items),
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod per_arm_regenerator_guards {
+    //! Per-arm correctness guards for `regenerate_derived_kinds`. Each
+    //! `DerivedKind` variant gets a minimum-cardinality input and asserts the
+    //! dispatched arm appends a non-empty modifier of the correct type. The
+    //! `ItemPool` arm is covered by
+    //! `derived::tests::regenerate_derived_kinds_rebuilds_hero_item_pool` and
+    //! is not duplicated here; this module covers the three other arms
+    //! (`Selector`, `HeroPoolBase`, `PoolReplacement`) so each has a
+    //! per-variant correctness guard alongside the compile-time
+    //! exhaustiveness check that `DerivedKind`-driven dispatch provides.
+    use super::*;
+    use crate::ir::{DiceFaces, HeroBlock, HeroFormat, StructuralContent};
+
+    fn make_hero(name: &str, color: char) -> Hero {
+        Hero {
+            internal_name: name.to_lowercase(),
+            mn_name: name.to_string(),
+            color,
+            format: HeroFormat::Sliceymon,
+            blocks: vec![HeroBlock {
+                template: "Lost".into(),
+                tier: Some(1),
+                hp: Some(5),
+                sd: DiceFaces::parse("0:0:0:0:0:0"),
+                color: None,
+                sprite: crate::authoring::SpriteId::owned(name.to_string(), "test"),
+                speech: "!".into(),
+                name: name.into(),
+                doc: None,
+                abilitydata: None,
+                triggerhpdata: None,
+                hue: None,
+                modifier_chain: None,
+                facades: vec![],
+                items_inside: None,
+                items_outside: None,
+                bare: false,
+            }],
+            removed: false,
+            source: Source::Base,
+        }
+    }
+
+    #[test]
+    fn selector_arm_appends_one_derived_selector() {
+        let heroes = vec![make_hero("Alpha", 'a'), make_hero("Beta", 'b')];
+        let mut structural: Vec<StructuralModifier> = Vec::new();
+        regenerate_derived_kinds(&mut structural, &heroes, &[], &[StructuralType::Selector]);
+        assert_eq!(structural.len(), 1, "Selector arm regenerates exactly one modifier");
+        assert_eq!(structural[0].modifier_type, StructuralType::Selector);
+        assert!(structural[0].derived);
+        match &structural[0].content {
+            StructuralContent::Selector { body, options } => {
+                assert_eq!(
+                    body,
+                    "ph.sChoose a Party@1[Alpha][Beta]@2!mparty.Alpha+Beta"
                 );
+                assert_eq!(options, &["Alpha", "Beta"]);
             }
-            // PoolReplacement regenerator deferred.
-            _ => {}
+            other => panic!("expected Selector content, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn hero_pool_base_arm_appends_one_derived_hero_pool_base() {
+        let heroes = vec![make_hero("Alpha", 'a')];
+        let mut structural: Vec<StructuralModifier> = Vec::new();
+        regenerate_derived_kinds(&mut structural, &heroes, &[], &[StructuralType::HeroPoolBase]);
+        assert_eq!(structural.len(), 1, "HeroPoolBase arm regenerates exactly one modifier");
+        assert_eq!(structural[0].modifier_type, StructuralType::HeroPoolBase);
+        assert!(structural[0].derived);
+        match &structural[0].content {
+            StructuralContent::HeroPoolBase { hero_refs, .. } => {
+                assert_eq!(hero_refs, &["alpha"]);
+            }
+            other => panic!("expected HeroPoolBase content, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn pool_replacement_arm_appends_one_derived_pool_replacement() {
+        let heroes = vec![make_hero("Alpha", 'a'), make_hero("Beta", 'b')];
+        let mut structural: Vec<StructuralModifier> = Vec::new();
+        regenerate_derived_kinds(
+            &mut structural,
+            &heroes,
+            &[],
+            &[StructuralType::PoolReplacement],
+        );
+        assert_eq!(
+            structural.len(),
+            1,
+            "PoolReplacement arm regenerates exactly one modifier (no longer a deferred sink)"
+        );
+        assert_eq!(structural[0].modifier_type, StructuralType::PoolReplacement);
+        assert!(structural[0].derived);
+        match &structural[0].content {
+            StructuralContent::PoolReplacement { body, hero_names } => {
+                assert_eq!(body, "((heropool.alpha+beta))");
+                assert_eq!(hero_names, &["alpha", "beta"]);
+            }
+            other => panic!("expected PoolReplacement content, got {:?}", other),
         }
     }
 }
